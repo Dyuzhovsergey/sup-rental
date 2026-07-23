@@ -13,6 +13,38 @@ Develop the project through small, complete, understandable, and verifiable incr
 
 Do not attempt to implement the entire planned system at once.
 
+
+## Communication Language
+
+Communicate with the user in Russian by default.
+
+Use Russian for:
+
+* explanations;
+* implementation plans;
+* progress updates;
+* architecture discussions;
+* verification reports;
+* descriptions of errors and possible solutions;
+* final change reports.
+
+Keep the following in English unless there is a clear reason to translate them:
+
+* Go identifiers;
+* package names;
+* file and directory names;
+* shell commands;
+* configuration keys;
+* environment variable names;
+* Git commit messages;
+* technical terms where translation could make them ambiguous.
+
+When introducing an unfamiliar technical term, explain it in simple Russian.
+
+Use another language only when the user explicitly requests it.
+
+Do not translate source code, command output, identifiers, or error messages when quoting them.
+
 ## Current Confirmed Business Context
 
 The currently confirmed requirements are:
