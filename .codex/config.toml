@@ -1,0 +1,12 @@
+# Allow Codex to work inside the current project,
+# but require approval to cross the sandbox boundary.
+approval_policy = "on-request"
+
+# Allow reading, editing, and running routine commands
+# only inside the current workspace.
+sandbox_mode = "workspace-write"
+
+[sandbox_workspace_write]
+
+# Shell commands cannot access the network without approval.
+network_access = false
