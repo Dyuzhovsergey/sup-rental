@@ -1,410 +1,430 @@
-# SUP Rental Repository Instructions
+# Инструкции репозитория SUP Rental
 
-## Project Purpose
+## Назначение проекта
 
-SUP Rental is an educational Go application for managing SUP rental equipment, customers, and hourly rentals.
+SUP Rental — учебное приложение на Go для управления прокатным оборудованием, клиентами и почасовыми арендами SUP-досок.
 
-The project has two goals:
+У проекта две цели:
 
-1. Practice Go development through a real, gradually growing application.
-2. Learn how to configure and use Codex safely inside a VS Code repository.
+1. Практиковать разработку на Go на примере реального постепенно развивающегося приложения.
+2. Изучить безопасную настройку и использование Codex внутри репозитория в VS Code.
 
-Develop the project through small, complete, understandable, and verifiable increments.
+Разрабатывай проект небольшими, законченными, понятными и проверяемыми инкрементами.
 
-Do not attempt to implement the entire planned system at once.
+Не пытайся реализовать всю запланированную систему за один раз.
 
-## Communication Language
+## Язык общения
 
-Communicate with the user in Russian by default.
+По умолчанию общайся с пользователем на русском языке.
 
-Use Russian for:
+Используй русский язык для:
 
-* explanations;
-* implementation plans;
-* progress updates;
-* architecture discussions;
-* verification reports;
-* descriptions of errors and possible solutions;
-* final change reports.
+* объяснений;
+* предложений инкрементов;
+* планов реализации;
+* отчётов о ходе работы;
+* обсуждения архитектуры;
+* отчётов о проверках;
+* описания ошибок и возможных решений;
+* итоговых отчётов об изменениях.
 
-Keep the following in English unless there is a clear reason to translate them:
+Оставляй на английском языке, если нет веской причины для перевода:
 
-* Go identifiers;
-* package names;
-* file and directory names;
-* shell commands;
-* configuration keys;
-* environment variable names;
-* Git commit messages;
-* technical terms where translation could make them ambiguous.
+* Go-идентификаторы;
+* названия пакетов;
+* имена файлов и каталогов;
+* shell-команды;
+* ключи конфигурации;
+* переменные окружения;
+* сообщения Git-коммитов;
+* технические термины, перевод которых может сделать смысл неоднозначным.
 
-When introducing an unfamiliar technical term, explain it in simple Russian.
+При использовании незнакомого технического термина объясняй его простыми словами на русском языке.
 
-Use another language only when the user explicitly requests it.
+Используй другой язык только по прямому запросу пользователя.
 
-Do not translate source code, command output, identifiers, or error messages when quoting them.
+Не переводи исходный код, вывод команд, идентификаторы и сообщения об ошибках при их цитировании.
 
-## Starting a New Task
+## Начало новой задачи
 
-Before modifying project files:
+Перед изменением файлов проекта:
 
-1. Read the root `AGENTS.md`.
-2. Read `README.md`.
-3. Read `docs/development-plan.md`.
-4. Inspect the current Git working tree with `git status`.
-5. Inspect recent commits when they are relevant to understanding the current state.
-6. Identify the current and next agreed increment.
-7. Briefly summarize the current project state and the planned changes.
+1. Прочитай корневой `AGENTS.md`.
+2. Прочитай `README.md`.
+3. Прочитай `docs/development-plan.md`.
+4. Проверь рабочее дерево командой `git status`.
+5. Изучи последние коммиты, если они помогают понять текущее состояние.
+6. Определи текущий этап разработки и уже согласованный инкремент.
+7. Кратко опиши текущее состояние проекта и планируемые изменения.
 
-Do not assume that context from a previous chat is available.
+Не считай, что контекст предыдущего чата доступен в новой сессии.
 
-Use the repository files and Git history as the source of truth for completed work.
+Используй файлы репозитория и историю Git как источник истины о выполненной работе.
 
-If the requested task conflicts with the documented current increment or an established architectural decision, explain the conflict before making changes.
+Если запрос пользователя противоречит текущему инкременту, документации или принятому архитектурному решению, объясни противоречие до изменения файлов.
 
-Do not modify files until the goal, affected files, architectural decisions, risks, and verification approach have been stated.
+До начала изменений сообщи:
 
-Do not repeat questions whose answers are already documented in the repository.
+* цель;
+* затрагиваемые файлы;
+* архитектурные решения;
+* существенные риски и альтернативы;
+* способ проверки результата.
 
-## Increment Planning and Approval
+Не задавай повторно вопросы, ответы на которые уже зафиксированы в репозитории.
 
-At the beginning of a new increment:
+Если пользователь просит только объяснить, проанализировать, проверить или предложить решение, не изменяй файлы без отдельного прямого указания.
 
-1. Read the repository instructions and current project documentation.
-2. Inspect the current Git state.
-3. Identify the current development stage.
-4. Propose one recommended next increment.
-5. Briefly describe relevant alternatives when they materially affect the architecture or learning goals.
+## Планирование и согласование инкрементов
 
-The increment proposal must include:
+В начале нового инкремента:
 
-* the goal;
-* why the increment is needed now;
-* the expected result;
-* files expected to be created or changed;
-* architectural decisions;
-* important alternatives;
-* risks;
-* verification commands;
-* completion criteria;
-* what is explicitly outside the increment.
+1. Прочитай инструкции и актуальную документацию проекта.
+2. Проверь текущее состояние Git.
+3. Определи текущий этап разработки.
+4. Предложи один рекомендуемый следующий инкремент.
+5. Кратко опиши существенные альтернативы, если они влияют на архитектуру или учебные цели.
 
-Do not modify project files until the user explicitly approves the proposed increment.
+Предложение инкремента должно включать:
 
-Do not assume that the user already knows the correct technical next step. Recommend the next step based on the documented roadmap, current repository state, existing tests, and unresolved requirements.
+* цель;
+* причину, по которой инкремент нужен именно сейчас;
+* ожидаемый результат;
+* файлы, которые предполагается создать или изменить;
+* архитектурные решения;
+* важные альтернативы;
+* риски;
+* команды проверки;
+* критерии завершения;
+* то, что явно не входит в инкремент.
 
-At the end of every completed increment:
+Не изменяй файлы проекта, пока пользователь явно не согласовал новый инкремент.
 
-1. Report the implemented changes and verification results.
-2. State whether `README.md` or `docs/development-plan.md` require updates.
-3. Update those documents when their actual content has become outdated.
-4. Recommend one logical next increment.
-5. Do not begin the next increment without explicit user approval.
-6. Recommend a Git commit message, but do not create the commit unless explicitly requested.
+Прямой запрос пользователя реализовать, исправить, переработать, переименовать, удалить или изменить код считается согласованием работы в указанном пользователем объёме.
 
-At the beginning of a new increment:
+Примеры запросов, которые уже разрешают соответствующие изменения:
 
-1. Read the repository instructions and current project documentation.
-2. Inspect the current Git state.
-3. Identify the current development stage.
-4. Propose one recommended next increment.
-5. Briefly describe relevant alternatives when they materially affect the architecture or learning goals.
+* «Реализуй согласованный health endpoint».
+* «Исправь ошибку в HTTP-тесте».
+* «Переработай этот обработчик».
+* «Замени текущий роутер на chi и сохрани существующее поведение».
+* «Обнови README в соответствии с реализованным запуском».
 
-The increment proposal must include:
+Не запрашивай повторное согласование для небольших исправлений, форматирования, проверок и доработок, которые остаются внутри уже согласованного инкремента.
 
-* the goal;
-* why the increment is needed now;
-* the expected result;
-* files expected to be created or changed;
-* architectural decisions;
-* important alternatives;
-* risks;
-* verification commands;
-* completion criteria;
-* what is explicitly outside the increment.
+Новое согласование требуется, если работа:
 
-Do not modify project files until the user explicitly approves the proposed increment.
+* существенно расширяет согласованный объём;
+* переходит к следующему самостоятельному инкременту;
+* меняет архитектуру;
+* меняет публичные контракты или существующее поведение;
+* добавляет production-зависимость;
+* создаёт или изменяет миграцию базы данных;
+* затрагивает пользовательские данные или Docker volumes;
+* требует разрушительного действия;
+* выполняет внешнее действие, например `git push`;
+* требует доступа за пределами согласованной рабочей области.
 
-Do not assume that the user already knows the correct technical next step. Recommend the next step based on the documented roadmap, current repository state, existing tests, and unresolved requirements.
+Не считай, что пользователь заранее знает правильный технический следующий шаг. Рекомендуй его на основе глобального плана, текущего состояния репозитория, существующих тестов и нерешённых требований.
 
-At the end of every completed increment:
+После завершения каждого инкремента:
 
-1. Report the implemented changes and verification results.
-2. State whether `README.md` or `docs/development-plan.md` require updates.
-3. Update those documents when their actual content has become outdated.
-4. Recommend one logical next increment.
-5. Do not begin the next increment without explicit user approval.
-6. Recommend a Git commit message, but do not create the commit unless explicitly requested.
+1. Сообщи, что было реализовано.
+2. Сообщи, какие проверки были выполнены и каковы их результаты.
+3. Определи, требуется ли обновление `README.md` или `docs/development-plan.md`.
+4. Обнови эти документы, если их фактическое содержание устарело в рамках согласованного инкремента.
+5. Предложи один логичный следующий инкремент.
+6. Не начинай следующий инкремент без явного согласования или прямого запроса пользователя.
+7. Предложи сообщение Git-коммита, но не создавай коммит без прямого указания пользователя.
 
-## Current Confirmed Business Context
+## Подтверждённый бизнес-контекст
 
-The currently confirmed requirements are:
+На данный момент подтверждены следующие требования:
 
-* one administrator works with the application;
-* the inventory includes SUP boards, paddles, and life jackets;
-* every inventory item has a unique inventory number;
-* preliminary equipment states are available, reserved, issued, and retired;
-* a customer has a full name and phone number;
-* rental history must be preserved;
-* rentals are hourly;
-* one rental may contain multiple SUP boards;
-* discounts are not required;
-* internet access is not required.
+* с приложением работает один администратор;
+* инвентарь включает SUP-доски, вёсла и спасательные жилеты;
+* каждый отдельный предмет имеет уникальный инвентарный номер;
+* предварительные состояния оборудования: доступен, забронирован, выдан и списан;
+* для клиента хранятся ФИО и номер телефона;
+* история аренд должна сохраняться;
+* аренда почасовая;
+* одна аренда может включать несколько SUP-досок;
+* скидки не требуются;
+* доступ через интернет не требуется.
 
-Treat these requirements as the current working context, not as a complete business specification.
+Считай эти требования текущим рабочим контекстом, а не полной бизнес-спецификацией.
 
-Do not invent missing business rules.
+Не придумывай отсутствующие бизнес-правила.
 
-Before implementing a business rule that has not been confirmed, describe the missing decision and request clarification.
+Перед реализацией неподтверждённого бизнес-правила укажи, какое решение отсутствует, и запроси уточнение.
 
-## Development Approach
+## Подход к разработке
 
-Work in small, logically complete increments.
+Работай небольшими логически завершёнными инкрементами.
 
-Before making changes, report:
+Код должен быть без сложных конструкций.
 
-1. the goal of the increment;
-2. why the change is needed;
-3. which files will be created or changed;
-4. which architectural decisions will be made;
-5. relevant risks or alternatives.
+Код должен быть понятным и легко читаться.
 
-Avoid unrelated refactoring.
+Избегай несвязанного с задачей рефакторинга.
 
-Do not rewrite large parts of the project for a small change.
+Не переписывай большие части проекта ради небольшого изменения.
 
-Do not move to the next major development stage before summarizing the current stage.
+Не переходи к следующему крупному этапу разработки до подведения итогов текущего этапа.
 
-## Architecture
-
-Use a simple modular monolith.
-
-The preferred dependency direction is:
+По возможности реализуй бизнес-функции вертикальными срезами:
 
 ```text
-HTTP handlers
-      ↓
-application services
-      ↓
-repository interfaces
-      ↓
-PostgreSQL repository implementations
+доменная модель
+    ↓
+сервис приложения
+    ↓
+репозиторий и PostgreSQL
+    ↓
+HTTP-обработчики
+    ↓
+HTML-интерфейс
+    ↓
+автоматические тесты
 ```
 
-Follow these rules:
+Не создавай пустые каталоги и заготовки пакетов без реальной потребности текущего инкремента.
 
-* assemble application dependencies explicitly in the application entry point;
-* use manual dependency injection through constructors;
-* keep business logic independent from HTTP, PostgreSQL, Docker, and HTML templates;
-* do not execute SQL in HTTP handlers;
-* keep SQL queries inside PostgreSQL repository implementations;
-* do not put HTTP response logic inside services or repositories;
-* do not create an interface for every struct;
-* define small interfaces close to the code that consumes them when appropriate;
-* do not create abstractions only for possible future requirements;
-* do not introduce microservices without a demonstrated need.
+## Архитектура
 
-The entry point should remain responsible for constructing concrete dependencies and starting the application.
+Используй простой модульный монолит.
 
-If dependency construction later becomes too large, propose a separate application assembly package before creating it.
+Предпочтительное направление зависимостей:
 
-## Go Code Guidelines
+```text
+HTTP-обработчики
+        ↓
+сервисы приложения
+        ↓
+интерфейсы репозиториев
+        ↓
+PostgreSQL-реализации репозиториев
+```
 
-Use idiomatic and readable Go.
+Соблюдай следующие правила:
 
-Follow these rules:
+* явно собирай зависимости приложения в точке входа;
+* код должен быть читаемым, без сложных конструкций;
+* используй ручной dependency injection через конструкторы;
+* сохраняй бизнес-логику независимой от HTTP, PostgreSQL, Docker и HTML-шаблонов;
+* не выполняй SQL-запросы в HTTP-обработчиках;
+* храни SQL-запросы внутри PostgreSQL-реализаций репозиториев;
+* не помещай формирование HTTP-ответов в сервисы или репозитории;
+* не создавай интерфейс для каждой структуры;
+* определяй небольшие интерфейсы рядом с кодом, который их использует, когда это действительно нужно;
+* не создавай абстракции только ради возможных будущих требований;
+* не вводи микросервисы без доказанной необходимости.
 
-* format Go code before considering work complete;
-* prefer the Go standard library when it reasonably solves the task;
-* keep functions focused and reasonably small;
-* use constructors when a type has required dependencies;
-* make dependencies explicit;
-* avoid mutable global state;
-* use descriptive names;
-* add comments for exported identifiers where appropriate;
-* add a package comment when creating a new non-trivial package;
-* prefer early returns when they make control flow clearer;
-* avoid unnecessary cleverness;
-* avoid premature optimization;
-* do not hide important learning concepts behind generators or large frameworks.
+Точка входа должна отвечать за создание конкретных зависимостей и запуск приложения.
 
-When adding an important Go construct, explain:
+Если сборка зависимостей станет слишком большой, сначала предложи отдельный пакет сборки приложения и дождись согласования.
 
-* why it is used;
-* how it works;
-* where the data is copied or shared;
-* how dependencies are passed;
-* how errors propagate;
-* how the code is tested.
+## Правила Go-кода
 
-## Context and Cancellation
+Пиши идиоматичный и читаемый Go-код.
 
-Use `context.Context` for operations that may block or require cancellation, including:
+Соблюдай следующие правила:
 
-* HTTP request processing;
-* PostgreSQL queries;
-* transactions;
-* future external service calls;
-* application shutdown operations where appropriate.
+* форматируй Go-код до завершения работы;
+* предпочитай стандартную библиотеку, если она разумно решает задачу;
+* делай функции сфокусированными и разумно небольшими;
+* используй конструкторы, если у типа есть обязательные зависимости;
+* передавай зависимости явно;
+* избегай изменяемого глобального состояния;
+* используй понятные имена;
+* добавляй комментарии к экспортируемым идентификаторам, когда это уместно;
+* добавляй package comment при создании нового нетривиального пакета;
+* предпочитай ранний возврат, если он делает поток управления понятнее;
+* избегай излишне сложных и «умных» решений;
+* избегай преждевременной оптимизации;
+* не скрывай важные учебные понятия за генераторами или большими фреймворками.
 
-Pass `context.Context` explicitly.
+При добавлении важной конструкции Go объясняй:
 
-For normal functions and methods, place it as the first parameter after the receiver.
+* зачем она используется;
+* как она работает;
+* где данные копируются, а где разделяются;
+* как передаются зависимости;
+* как распространяются ошибки;
+* как код проверяется тестами.
 
-Do not store request contexts inside long-lived structs.
+## Контекст и отмена операций
 
-Do not replace an available request context with `context.Background()` without a clear reason.
+Используй `context.Context` для операций, которые могут блокироваться или требовать отмены, включая:
 
-## Error Handling
+* обработку HTTP-запросов;
+* запросы PostgreSQL;
+* транзакции;
+* будущие внешние вызовы;
+* корректное завершение приложения, когда это уместно.
 
-Return errors to the layer that can make the appropriate decision.
+Передавай `context.Context` явно.
 
-Wrap errors with meaningful context by using `%w`, for example:
+Для обычных функций и методов размещай его первым параметром после receiver.
+
+Не сохраняй request context в долгоживущих структурах.
+
+Не заменяй доступный request context на `context.Background()` без понятной причины.
+
+## Обработка ошибок
+
+Возвращай ошибки на тот уровень, который может принять правильное решение.
+
+Оборачивай ошибки понятным контекстом через `%w`, например:
 
 ```go
 return fmt.Errorf("create board: %w", err)
 ```
 
-Do not discard errors.
+Не игнорируй ошибки.
 
-Do not log the same error in every layer.
+Не логируй одну и ту же ошибку на каждом уровне.
 
-Infrastructure layers should add technical context. The application boundary should decide how the error is logged or converted into an HTTP response.
+Инфраструктурные слои должны добавлять технический контекст. Граница приложения должна решать, как ошибка логируется или преобразуется в HTTP-ответ.
 
-Do not expose internal database errors directly to an end user.
+Не показывай пользователю внутренние ошибки базы данных и другие технические детали.
 
-## Configuration and Secrets
+## Конфигурация и секреты
 
-Read application configuration from environment variables.
+Читай конфигурацию приложения из переменных окружения.
 
-When environment variables are introduced:
+При добавлении переменных окружения:
 
-* document them in README;
-* add non-secret examples to `.env.example`;
-* validate required values during application startup;
-* return a clear error for invalid configuration.
+* документируй их в `README.md`;
+* добавляй несекретные примеры в `.env.example`;
+* проверяй обязательные значения при запуске;
+* возвращай понятную ошибку для некорректной конфигурации.
 
-Never commit:
+Никогда не добавляй в Git:
 
-* passwords;
-* API keys;
+* пароли;
+* API-ключи;
 * access tokens;
-* real customer data;
+* реальные данные клиентов;
 * production connection strings;
-* private certificates.
+* приватные сертификаты.
 
-Do not place personal machine settings inside project configuration.
+Не помещай персональные настройки компьютера пользователя в конфигурацию проекта.
 
-## PostgreSQL and Repositories
+## PostgreSQL и репозитории
 
-Use PostgreSQL for persistent application data.
+Используй PostgreSQL для постоянного хранения данных приложения.
 
-Keep SQL inside PostgreSQL repository implementations.
+Храни SQL внутри PostgreSQL-реализаций репозиториев.
 
-Repository methods should accept `context.Context`.
+Методы репозиториев должны принимать `context.Context`.
 
-Use explicit column lists in SQL queries.
+Используй явные списки столбцов в SQL-запросах.
 
-Avoid `SELECT *`.
+Не используй `SELECT *`.
 
-Wrap database errors with operation context.
+Оборачивай ошибки базы данных контекстом выполняемой операции.
 
-Use transactions only when several operations must succeed or fail together.
+Используй транзакции только тогда, когда несколько операций должны завершиться успешно или откатиться вместе.
 
-Do not add a generic repository abstraction unless repeated real use cases demonstrate a need.
+Не создавай универсальный generic repository без нескольких реальных повторяющихся сценариев.
 
-## Database Migrations
+## Миграции базы данных
 
-Store database migrations in the repository.
+Храни миграции базы данных в репозитории.
 
-Create migrations only when a real schema change is required.
+Создавай миграции только при реальном изменении схемы.
 
-Use sequential and descriptive migration names.
+Используй последовательные и понятные имена миграций.
 
-Do not silently modify an already shared migration.
+Не изменяй молча уже опубликованную или совместно используемую миграцию.
 
-Create a new migration for later schema changes.
+Для последующих изменений схемы создавай новую миграцию.
 
-Before destructive schema operations, explain:
+Перед разрушительной операцией со схемой объясни:
 
-* which data may be lost;
-* why the operation is necessary;
-* whether a safer alternative exists;
-* how the data can be backed up.
+* какие данные могут быть потеряны;
+* почему операция необходима;
+* существует ли более безопасная альтернатива;
+* как сделать резервную копию.
 
-Do not drop tables, databases, or volumes without explicit user approval.
+Не удаляй таблицы, базы данных или volumes без прямого согласования пользователя.
 
-## HTTP Layer
+## HTTP-слой
 
-HTTP handlers are responsible for:
+HTTP-обработчики отвечают за:
 
-* reading and validating transport input;
-* calling an application service;
-* mapping results to HTTP responses;
-* selecting appropriate HTTP status codes;
-* rendering templates when required.
+* чтение и проверку transport input;
+* вызов сервиса приложения;
+* преобразование результата в HTTP-ответ;
+* выбор HTTP status code;
+* рендеринг шаблонов, когда это требуется.
 
-HTTP handlers must not:
+HTTP-обработчики не должны:
 
-* contain SQL;
-* construct infrastructure dependencies;
-* implement complex business rules;
-* expose internal error details.
+* содержать SQL;
+* создавать инфраструктурные зависимости;
+* реализовывать сложные бизнес-правила;
+* раскрывать внутренние детали ошибок.
 
-Keep routing, handlers, services, and repositories separate.
+Разделяй routing, handlers, services и repositories.
 
-## Frontend Direction
+Не добавляй внешний router, пока стандартный `http.ServeMux` разумно решает текущую задачу. Перед добавлением router-библиотеки объясни её практическую пользу и стоимость зависимости.
 
-The initial frontend direction is server-side rendering with:
+## Направление frontend
 
-* Go `html/template`;
-* normal HTML;
-* simple CSS;
-* minimal JavaScript.
+Первоначальное направление frontend:
 
-Do not introduce React, Vue, another SPA framework, or HTMX without first comparing the available approaches and receiving approval.
+* серверный рендеринг через Go `html/template`;
+* обычный HTML;
+* простой CSS;
+* минимальное количество JavaScript.
 
-Keep application services independent from HTML rendering so that the frontend can be replaced later.
+Не добавляй React, Vue, другой SPA-фреймворк или HTMX без предварительного сравнения подходов и согласования пользователя.
 
-## Dependency Management
+Сохраняй сервисы приложения независимыми от HTML-рендеринга, чтобы frontend можно было заменить позднее.
 
-Do not add a dependency only because it is popular.
+Создавай базовые HTML-страницы вместе с соответствующими бизнес-функциями, а не откладывай весь frontend до завершения backend.
 
-Before adding a dependency, explain:
+## Управление зависимостями
 
-* which concrete problem it solves;
-* why the standard library is insufficient;
-* its maintenance and operational cost;
-* whether a smaller alternative exists.
+Не добавляй зависимость только потому, что она популярна.
 
-Do not add a dependency injection framework at the initial stage.
+Перед добавлением зависимости объясни:
 
-Do not add message brokers, Kubernetes, a full observability stack, or distributed system components without a practical requirement.
+* какую конкретную проблему она решает;
+* почему стандартной библиотеки недостаточно;
+* стоимость сопровождения и эксплуатации;
+* существует ли более простая альтернатива.
 
-## Testing
+Не добавляй dependency injection framework на начальном этапе.
 
-Add tests that protect meaningful behavior.
+Не добавляй message broker, Kubernetes, полный observability stack или другие компоненты распределённой системы без практической необходимости.
 
-Prefer:
+## Тестирование
 
-* table-driven tests when they improve clarity;
-* unit tests for application services and business rules;
-* `httptest` for HTTP handlers;
-* integration tests for PostgreSQL repositories;
-* small test fixtures;
-* explicit test names describing behavior.
+Добавляй тесты, которые защищают значимое поведение.
 
-Do not create tests that only reproduce implementation details without protecting behavior.
+Предпочитай:
 
-Do not claim that tests passed unless they were actually executed.
+* table-driven tests, если они повышают ясность;
+* unit-тесты для сервисов приложения и бизнес-правил;
+* `httptest` для HTTP-обработчиков;
+* integration-тесты для PostgreSQL-репозиториев;
+* небольшие test fixtures;
+* явные названия тестов, описывающие поведение.
 
-When a test cannot be executed, state that clearly.
+Не создавай тесты, которые только повторяют детали реализации и не защищают поведение.
 
-Do not remove or weaken a test only to make a failing build pass.
+Не утверждай, что тесты прошли, если они не были запущены.
 
-## Verification Commands
+Если проверку нельзя выполнить, сообщи об этом явно.
 
-Use the commands that are applicable to the current project state:
+Не удаляй и не ослабляй тест только ради успешной сборки.
+
+## Команды проверки
+
+Используй команды, применимые к текущему состоянию проекта:
 
 ```bash
 go fmt ./...
@@ -413,123 +433,132 @@ go test ./...
 go build ./...
 ```
 
-After Docker Compose is introduced, also run:
+После появления Docker Compose также выполняй:
 
 ```bash
-docker compose config
+docker compose config --quiet
 ```
 
-Before reporting completion:
+Перед итоговым отчётом:
 
-* inspect the changed files;
-* run formatting;
-* run relevant tests;
-* run the relevant build command;
-* report the exact commands executed;
-* report any commands that could not be executed.
+* проверь изменённые файлы;
+* выполни форматирование;
+* запусти применимые тесты;
+* выполни применимую сборку;
+* сообщи точные выполненные команды;
+* сообщи о командах, которые не удалось выполнить;
+* не считай пропущенную проверку успешной.
 
-Do not report successful verification based only on code inspection.
+Используй skill `$verify-sup-rental` для полной проверки проекта, когда он доступен и задача требует полного verification workflow.
+
+Не сообщай об успешной проверке только на основании чтения кода.
 
 ## Docker
 
-Use Docker and Docker Compose for local installation and future customer installation.
+Используй Docker и Docker Compose для локальной разработки и будущей установки у заказчика.
 
-Keep the initial Docker setup simple.
+Сохраняй первоначальную Docker-конфигурацию простой.
 
-Do not:
+Не выполняй без прямого согласования:
 
-* delete Docker volumes without explicit approval;
-* run `docker system prune`;
-* run `docker volume prune`;
-* run `docker compose down -v`;
-* publish images without explicit instruction;
-* add extra infrastructure containers without justification.
+* удаление Docker volumes;
+* `docker system prune`;
+* `docker volume prune`;
+* `docker compose down -v`;
+* публикацию образов;
+* добавление дополнительных инфраструктурных контейнеров без обоснования.
 
-Explain how the Dockerfile works when it is introduced.
+При добавлении Dockerfile объясни, как он работает.
 
-Explain how services communicate inside Docker Compose.
+При добавлении Docker Compose объясни, как сервисы взаимодействуют внутри Compose-сети.
 
-## Git Safety
+## Безопасность Git
 
-Do not run the following actions without explicit user instruction:
+Не выполняй без прямого указания пользователя:
 
 * `git push`;
 * force push;
 * `git reset --hard`;
-* history rewriting;
-* branch deletion;
-* tag deletion;
-* remote repository modification;
-* automatic merge;
-* automatic release publication.
+* переписывание истории;
+* удаление веток;
+* удаление тегов;
+* изменение remote repository;
+* автоматический merge;
+* автоматическую публикацию release.
 
-Do not create a Git commit unless explicitly requested.
+Не создавай Git-коммит без прямого указания пользователя.
 
-At the end of an increment, recommend a commit message in this format:
+Не добавляй все файлы через `git add .`, если в рабочем дереве есть несвязанные или пользовательские изменения. Добавляй только файлы текущего согласованного инкремента.
+
+В конце инкремента предложи сообщение коммита в формате:
 
 ```text
 type(scope): short description
 ```
 
-Prefer separate commits for independent changes.
+Предпочитай отдельные коммиты для независимых изменений.
 
-## Documentation
+## Документация и история проекта
 
-Keep documentation synchronized with implemented behavior.
+Поддерживай документацию в соответствии с фактически реализованным поведением.
 
-Update README when changing:
+Используй документы по следующим назначениям:
 
-* startup commands;
-* environment variables;
+* `README.md` — текущее работающее состояние приложения, запуск, конфигурация и проверка;
+* `docs/development-plan.md` — глобальные этапы, текущий этап, текущий инкремент и следующий кандидат;
+* Git-коммиты — фактическая история завершённых изменений;
+* `docs/architecture.md` — архитектура, когда информации станет достаточно для отдельного документа;
+* `docs/deployment.md` — установка и эксплуатация, когда появится соответствующий функционал;
+* `.env.example` — несекретный пример конфигурации.
+
+Обновляй `README.md`, когда меняются:
+
+* команды запуска;
+* переменные окружения;
 * Docker usage;
-* migrations;
-* project structure;
-* testing commands.
+* миграции;
+* структура проекта;
+* команды тестирования.
 
-Use the following documents when the corresponding information exists:
+Не превращай `docs/development-plan.md` в хронологический журнал и не дублируй в нём полную Git-историю.
 
-```text
-README.md
-docs/development-plan.md
-docs/architecture.md
-docs/deployment.md
-.env.example
-```
+Не создавай пустые документы заранее.
 
-Do not create empty documentation files in advance.
+Не дублируй полный `README.md` внутри `AGENTS.md`.
 
-Do not duplicate the complete README inside `AGENTS.md`.
+Для важных архитектурных решений сначала предложи отдельную запись в `docs/decisions/`, но не создавай её без согласования.
 
-## Final Change Report
+## Итоговый отчёт об изменениях
 
-After making changes, report:
+После внесения изменений сообщи:
 
-1. what was implemented;
-2. how the solution works;
-3. which Go concepts were introduced;
-4. which commands should be executed;
-5. how to verify the result manually;
-6. which automated tests should pass;
-7. which limitations remain;
-8. the single logical next increment;
-9. the recommended Git commit message.
+1. Что было реализовано.
+2. Как работает решение.
+3. Какие понятия Go были добавлены.
+4. Какие команды были выполнены.
+5. Как проверить результат вручную.
+6. Какие автоматические тесты прошли.
+7. Какие проверки были пропущены или не выполнены.
+8. Какие ограничения остались.
+9. Какой один следующий инкремент является логичным.
+10. Какое сообщение Git-коммита рекомендуется.
 
-Every final response about this project must end with one clear next step.
+Каждый итоговый ответ по проекту должен завершаться одним конкретным следующим шагом.
 
-## Current Restrictions
+## Текущие ограничения
 
-At the current project stage:
+На текущем этапе проекта:
 
-* do not create business entities before their requirements are agreed;
-* do not create empty package directories;
-* do not add PostgreSQL before the technical vertical slice;
-* do not add Docker before the technical vertical slice;
-* do not implement frontend pages before the frontend approach is approved;
-* do not introduce authentication before its requirements are agreed;
-* do not introduce microservices;
-* do not introduce a message broker;
-* do not introduce Kubernetes;
-* do not introduce a full observability stack;
-* do not create speculative abstractions.
+* не создавай бизнес-сущности до согласования требований;
+* не создавай пустые каталоги пакетов;
+* не добавляй PostgreSQL раньше соответствующего инкремента технического вертикального среза;
+* не добавляй Docker раньше соответствующего инкремента технического вертикального среза;
+* не создавай frontend-страницы до согласования первоначального frontend-подхода;
+* не вводи authentication до согласования требований;
+* не вводи микросервисы;
+* не добавляй message broker;
+* не добавляй Kubernetes;
+* не добавляй полный observability stack;
+* не создавай спекулятивные абстракции.
 
-Prefer the smallest working solution that supports the current agreed increment.
+Предпочитай самое маленькое работающее решение, которое поддерживает текущий согласованный инкремент.
