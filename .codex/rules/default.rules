@@ -1,0 +1,268 @@
+# Project-local command execution rules for SUP Rental.
+#
+# These rules control commands that request execution outside the sandbox.
+# Normal development commands should remain inside the workspace-write sandbox.
+
+# -----------------------------------------------------------------------------
+# Safe read-only commands
+# -----------------------------------------------------------------------------
+
+prefix_rule(
+    pattern = ["git", "status"],
+    decision = "allow",
+    justification = "Reading the current repository status is non-destructive",
+    match = [
+        "git status",
+        "git status --short",
+        "git status --branch --short",
+    ],
+    not_match = [
+        "git diff",
+        "git commit",
+    ],
+)
+
+prefix_rule(
+    pattern = ["docker", "compose", "config", "--quiet"],
+    decision = "allow",
+    justification = "Quiet Compose configuration validation is non-destructive",
+    match = [
+        "docker compose config --quiet",
+    ],
+    not_match = [
+        "docker compose config",
+        "docker compose build",
+        "docker compose up",
+    ],
+)
+
+# -----------------------------------------------------------------------------
+# Commands that require explicit approval
+# -----------------------------------------------------------------------------
+
+prefix_rule(
+    pattern = [
+        "docker",
+        "compose",
+        ["build", "up", "down", "run", "exec", "start", "stop", "restart", "pull"],
+    ],
+    decision = "prompt",
+    justification = "Docker Compose operations may create, start, stop, or change local containers",
+    match = [
+        "docker compose build",
+        "docker compose up",
+        "docker compose up --build",
+        "docker compose down",
+        "docker compose exec app sh",
+    ],
+    not_match = [
+        "docker compose config --quiet",
+        "docker system prune",
+    ],
+)
+
+prefix_rule(
+    pattern = [
+        "git",
+        ["add", "commit", "switch", "checkout", "restore", "merge", "cherry-pick"],
+    ],
+    decision = "prompt",
+    justification = "This command changes the Git index, working tree, branch, or history",
+    match = [
+        "git add README.md",
+        "git commit -m docs(project):update",
+        "git switch main",
+        "git restore README.md",
+        "git merge iter1",
+    ],
+    not_match = [
+        "git status",
+        "git push",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", ["fetch", "pull"]],
+    decision = "prompt",
+    justification = "This command accesses a remote Git repository and may update local Git state",
+    match = [
+        "git fetch",
+        "git fetch origin",
+        "git pull",
+        "git pull origin main",
+    ],
+    not_match = [
+        "git status",
+        "git push",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", ["branch", "tag", "remote"]],
+    decision = "prompt",
+    justification = "Branch, tag, and remote operations require explicit review",
+    match = [
+        "git branch",
+        "git branch feature/example",
+        "git tag v0.1.0",
+        "git remote -v",
+    ],
+    not_match = [
+        "git status",
+        "git push",
+    ],
+)
+
+prefix_rule(
+    pattern = ["go", "get"],
+    decision = "prompt",
+    justification = "Adding or changing Go dependencies may access the network and modify go.mod or go.sum",
+    match = [
+        "go get github.com/example/module",
+        "go get github.com/example/module@latest",
+    ],
+    not_match = [
+        "go test ./...",
+        "go build ./...",
+    ],
+)
+
+prefix_rule(
+    pattern = ["go", "mod", ["download", "tidy"]],
+    decision = "prompt",
+    justification = "Dependency resolution may access the network and modify module files",
+    match = [
+        "go mod download",
+        "go mod tidy",
+    ],
+    not_match = [
+        "go mod verify",
+        "go test ./...",
+    ],
+)
+
+# -----------------------------------------------------------------------------
+# Forbidden external or destructive commands
+# -----------------------------------------------------------------------------
+
+prefix_rule(
+    pattern = ["git", "push"],
+    decision = "forbidden",
+    justification = "The user publishes repository changes manually after reviewing them",
+    match = [
+        "git push",
+        "git push origin iter1",
+        "git push --set-upstream origin iter1",
+    ],
+    not_match = [
+        "git fetch",
+        "git status",
+    ],
+)
+
+prefix_rule(
+    pattern = ["git", ["reset", "clean", "rebase"]],
+    decision = "forbidden",
+    justification = "Do not discard changes or rewrite Git history; propose a safe manual procedure instead",
+    match = [
+        "git reset --hard",
+        "git clean -fd",
+        "git rebase main",
+    ],
+    not_match = [
+        "git status",
+        "git restore README.md",
+    ],
+)
+
+prefix_rule(
+    pattern = ["docker", ["system", "volume"]],
+    decision = "forbidden",
+    justification = "Do not remove Docker data or volumes; explain the impact and let the user run the command manually",
+    match = [
+        "docker system prune",
+        "docker system prune -a",
+        "docker volume prune",
+        "docker volume rm sup-rental-postgres",
+    ],
+    not_match = [
+        "docker compose config --quiet",
+        "docker compose up",
+    ],
+)
+
+prefix_rule(
+    pattern = [
+        "docker",
+        ["builder", "image", "container", "network"],
+        "prune",
+    ],
+    decision = "forbidden",
+    justification = "Docker cleanup commands can remove shared local resources",
+    match = [
+        "docker builder prune",
+        "docker image prune",
+        "docker container prune",
+        "docker network prune",
+    ],
+    not_match = [
+        "docker compose build",
+        "docker compose down",
+    ],
+)
+
+prefix_rule(
+    pattern = ["docker", "compose", "down", ["-v", "--volumes"]],
+    decision = "forbidden",
+    justification = "Stopping the project must not delete persistent database volumes",
+    match = [
+        "docker compose down -v",
+        "docker compose down --volumes",
+    ],
+    not_match = [
+        "docker compose down",
+        "docker compose stop",
+    ],
+)
+
+prefix_rule(
+    pattern = ["sudo"],
+    decision = "forbidden",
+    justification = "Project automation must not change system-level configuration",
+    match = [
+        "sudo apt update",
+        "sudo rm -rf /tmp/example",
+    ],
+    not_match = [
+        "go test ./...",
+        "docker compose config --quiet",
+    ],
+)
+
+prefix_rule(
+    pattern = ["rm"],
+    decision = "forbidden",
+    justification = "Do not escalate file deletion outside the workspace sandbox",
+    match = [
+        "rm file.txt",
+        "rm -rf /tmp/example",
+    ],
+    not_match = [
+        "git status",
+        "go test ./...",
+    ],
+)
+
+prefix_rule(
+    pattern = ["go", "env", ["-w", "-u"]],
+    decision = "forbidden",
+    justification = "Project tasks must not modify the user's global Go environment",
+    match = [
+        "go env -w GOPROXY=https://proxy.example",
+        "go env -u GOPROXY",
+    ],
+    not_match = [
+        "go env",
+        "go env GOPATH",
+    ],
+)
