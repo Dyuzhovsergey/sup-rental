@@ -13,7 +13,6 @@ Develop the project through small, complete, understandable, and verifiable incr
 
 Do not attempt to implement the entire planned system at once.
 
-
 ## Communication Language
 
 Communicate with the user in Russian by default.
@@ -44,6 +43,98 @@ When introducing an unfamiliar technical term, explain it in simple Russian.
 Use another language only when the user explicitly requests it.
 
 Do not translate source code, command output, identifiers, or error messages when quoting them.
+
+## Starting a New Task
+
+Before modifying project files:
+
+1. Read the root `AGENTS.md`.
+2. Read `README.md`.
+3. Read `docs/development-plan.md`.
+4. Inspect the current Git working tree with `git status`.
+5. Inspect recent commits when they are relevant to understanding the current state.
+6. Identify the current and next agreed increment.
+7. Briefly summarize the current project state and the planned changes.
+
+Do not assume that context from a previous chat is available.
+
+Use the repository files and Git history as the source of truth for completed work.
+
+If the requested task conflicts with the documented current increment or an established architectural decision, explain the conflict before making changes.
+
+Do not modify files until the goal, affected files, architectural decisions, risks, and verification approach have been stated.
+
+Do not repeat questions whose answers are already documented in the repository.
+
+## Increment Planning and Approval
+
+At the beginning of a new increment:
+
+1. Read the repository instructions and current project documentation.
+2. Inspect the current Git state.
+3. Identify the current development stage.
+4. Propose one recommended next increment.
+5. Briefly describe relevant alternatives when they materially affect the architecture or learning goals.
+
+The increment proposal must include:
+
+* the goal;
+* why the increment is needed now;
+* the expected result;
+* files expected to be created or changed;
+* architectural decisions;
+* important alternatives;
+* risks;
+* verification commands;
+* completion criteria;
+* what is explicitly outside the increment.
+
+Do not modify project files until the user explicitly approves the proposed increment.
+
+Do not assume that the user already knows the correct technical next step. Recommend the next step based on the documented roadmap, current repository state, existing tests, and unresolved requirements.
+
+At the end of every completed increment:
+
+1. Report the implemented changes and verification results.
+2. State whether `README.md` or `docs/development-plan.md` require updates.
+3. Update those documents when their actual content has become outdated.
+4. Recommend one logical next increment.
+5. Do not begin the next increment without explicit user approval.
+6. Recommend a Git commit message, but do not create the commit unless explicitly requested.
+
+At the beginning of a new increment:
+
+1. Read the repository instructions and current project documentation.
+2. Inspect the current Git state.
+3. Identify the current development stage.
+4. Propose one recommended next increment.
+5. Briefly describe relevant alternatives when they materially affect the architecture or learning goals.
+
+The increment proposal must include:
+
+* the goal;
+* why the increment is needed now;
+* the expected result;
+* files expected to be created or changed;
+* architectural decisions;
+* important alternatives;
+* risks;
+* verification commands;
+* completion criteria;
+* what is explicitly outside the increment.
+
+Do not modify project files until the user explicitly approves the proposed increment.
+
+Do not assume that the user already knows the correct technical next step. Recommend the next step based on the documented roadmap, current repository state, existing tests, and unresolved requirements.
+
+At the end of every completed increment:
+
+1. Report the implemented changes and verification results.
+2. State whether `README.md` or `docs/development-plan.md` require updates.
+3. Update those documents when their actual content has become outdated.
+4. Recommend one logical next increment.
+5. Do not begin the next increment without explicit user approval.
+6. Recommend a Git commit message, but do not create the commit unless explicitly requested.
 
 ## Current Confirmed Business Context
 
