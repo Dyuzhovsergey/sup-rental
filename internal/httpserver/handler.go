@@ -1,4 +1,4 @@
-// Package httpserver provides the application's HTTP handler.
+// Package httpserver предоставляет HTTP-обработчики приложения.
 package httpserver
 
 import (
@@ -6,15 +6,20 @@ import (
 	"net/http"
 )
 
-// NewHandler creates the application's HTTP handler.
-func NewHandler() http.Handler {
+// NewHandler создаёт HTTP-обработчик со всеми маршрутами приложения.
+//
+// Logger используется для записи ошибок HTTP-слоя и должен быть создан
+// точкой входа приложения.
+func NewHandler(logger *slog.Logger) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/health", health)
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		health(logger, w, r)
+	})
 
 	return mux
 }
 
-func health(w http.ResponseWriter, r *http.Request) {
+func health(logger *slog.Logger, w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Allow", http.MethodGet)
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -25,6 +30,9 @@ func health(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 
 	if _, err := w.Write([]byte("ok\n")); err != nil {
-		slog.Error("write health response", "error", err)
+		logger.Error(
+			"write health response",
+			slog.Any("error", err),
+		)
 	}
 }

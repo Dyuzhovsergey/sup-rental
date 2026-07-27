@@ -78,13 +78,19 @@ github.com/Dyuzhovsergey/sup-rental
 
 ## Локальный запуск
 
-Для запуска HTTP-сервера:
+HTTP-сервер использует обязательные переменные окружения:
+
+* `HTTP_ADDRESS` — адрес в формате `host:port`, например `:8080`;
+* `HTTP_READ_HEADER_TIMEOUT` — максимальное время чтения заголовков запроса
+  в формате Go `time.Duration`, например `5s`.
+
+Несекретный пример значений находится в `.env.example`. Для запуска HTTP-сервера:
 
 ```bash
+export HTTP_ADDRESS=:8080
+export HTTP_READ_HEADER_TIMEOUT=5s
 go run ./cmd/server
 ```
-
-Сервер слушает адрес `:8080`.
 
 В другом терминале health endpoint можно проверить командой:
 
