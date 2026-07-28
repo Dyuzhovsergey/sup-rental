@@ -13,6 +13,7 @@ import (
 const (
 	httpAddressEnv           = "HTTP_ADDRESS"
 	httpReadHeaderTimeoutEnv = "HTTP_READ_HEADER_TIMEOUT"
+	httpShutdownTimeoutEnv   = "HTTP_SHUTDOWN_TIMEOUT"
 )
 
 // Config содержит проверенные параметры запуска приложения.
@@ -21,6 +22,8 @@ type Config struct {
 	HTTPAddress string
 	// HTTPReadHeaderTimeout ограничивает время чтения заголовков HTTP-запроса.
 	HTTPReadHeaderTimeout time.Duration
+	// HTTPShutdownTimeout ограничивает время корректного завершения HTTP-сервера.
+	HTTPShutdownTimeout time.Duration
 }
 
 // Load загружает конфигурацию из переменных окружения.
@@ -37,23 +40,20 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("%s: %w", httpAddressEnv, err)
 	}
 
-	timeoutValue, err := requiredEnv(httpReadHeaderTimeoutEnv)
+	readHeaderTimeout, err := positiveDurationEnv(httpReadHeaderTimeoutEnv)
 	if err != nil {
 		return Config{}, err
 	}
 
-	timeout, err := time.ParseDuration(timeoutValue)
+	shutdownTimeout, err := positiveDurationEnv(httpShutdownTimeoutEnv)
 	if err != nil {
-		return Config{}, fmt.Errorf("%s: parse duration: %w", httpReadHeaderTimeoutEnv, err)
-	}
-
-	if timeout <= 0 {
-		return Config{}, fmt.Errorf("%s: must be greater than zero", httpReadHeaderTimeoutEnv)
+		return Config{}, err
 	}
 
 	return Config{
 		HTTPAddress:           address,
-		HTTPReadHeaderTimeout: timeout,
+		HTTPReadHeaderTimeout: readHeaderTimeout,
+		HTTPShutdownTimeout:   shutdownTimeout,
 	}, nil
 }
 
@@ -64,6 +64,24 @@ func requiredEnv(name string) (string, error) {
 	}
 
 	return value, nil
+}
+
+func positiveDurationEnv(name string) (time.Duration, error) {
+	value, err := requiredEnv(name)
+	if err != nil {
+		return 0, err
+	}
+
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s: parse duration: %w", name, err)
+	}
+
+	if duration <= 0 {
+		return 0, fmt.Errorf("%s: must be greater than zero", name)
+	}
+
+	return duration, nil
 }
 
 func validateHTTPAddress(address string) error {

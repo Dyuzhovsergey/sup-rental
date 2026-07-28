@@ -11,16 +11,19 @@ func TestLoad(t *testing.T) {
 		name        string
 		address     string
 		timeout     string
+		shutdown    string
 		want        Config
 		wantErrText string
 	}{
 		{
-			name:    "valid configuration",
-			address: "127.0.0.1:8080",
-			timeout: "5s",
+			name:     "valid configuration",
+			address:  "127.0.0.1:8080",
+			timeout:  "5s",
+			shutdown: "10s",
 			want: Config{
 				HTTPAddress:           "127.0.0.1:8080",
 				HTTPReadHeaderTimeout: 5 * time.Second,
+				HTTPShutdownTimeout:   10 * time.Second,
 			},
 		},
 		{
@@ -57,12 +60,40 @@ func TestLoad(t *testing.T) {
 			timeout:     "0s",
 			wantErrText: "HTTP_READ_HEADER_TIMEOUT: must be greater than zero",
 		},
+		{
+			name:        "missing shutdown timeout",
+			address:     ":8080",
+			timeout:     "5s",
+			wantErrText: "HTTP_SHUTDOWN_TIMEOUT: environment variable is required",
+		},
+		{
+			name:        "invalid shutdown timeout format",
+			address:     ":8080",
+			timeout:     "5s",
+			shutdown:    "ten seconds",
+			wantErrText: "HTTP_SHUTDOWN_TIMEOUT: parse duration",
+		},
+		{
+			name:        "zero shutdown timeout",
+			address:     ":8080",
+			timeout:     "5s",
+			shutdown:    "0s",
+			wantErrText: "HTTP_SHUTDOWN_TIMEOUT: must be greater than zero",
+		},
+		{
+			name:        "negative shutdown timeout",
+			address:     ":8080",
+			timeout:     "5s",
+			shutdown:    "-1s",
+			wantErrText: "HTTP_SHUTDOWN_TIMEOUT: must be greater than zero",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Setenv(httpAddressEnv, tt.address)
 			t.Setenv(httpReadHeaderTimeoutEnv, tt.timeout)
+			t.Setenv(httpShutdownTimeoutEnv, tt.shutdown)
 
 			got, err := Load()
 			if tt.wantErrText != "" {

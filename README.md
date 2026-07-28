@@ -82,13 +82,16 @@ HTTP-сервер использует обязательные переменн
 
 * `HTTP_ADDRESS` — адрес в формате `host:port`, например `:8080`;
 * `HTTP_READ_HEADER_TIMEOUT` — максимальное время чтения заголовков запроса
-  в формате Go `time.Duration`, например `5s`.
+  в формате Go `time.Duration`, например `5s`;
+* `HTTP_SHUTDOWN_TIMEOUT` — максимальное время ожидания активных запросов
+  при корректном завершении сервера, например `10s`.
 
 Несекретный пример значений находится в `.env.example`. Для запуска HTTP-сервера:
 
 ```bash
 export HTTP_ADDRESS=:8080
 export HTTP_READ_HEADER_TIMEOUT=5s
+export HTTP_SHUTDOWN_TIMEOUT=10s
 go run ./cmd/server
 ```
 
@@ -103,6 +106,10 @@ curl -i http://localhost:8080/health
 ```text
 ok
 ```
+
+Для корректного завершения сервера нажмите `Ctrl+C`. Сервер прекратит принимать
+новые подключения, дождётся активных запросов в пределах
+`HTTP_SHUTDOWN_TIMEOUT` и завершится с кодом `0`.
 
 ## Проверка
 

@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/config"
 	"github.com/Dyuzhovsergey/sup-rental/internal/httpserver"
@@ -14,13 +17,20 @@ import (
 func main() {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 
-	if err := run(logger); err != nil {
+	ctx, stop := signal.NotifyContext(
+		context.Background(),
+		os.Interrupt,
+		syscall.SIGTERM,
+	)
+	defer stop()
+
+	if err := run(ctx, logger); err != nil {
 		logger.Error("server stopped", slog.Any("error", err))
 		os.Exit(1)
 	}
 }
 
-func run(logger *slog.Logger) error {
+func run(ctx context.Context, logger *slog.Logger) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
@@ -41,9 +51,44 @@ func run(logger *slog.Logger) error {
 		slog.String("address", cfg.HTTPAddress),
 	)
 
-	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return fmt.Errorf("listen and serve: %w", err)
+	serverErr := make(chan error, 1)
+
+	go func() {
+		serverErr <- server.ListenAndServe()
+	}()
+
+	select {
+	case err := <-serverErr:
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return fmt.Errorf("listen and serve: %w", err)
+		}
+
+		return nil
+
+	case <-ctx.Done():
+		logger.Info(
+			"shutting down HTTP server",
+			slog.Duration("timeout", cfg.HTTPShutdownTimeout),
+		)
 	}
+
+	// Signal context уже отменён, поэтому Shutdown получает новый context,
+	// ограниченный отдельным timeout.
+	shutdownCtx, cancel := context.WithTimeout(
+		context.Background(),
+		cfg.HTTPShutdownTimeout,
+	)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shutdown HTTP server: %w", err)
+	}
+
+	if err := <-serverErr; err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return fmt.Errorf("listen and serve after shutdown: %w", err)
+	}
+
+	logger.Info("HTTP server stopped")
 
 	return nil
 }
