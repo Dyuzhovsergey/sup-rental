@@ -12,6 +12,7 @@ import (
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/config"
 	"github.com/Dyuzhovsergey/sup-rental/internal/httpserver"
+	"github.com/Dyuzhovsergey/sup-rental/internal/postgres"
 )
 
 func main() {
@@ -35,6 +36,16 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	if err != nil {
 		return fmt.Errorf("load config: %w", err)
 	}
+
+	dbCtx, cancelDB := context.WithTimeout(ctx, cfg.DBConnectTimeout)
+	pool, err := postgres.Open(dbCtx, cfg.DatabaseURL)
+	cancelDB()
+	if err != nil {
+		return fmt.Errorf("open PostgreSQL: %w", err)
+	}
+	defer pool.Close()
+
+	logger.Info("connected to PostgreSQL")
 
 	httpLogger := logger.With(
 		slog.String("component", "httpserver"),

@@ -14,6 +14,8 @@ const (
 	httpAddressEnv           = "HTTP_ADDRESS"
 	httpReadHeaderTimeoutEnv = "HTTP_READ_HEADER_TIMEOUT"
 	httpShutdownTimeoutEnv   = "HTTP_SHUTDOWN_TIMEOUT"
+	databaseURLEnv           = "DATABASE_URL"
+	dbConnectTimeoutEnv      = "DB_CONNECT_TIMEOUT"
 )
 
 // Config содержит проверенные параметры запуска приложения.
@@ -24,6 +26,10 @@ type Config struct {
 	HTTPReadHeaderTimeout time.Duration
 	// HTTPShutdownTimeout ограничивает время корректного завершения HTTP-сервера.
 	HTTPShutdownTimeout time.Duration
+	// DatabaseURL содержит connection string для подключения к PostgreSQL.
+	DatabaseURL string
+	// DBConnectTimeout ограничивает время подключения к PostgreSQL.
+	DBConnectTimeout time.Duration
 }
 
 // Load загружает конфигурацию из переменных окружения.
@@ -50,10 +56,22 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	databaseURL, err := requiredEnv(databaseURLEnv)
+	if err != nil {
+		return Config{}, err
+	}
+
+	dbConnectTimeout, err := positiveDurationEnv(dbConnectTimeoutEnv)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		HTTPAddress:           address,
 		HTTPReadHeaderTimeout: readHeaderTimeout,
 		HTTPShutdownTimeout:   shutdownTimeout,
+		DatabaseURL:           databaseURL,
+		DBConnectTimeout:      dbConnectTimeout,
 	}, nil
 }
 
