@@ -51,9 +51,14 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		slog.String("component", "httpserver"),
 	)
 
+	handler, err := httpserver.NewHandler(httpLogger)
+	if err != nil {
+		return fmt.Errorf("create HTTP handler: %w", err)
+	}
+
 	server := &http.Server{
 		Addr:              cfg.HTTPAddress,
-		Handler:           httpserver.NewHandler(httpLogger),
+		Handler:           handler,
 		ReadHeaderTimeout: cfg.HTTPReadHeaderTimeout,
 	}
 
