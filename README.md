@@ -15,8 +15,9 @@ health endpoint и обязательное подключение к PostgreSQL
 GET /health
 ```
 
-Миграции, таблицы, бизнес-функции, HTML-интерфейс и Docker-конфигурация пока
-не добавлены.
+Добавлен отдельный запуск миграций PostgreSQL и техническая baseline-миграция.
+Бизнес-таблицы, бизнес-функции, HTML-интерфейс и Docker-конфигурация пока не
+добавлены.
 
 ## Подтверждённые требования
 
@@ -41,6 +42,7 @@ GET /health
 
 * Go;
 * PostgreSQL;
+* `tern` для миграций PostgreSQL;
 * стандартный пакет `log/slog`;
 * серверный HTML через `html/template`;
 * Docker;
@@ -141,6 +143,41 @@ ok
 
 Переменная `TEST_DATABASE_URL` используется только integration-тестом
 подключения PostgreSQL. Без неё тест явно пропускается.
+
+### Миграции PostgreSQL
+
+Миграции выполняются отдельно от запуска HTTP-сервера с помощью `tern`.
+Это делает изменение схемы явной операцией и не требует добавлять migration tool
+в runtime-зависимости приложения.
+
+Установите проверенную для проекта версию `tern`:
+
+```bash
+go install github.com/jackc/tern/v2@v2.4.0
+```
+
+После загрузки переменных из `.env` примените миграции:
+
+```bash
+tern migrate --migrations migrations
+```
+
+Текущий статус можно проверить командой:
+
+```bash
+tern status --migrations migrations
+```
+
+Первая baseline-миграция не создаёт бизнес-таблиц. `tern` создаёт только
+служебную таблицу `public.schema_version`, в которой хранит номер применённой
+миграции.
+
+Для проверки обратимости первой миграции можно откатить её и применить снова:
+
+```bash
+tern migrate --migrations migrations --destination 0
+tern migrate --migrations migrations
+```
 
 ## Проверка
 
