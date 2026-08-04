@@ -18,8 +18,8 @@ GET /health
 ```
 
 Добавлен отдельный запуск миграций PostgreSQL и техническая baseline-миграция.
-Приложение можно собрать в Docker image. Бизнес-таблицы, бизнес-функции и
-Docker Compose пока не добавлены.
+Приложение можно запустить вместе с PostgreSQL через Docker Compose.
+Бизнес-таблицы и бизнес-функции пока не добавлены.
 
 ## Подтверждённые требования
 
@@ -243,8 +243,74 @@ curl -i http://localhost:8080/health
 docker run --rm --entrypoint id sup-rental:dev
 ```
 
-Dockerfile не запускает миграции автоматически и не помещает `.env` в image.
-Миграции пока применяются с host перед запуском контейнера.
+Dockerfile не запускает миграции внутри процесса приложения и не помещает
+`.env` в image. При одиночном запуске application image миграции применяются с
+host, а при запуске через Docker Compose их выполняет отдельный сервис
+`migrate`.
+
+### Docker Compose
+
+Docker Compose запускает три сервиса:
+
+```text
+postgres → migrate → app
+```
+
+`postgres` хранит данные в named volume, `migrate` применяет миграции через
+`tern`, а `app` запускается только после готовности PostgreSQL и успешного
+завершения миграций.
+
+Убедитесь, что в локальном `.env` заданы Compose-переменные из `.env.example`:
+
+```dotenv
+COMPOSE_HTTP_PORT=8080
+POSTGRES_USER=sup_rental
+POSTGRES_PASSWORD=sup_rental
+POSTGRES_DB=sup_rental
+```
+
+Соберите и запустите стек:
+
+```bash
+docker compose up --build -d
+docker compose ps -a
+docker compose logs migrate
+```
+
+Ожидаемое состояние:
+
+* `postgres` — `healthy`;
+* `migrate` — `Exited (0)`;
+* `app` — `healthy`.
+
+Проверьте применённую версию миграции:
+
+```bash
+docker compose exec postgres \
+    psql -U sup_rental -d sup_rental \
+    -c "SELECT version FROM public.schema_version;"
+```
+
+Проверьте HTTP-маршруты:
+
+```bash
+curl -i http://localhost:8080/
+curl -i http://localhost:8080/health
+```
+
+Остановите контейнеры обычной командой:
+
+```bash
+docker compose down
+```
+
+Named volume с PostgreSQL сохраняется после `docker compose down`. Команда
+`docker compose down -v` удаляет volume вместе с данными и не должна выполняться
+без осознанного решения и резервной копии.
+
+PostgreSQL-порт `5432` не публикуется на host. Контейнеры обращаются к базе по
+внутреннему hostname `postgres`, поэтому Compose не конфликтует с локальной
+PostgreSQL.
 
 ## Проверка
 
@@ -255,7 +321,5 @@ go fmt ./...
 go vet ./...
 go test ./...
 go build ./...
+docker compose config --quiet
 ```
-
-Проверка Docker Compose пока не применяется, поскольку Compose-файл ещё не
-создан.
