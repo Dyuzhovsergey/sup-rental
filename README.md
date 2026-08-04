@@ -18,7 +18,8 @@ GET /health
 ```
 
 Добавлен отдельный запуск миграций PostgreSQL и техническая baseline-миграция.
-Бизнес-таблицы, бизнес-функции и Docker-конфигурация пока не добавлены.
+Приложение можно собрать в Docker image. Бизнес-таблицы, бизнес-функции и
+Docker Compose пока не добавлены.
 
 ## Подтверждённые требования
 
@@ -187,6 +188,64 @@ tern migrate --migrations migrations --destination 0
 tern migrate --migrations migrations
 ```
 
+### Docker image
+
+Приложение собирается через multi-stage Dockerfile. Финальный image содержит
+только скомпилированный сервер, CA-сертификаты и минимальное runtime-окружение.
+Процесс запускается от непривилегированного пользователя `app`.
+
+Соберите image:
+
+```bash
+docker build -t sup-rental:dev .
+```
+
+Пока PostgreSQL работает непосредственно на Linux host, контейнер можно
+запустить через host network:
+
+```bash
+docker run --rm \
+    --name sup-rental-server \
+    --network host \
+    --env-file .env \
+    sup-rental:dev
+```
+
+Такой запуск позволяет использовать текущий `localhost:5432` из
+`DATABASE_URL`. После появления Docker Compose приложение будет обращаться к
+PostgreSQL по имени сервиса внутри Compose-сети.
+
+Перед запуском освободите порт `8080`, если приложение уже запущено через
+`go run`. Для разовой проверки на другом порту можно переопределить только адрес:
+
+```bash
+docker run --rm \
+    --name sup-rental-server \
+    --network host \
+    --env-file .env \
+    --env HTTP_ADDRESS=127.0.0.1:18080 \
+    sup-rental:dev
+```
+
+В другом терминале проверьте приложение:
+
+```bash
+curl -i http://localhost:8080/
+curl -i http://localhost:8080/health
+```
+
+Для остановки нажмите `Ctrl+C`. Docker передаст сигнал приложению, после чего
+должен выполниться graceful shutdown.
+
+Проверить, что image запускается не от `root`, можно командой:
+
+```bash
+docker run --rm --entrypoint id sup-rental:dev
+```
+
+Dockerfile не запускает миграции автоматически и не помещает `.env` в image.
+Миграции пока применяются с host перед запуском контейнера.
+
 ## Проверка
 
 Применимые проверки выполняются в следующем порядке:
@@ -198,4 +257,5 @@ go test ./...
 go build ./...
 ```
 
-Проверка Docker Compose пока не применяется, поскольку Compose-файл ещё не создан.
+Проверка Docker Compose пока не применяется, поскольку Compose-файл ещё не
+создан.

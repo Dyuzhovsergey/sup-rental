@@ -1,0 +1,9 @@
+.git
+.env
+.agents
+.codex
+docs
+migrations
+tern.conf
+README.md
+AGENTS.md
