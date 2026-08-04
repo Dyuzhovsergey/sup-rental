@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    <style>
+        body {
+            max-width: 42rem;
+            margin: 4rem auto;
+            padding: 0 1rem;
+            color: #1f2937;
+            font-family: system-ui, sans-serif;
+            line-height: 1.5;
+        }
+
+        .status {
+            padding: 1.5rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.75rem;
+            background: #f9fafb;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>{{.Title}}</h1>
+        <section class="status" aria-labelledby="status-heading">
+            <h2 id="status-heading">{{.Status}}</h2>
+            <p>Технический каркас приложения запущен.</p>
+            <p>Health endpoint: <a href="{{.HealthPath}}">{{.HealthPath}}</a></p>
+        </section>
+    </main>
+</body>
+</html>
