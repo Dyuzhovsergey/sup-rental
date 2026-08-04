@@ -82,7 +82,93 @@ AGENTS.md
 github.com/Dyuzhovsergey/sup-rental
 ```
 
-## Локальный запуск
+## Рекомендуемый локальный запуск
+
+Для основного запуска требуются:
+
+* Git;
+* Docker с командой `docker compose`.
+
+Локально устанавливать Go, PostgreSQL и `tern` для этого способа не нужно.
+
+### Первый запуск из Git
+
+Выполните одну последовательность команд:
+
+```bash
+git clone https://github.com/Dyuzhovsergey/sup-rental.git
+cd sup-rental
+cp .env.example .env
+docker compose config --quiet
+docker compose up --build -d
+docker compose ps -a
+```
+
+Compose автоматически создаст внутреннюю сеть и named volume PostgreSQL,
+дождётся готовности базы, применит миграции и только после этого запустит
+приложение.
+
+Ожидаемое состояние сервисов:
+
+* `postgres` — `healthy`;
+* `migrate` — `Exited (0)`;
+* `app` — `healthy`.
+
+Если порт `8080` занят, измените в `.env`:
+
+```dotenv
+COMPOSE_HTTP_PORT=18080
+```
+
+### Проверка результата
+
+Откройте в браузере:
+
+```text
+http://localhost:8080/
+```
+
+Или выполните:
+
+```bash
+curl -i http://localhost:8080/
+curl -i http://localhost:8080/health
+docker compose logs migrate
+docker compose exec postgres \
+    psql -U sup_rental -d sup_rental \
+    -c "SELECT version FROM public.schema_version;"
+```
+
+Оба HTTP-запроса должны вернуть `200 OK`, а версия миграции должна быть `1`.
+
+### Остановка и повторный запуск
+
+Остановите контейнеры:
+
+```bash
+docker compose down
+```
+
+Обычный `down` сохраняет named volume с данными PostgreSQL. Для повторного
+запуска достаточно:
+
+```bash
+docker compose up -d
+```
+
+Команда `docker compose down -v` удаляет volume вместе с данными и не должна
+выполняться без осознанного решения и резервной копии.
+
+PostgreSQL-порт `5432` не публикуется на host. Контейнеры обращаются к базе по
+внутреннему hostname `postgres`, поэтому Compose не конфликтует с PostgreSQL,
+установленной непосредственно на компьютере.
+
+## Дополнительный запуск без Docker Compose
+
+Этот способ полезен при разработке Go-кода, но требует локально установленных Go,
+PostgreSQL и `tern`.
+
+### Конфигурация приложения
 
 Приложение использует обязательные переменные окружения:
 
@@ -247,70 +333,6 @@ Dockerfile не запускает миграции внутри процесс�
 `.env` в image. При одиночном запуске application image миграции применяются с
 host, а при запуске через Docker Compose их выполняет отдельный сервис
 `migrate`.
-
-### Docker Compose
-
-Docker Compose запускает три сервиса:
-
-```text
-postgres → migrate → app
-```
-
-`postgres` хранит данные в named volume, `migrate` применяет миграции через
-`tern`, а `app` запускается только после готовности PostgreSQL и успешного
-завершения миграций.
-
-Убедитесь, что в локальном `.env` заданы Compose-переменные из `.env.example`:
-
-```dotenv
-COMPOSE_HTTP_PORT=8080
-POSTGRES_USER=sup_rental
-POSTGRES_PASSWORD=sup_rental
-POSTGRES_DB=sup_rental
-```
-
-Соберите и запустите стек:
-
-```bash
-docker compose up --build -d
-docker compose ps -a
-docker compose logs migrate
-```
-
-Ожидаемое состояние:
-
-* `postgres` — `healthy`;
-* `migrate` — `Exited (0)`;
-* `app` — `healthy`.
-
-Проверьте применённую версию миграции:
-
-```bash
-docker compose exec postgres \
-    psql -U sup_rental -d sup_rental \
-    -c "SELECT version FROM public.schema_version;"
-```
-
-Проверьте HTTP-маршруты:
-
-```bash
-curl -i http://localhost:8080/
-curl -i http://localhost:8080/health
-```
-
-Остановите контейнеры обычной командой:
-
-```bash
-docker compose down
-```
-
-Named volume с PostgreSQL сохраняется после `docker compose down`. Команда
-`docker compose down -v` удаляет volume вместе с данными и не должна выполняться
-без осознанного решения и резервной копии.
-
-PostgreSQL-порт `5432` не публикуется на host. Контейнеры обращаются к базе по
-внутреннему hostname `postgres`, поэтому Compose не конфликтует с локальной
-PostgreSQL.
 
 ## Проверка
 
