@@ -59,7 +59,30 @@ func TestEquipmentRepositoryCreateAndList(t *testing.T) {
 		)
 	}
 
-	updated, err := repository.UpdateStatus(ctx, created.ID, equipment.StatusMaintenance)
+	updatedInventoryNumber := inventoryNumber + "-UPDATED"
+	updated, err := repository.UpdateDetails(
+		ctx,
+		created.ID,
+		updatedInventoryNumber,
+		equipment.KindLifeJacket,
+	)
+	if err != nil {
+		t.Fatalf("UpdateDetails() error = %v", err)
+	}
+	if updated.InventoryNumber != updatedInventoryNumber ||
+		updated.Kind != equipment.KindLifeJacket ||
+		updated.Status != equipment.StatusAvailable {
+		t.Errorf(
+			"UpdateDetails() = %+v, want number %q, kind %q and status %q",
+			updated,
+			updatedInventoryNumber,
+			equipment.KindLifeJacket,
+			equipment.StatusAvailable,
+		)
+	}
+	created = updated
+
+	updated, err = repository.UpdateStatus(ctx, created.ID, equipment.StatusMaintenance)
 	if err != nil {
 		t.Fatalf("UpdateStatus() error = %v", err)
 	}
@@ -81,12 +104,39 @@ func TestEquipmentRepositoryCreateAndList(t *testing.T) {
 	}
 
 	_, err = repository.Create(ctx, equipment.Item{
-		InventoryNumber: strings.ToLower(inventoryNumber),
+		InventoryNumber: strings.ToLower(updatedInventoryNumber),
 		Kind:            equipment.KindPaddle,
 		Status:          equipment.StatusAvailable,
 	})
 	if !errors.Is(err, equipment.ErrInventoryNumberExists) {
 		t.Fatalf("duplicate Create() error = %v, want ErrInventoryNumberExists", err)
+	}
+
+	conflicting, err := repository.Create(ctx, equipment.Item{
+		InventoryNumber: inventoryNumber + "-CONFLICT",
+		Kind:            equipment.KindPaddle,
+		Status:          equipment.StatusAvailable,
+	})
+	if err != nil {
+		t.Fatalf("create conflicting equipment: %v", err)
+	}
+	t.Cleanup(func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+
+		if _, err := pool.Exec(cleanupCtx, "DELETE FROM equipment WHERE id = $1", conflicting.ID); err != nil {
+			t.Errorf("clean up conflicting equipment: %v", err)
+		}
+	})
+
+	_, err = repository.UpdateDetails(
+		ctx,
+		created.ID,
+		strings.ToLower(conflicting.InventoryNumber),
+		equipment.KindSUPBoard,
+	)
+	if !errors.Is(err, equipment.ErrInventoryNumberExists) {
+		t.Fatalf("duplicate UpdateDetails() error = %v, want ErrInventoryNumberExists", err)
 	}
 
 	items, err := repository.List(ctx)

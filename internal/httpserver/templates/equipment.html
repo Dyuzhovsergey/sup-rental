@@ -41,8 +41,34 @@
             cursor: pointer;
         }
 
+        a:focus-visible,
+        input:focus-visible,
+        select:focus-visible,
+        button:focus-visible,
+        .table-scroll:focus-visible {
+            outline: 3px solid #2563eb;
+            outline-offset: 2px;
+        }
+
+        .success {
+            color: #166534;
+            font-weight: 600;
+        }
+
+        .item-actions {
+            display: grid;
+            gap: 0.5rem;
+            justify-items: start;
+        }
+
+        .edit-link {
+            display: inline-block;
+            padding: 0.5rem 0;
+        }
+
         .status-form {
             display: flex;
+            flex-wrap: wrap;
             gap: 0.5rem;
             align-items: center;
         }
@@ -54,8 +80,13 @@
 
         table {
             width: 100%;
-            margin-top: 1rem;
             border-collapse: collapse;
+        }
+
+        .table-scroll {
+            max-width: 100%;
+            margin-top: 1rem;
+            overflow-x: auto;
         }
 
         th,
@@ -63,6 +94,7 @@
             padding: 0.75rem;
             border-bottom: 1px solid #d1d5db;
             text-align: left;
+            white-space: nowrap;
         }
     </style>
 </head>
@@ -102,8 +134,17 @@
 
         <section aria-labelledby="equipment-list-heading">
             <h2 id="equipment-list-heading">Список оборудования</h2>
+            {{if .Success}}
+            <p class="success" role="status" aria-live="polite">{{.Success}}</p>
+            {{end}}
             {{if .Items}}
-            <table>
+            <div
+                class="table-scroll"
+                role="region"
+                aria-labelledby="equipment-list-heading"
+                tabindex="0"
+            >
+                <table>
                 <thead>
                     <tr>
                         <th scope="col">ID</th>
@@ -121,7 +162,14 @@
                         <td>{{.Kind}}</td>
                         <td>{{.Status}}</td>
                         <td>
-                            {{if .StatusOptions}}
+                            {{if or .CanEdit .StatusOptions}}
+                            <div class="item-actions">
+                                {{if .CanEdit}}
+                                <a class="edit-link" href="/equipment/{{.ID}}/edit">
+                                    Редактировать
+                                </a>
+                                {{end}}
+                                {{if .StatusOptions}}
                             <form class="status-form" method="post" action="/equipment/{{.ID}}/status">
                                 <select name="status" aria-label="Новое состояние для {{.InventoryNumber}}">
                                     {{range .StatusOptions}}
@@ -130,6 +178,8 @@
                                 </select>
                                 <button type="submit">Изменить</button>
                             </form>
+                                {{end}}
+                            </div>
                             {{else}}
                             <span>Недоступно</span>
                             {{end}}
@@ -137,7 +187,8 @@
                     </tr>
                     {{end}}
                 </tbody>
-            </table>
+                </table>
+            </div>
             {{else}}
             <p>Оборудование пока не добавлено.</p>
             {{end}}

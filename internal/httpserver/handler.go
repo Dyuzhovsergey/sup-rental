@@ -41,6 +41,12 @@ func NewHandler(
 	mux.HandleFunc("POST /equipment/{id}/status", func(w http.ResponseWriter, r *http.Request) {
 		changeEquipmentStatus(logger, equipmentService, pageTemplates, w, r)
 	})
+	mux.HandleFunc("GET /equipment/{id}/edit", func(w http.ResponseWriter, r *http.Request) {
+		showEquipmentEditPage(logger, equipmentService, pageTemplates, w, r)
+	})
+	mux.HandleFunc("POST /equipment/{id}/edit", func(w http.ResponseWriter, r *http.Request) {
+		updateEquipment(logger, equipmentService, pageTemplates, w, r)
+	})
 
 	return mux, nil
 }

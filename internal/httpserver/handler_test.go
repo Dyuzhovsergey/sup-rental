@@ -208,6 +208,8 @@ func (r *responseRecorder) WriteHeader(statusCode int) {
 type equipmentServiceStub struct {
 	create       func(context.Context, equipment.CreateInput) (equipment.Item, error)
 	list         func(context.Context) ([]equipment.Item, error)
+	get          func(context.Context, int64) (equipment.Item, error)
+	update       func(context.Context, int64, equipment.UpdateInput) (equipment.Item, error)
 	changeStatus func(context.Context, int64, equipment.Status) (equipment.Item, error)
 }
 
@@ -228,6 +230,29 @@ func (s *equipmentServiceStub) List(ctx context.Context) ([]equipment.Item, erro
 	}
 
 	return s.list(ctx)
+}
+
+func (s *equipmentServiceStub) Get(
+	ctx context.Context,
+	id int64,
+) (equipment.Item, error) {
+	if s.get == nil {
+		return equipment.Item{}, nil
+	}
+
+	return s.get(ctx, id)
+}
+
+func (s *equipmentServiceStub) Update(
+	ctx context.Context,
+	id int64,
+	input equipment.UpdateInput,
+) (equipment.Item, error) {
+	if s.update == nil {
+		return equipment.Item{}, nil
+	}
+
+	return s.update(ctx, id, input)
 }
 
 func (s *equipmentServiceStub) ChangeStatus(

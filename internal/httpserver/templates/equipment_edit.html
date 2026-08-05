@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    <style>
+        body {
+            max-width: 40rem;
+            margin: 3rem auto;
+            padding: 0 1rem;
+            color: #1f2937;
+            font-family: system-ui, sans-serif;
+            line-height: 1.5;
+        }
+
+        .edit-form {
+            display: grid;
+            gap: 1rem;
+            max-width: 30rem;
+            padding: 1.5rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.75rem;
+            background: #f9fafb;
+        }
+
+        label {
+            display: grid;
+            gap: 0.25rem;
+            font-weight: 600;
+        }
+
+        input,
+        select,
+        button {
+            box-sizing: border-box;
+            width: 100%;
+            padding: 0.65rem;
+            font: inherit;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        a:focus-visible,
+        input:focus-visible,
+        select:focus-visible,
+        button:focus-visible {
+            outline: 3px solid #2563eb;
+            outline-offset: 2px;
+        }
+
+        .field-error {
+            margin: 0.25rem 0 0;
+            color: #b91c1c;
+            font-weight: 600;
+        }
+
+        .form-actions {
+            display: grid;
+            gap: 0.75rem;
+        }
+
+        .cancel-link {
+            justify-self: start;
+            padding: 0.5rem 0;
+        }
+    </style>
+</head>
+<body>
+    <nav><a href="/equipment">Оборудование</a></nav>
+    <main>
+        <h1 id="edit-equipment-heading">Редактировать оборудование</h1>
+        <form
+            class="edit-form"
+            method="post"
+            action="/equipment/{{.ID}}/edit"
+            aria-labelledby="edit-equipment-heading"
+        >
+            <label for="inventory-number">
+                Инвентарный номер
+            </label>
+            <input
+                id="inventory-number"
+                name="inventory_number"
+                value="{{.Form.InventoryNumber}}"
+                required
+                {{if .InventoryNumberError}}aria-invalid="true" aria-describedby="inventory-number-error"{{end}}
+            >
+            {{if .InventoryNumberError}}
+            <p id="inventory-number-error" class="field-error" role="alert">{{.InventoryNumberError}}</p>
+            {{end}}
+
+            <label for="kind">Тип</label>
+            <select
+                id="kind"
+                name="kind"
+                required
+                {{if .KindError}}aria-invalid="true" aria-describedby="kind-error"{{end}}
+            >
+                <option value="">Выберите тип</option>
+                {{range .Kinds}}
+                <option value="{{.Value}}"{{if eq $.Form.Kind .Value}} selected{{end}}>
+                    {{.Label}}
+                </option>
+                {{end}}
+            </select>
+            {{if .KindError}}
+            <p id="kind-error" class="field-error" role="alert">{{.KindError}}</p>
+            {{end}}
+
+            <div class="form-actions">
+                <button type="submit">Сохранить</button>
+                <a class="cancel-link" href="/equipment">Отмена</a>
+            </div>
+        </form>
+    </main>
+</body>
+</html>

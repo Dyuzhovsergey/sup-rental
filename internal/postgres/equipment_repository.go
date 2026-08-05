@@ -115,6 +115,37 @@ func (r *EquipmentRepository) Get(ctx context.Context, id int64) (equipment.Item
 	return item, nil
 }
 
+// UpdateDetails сохраняет новый инвентарный номер и тип оборудования по ID.
+func (r *EquipmentRepository) UpdateDetails(
+	ctx context.Context,
+	id int64,
+	inventoryNumber string,
+	kind equipment.Kind,
+) (equipment.Item, error) {
+	const query = `
+		UPDATE equipment
+		SET inventory_number = $1, kind = $2
+		WHERE id = $3
+		RETURNING id, inventory_number, kind, status
+	`
+
+	item, err := r.queryEquipment(ctx, query, inventoryNumber, kind, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return equipment.Item{}, equipment.ErrEquipmentNotFound
+	}
+	if err != nil {
+		var postgresError *pgconn.PgError
+		if errors.As(err, &postgresError) &&
+			postgresError.ConstraintName == uniqueEquipmentInventoryNumberConstraint {
+			return equipment.Item{}, equipment.ErrInventoryNumberExists
+		}
+
+		return equipment.Item{}, fmt.Errorf("update equipment details: %w", err)
+	}
+
+	return item, nil
+}
+
 // UpdateStatus сохраняет новое физическое состояние оборудования по ID.
 func (r *EquipmentRepository) UpdateStatus(
 	ctx context.Context,

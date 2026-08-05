@@ -20,6 +20,9 @@ var (
 	ErrInvalidStatus = errors.New("invalid equipment status")
 	// ErrStatusTransitionNotAllowed означает, что ручной переход запрещён.
 	ErrStatusTransitionNotAllowed = errors.New("equipment status transition is not allowed")
+	// ErrEquipmentUpdateNotAllowed означает, что данные предмета нельзя
+	// редактировать в его текущем состоянии.
+	ErrEquipmentUpdateNotAllowed = errors.New("equipment update is not allowed")
 )
 
 // Repository определяет операции хранения, необходимые сервису оборудования.
@@ -27,6 +30,7 @@ type Repository interface {
 	Create(ctx context.Context, item Item) (Item, error)
 	List(ctx context.Context) ([]Item, error)
 	Get(ctx context.Context, id int64) (Item, error)
+	UpdateDetails(ctx context.Context, id int64, inventoryNumber string, kind Kind) (Item, error)
 	UpdateStatus(ctx context.Context, id int64, status Status) (Item, error)
 }
 
@@ -40,6 +44,14 @@ type CreateInput struct {
 	// InventoryNumber — введённый администратором инвентарный номер.
 	InventoryNumber string
 	// Kind — выбранный тип оборудования.
+	Kind Kind
+}
+
+// UpdateInput содержит изменяемые данные зарегистрированного оборудования.
+type UpdateInput struct {
+	// InventoryNumber — исправленный инвентарный номер.
+	InventoryNumber string
+	// Kind — исправленный тип оборудования.
 	Kind Kind
 }
 
@@ -85,6 +97,52 @@ func (s *Service) List(ctx context.Context) ([]Item, error) {
 	}
 
 	return items, nil
+}
+
+// Get возвращает оборудование по внутреннему идентификатору.
+func (s *Service) Get(ctx context.Context, id int64) (Item, error) {
+	item, err := s.repository.Get(ctx, id)
+	if err != nil {
+		return Item{}, fmt.Errorf("get equipment: %w", err)
+	}
+
+	return item, nil
+}
+
+// Update изменяет инвентарный номер и тип оборудования.
+//
+// Редактирование разрешено только для доступного оборудования и оборудования
+// на обслуживании. Внешние пробелы инвентарного номера удаляются.
+func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) (Item, error) {
+	item, err := s.repository.Get(ctx, id)
+	if err != nil {
+		return Item{}, fmt.Errorf("get equipment for update: %w", err)
+	}
+
+	if !item.Status.CanEditDetails() {
+		return Item{}, ErrEquipmentUpdateNotAllowed
+	}
+
+	inventoryNumber := strings.TrimSpace(input.InventoryNumber)
+	if inventoryNumber == "" {
+		return Item{}, ErrInventoryNumberRequired
+	}
+
+	if !input.Kind.Valid() {
+		return Item{}, ErrInvalidKind
+	}
+
+	updated, err := s.repository.UpdateDetails(
+		ctx,
+		id,
+		inventoryNumber,
+		input.Kind,
+	)
+	if err != nil {
+		return Item{}, fmt.Errorf("update equipment details: %w", err)
+	}
+
+	return updated, nil
 }
 
 // ChangeStatus изменяет физическое состояние оборудования, если ручной

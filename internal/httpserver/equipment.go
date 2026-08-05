@@ -15,15 +15,18 @@ import (
 type equipmentService interface {
 	Create(ctx context.Context, input equipment.CreateInput) (equipment.Item, error)
 	List(ctx context.Context) ([]equipment.Item, error)
+	Get(ctx context.Context, id int64) (equipment.Item, error)
+	Update(ctx context.Context, id int64, input equipment.UpdateInput) (equipment.Item, error)
 	ChangeStatus(ctx context.Context, id int64, target equipment.Status) (equipment.Item, error)
 }
 
 type equipmentPageData struct {
-	Title string
-	Items []equipmentItemView
-	Kinds []equipmentKindOption
-	Form  equipmentFormData
-	Error string
+	Title   string
+	Items   []equipmentItemView
+	Kinds   []equipmentKindOption
+	Form    equipmentFormData
+	Error   string
+	Success string
 }
 
 type equipmentItemView struct {
@@ -32,6 +35,7 @@ type equipmentItemView struct {
 	Kind            string
 	Status          string
 	StatusOptions   []equipmentStatusOption
+	CanEdit         bool
 }
 
 type equipmentKindOption struct {
@@ -230,13 +234,12 @@ func renderEquipmentPage(
 	data := equipmentPageData{
 		Title: "Оборудование — SUP Rental",
 		Items: equipmentItemsView(items),
-		Kinds: []equipmentKindOption{
-			{Value: string(equipment.KindSUPBoard), Label: "SUP-доска"},
-			{Value: string(equipment.KindPaddle), Label: "Весло"},
-			{Value: string(equipment.KindLifeJacket), Label: "Спасательный жилет"},
-		},
+		Kinds: equipmentKindOptions(),
 		Form:  form,
 		Error: errorMessage,
+	}
+	if r.URL.Query().Get("updated") == "1" {
+		data.Success = "Оборудование обновлено."
 	}
 
 	var body bytes.Buffer
@@ -269,6 +272,7 @@ func equipmentItemsView(items []equipment.Item) []equipmentItemView {
 			Kind:            equipmentKindLabel(item.Kind),
 			Status:          equipmentStatusLabel(item.Status),
 			StatusOptions:   equipmentStatusOptions(item.Status),
+			CanEdit:         item.Status.CanEditDetails(),
 		})
 	}
 
@@ -289,6 +293,14 @@ func equipmentStatusOptions(status equipment.Status) []equipmentStatusOption {
 		}
 	default:
 		return nil
+	}
+}
+
+func equipmentKindOptions() []equipmentKindOption {
+	return []equipmentKindOption{
+		{Value: string(equipment.KindSUPBoard), Label: "SUP-доска"},
+		{Value: string(equipment.KindPaddle), Label: "Весло"},
+		{Value: string(equipment.KindLifeJacket), Label: "Спасательный жилет"},
 	}
 }
 
