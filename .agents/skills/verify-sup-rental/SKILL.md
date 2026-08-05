@@ -1,6 +1,6 @@
 ---
 name: verify-sup-rental
-description: Verify the SUP Rental project after changes or before handoff or commit by running all applicable checks in order and reporting exact results. Use for explicit $verify-sup-rental requests and when the user asks to проверить проект, run full verification, validate changes, or confirm readiness; cover Go formatting, go vet, go test, go build, and Docker Compose configuration, skipping only checks not applicable to the current repository state.
+description: Verify the SUP Rental project after changes or before handoff or commit by running all applicable checks in order and reporting exact results. Use for explicit $verify-sup-rental requests and when the user asks to проверить проект, run full verification, validate changes, or confirm readiness; cover Go formatting, go vet, regular and race-enabled Go tests, go build, Docker Compose configuration, and git diff validation, skipping only checks not applicable to the current repository state.
 ---
 
 # Verify SUP Rental
@@ -19,9 +19,14 @@ description: Verify the SUP Rental project after changes or before handoff or co
 - Считать Go-проверки применимыми, если в репозитории есть `go.mod` и хотя бы один файл `*.go`.
 - Если Go-файлов пока нет, пометить все Go-проверки как `SKIPPED` и указать причину.
 - Если Go-файлы есть, но `go.mod` отсутствует, пометить Go-проверки как `NOT RUN` и объяснить неполную настройку проекта.
+- Считать race-enabled тесты применимыми при применимости обычных Go-тестов.
+  Если race detector недоступен в текущем окружении, пометить проверку как
+  `NOT RUN` и указать техническую причину.
 - Считать Docker Compose-проверку применимой при наличии `compose.yaml`, `compose.yml`, `docker-compose.yaml` или `docker-compose.yml`.
 - Если Compose-файла нет, пометить проверку как `SKIPPED` и указать причину.
 - Если проверка применима, но требуемая программа недоступна, пометить её как `NOT RUN`, а не `SKIPPED`.
+- `git diff --check` выполнять всегда, если рабочий каталог находится в Git
+  repository. Эта проверка не требует чистого рабочего дерева.
 
 ## Последовательность проверок
 
@@ -45,16 +50,28 @@ description: Verify the SUP Rental project after changes or before handoff or co
    go test ./...
    ```
 
-4. Сборка:
+4. Тесты с race detector:
+
+   ```bash
+   go test -race ./...
+   ```
+
+5. Сборка:
 
    ```bash
    go build ./...
    ```
 
-5. Валидация Docker Compose:
+6. Валидация Docker Compose:
 
    ```bash
-   docker compose config
+   docker compose config --quiet
+   ```
+
+7. Проверка diff:
+
+   ```bash
+   git diff --check
    ```
 
 После `go fmt ./...` проверить, появились ли новые изменения форматирования, и не приписывать команде изменения, существовавшие до запуска skill.
@@ -67,6 +84,7 @@ description: Verify the SUP Rental project after changes or before handoff or co
 - Не удалять файлы, Docker-контейнеры, образы, volumes или базы данных.
 - Не запускать Docker Compose-сервисы.
 - Не запрашивать сетевой доступ автоматически.
+- Не добавлять и не запускать внешние security scanners в рамках этого skill.
 - Не скрывать ошибки и не считать пропущенную проверку успешной.
 
 ## Итоговый отчёт
@@ -83,5 +101,7 @@ description: Verify the SUP Rental project after changes or before handoff or co
 - является ли проверка полной для текущего состояния проекта;
 - какие команды фактически выполнены;
 - изменил ли `go fmt ./...` файлы;
+- прошли ли тесты с race detector;
+- обнаружил ли `git diff --check` whitespace errors;
 - какие ограничения или непроверенные части остались;
 - текущее состояние Git без создания коммита.
