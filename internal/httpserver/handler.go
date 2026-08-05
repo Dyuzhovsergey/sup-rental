@@ -15,21 +15,31 @@ var templateFiles embed.FS
 
 // NewHandler создаёт HTTP-обработчик со всеми маршрутами приложения.
 //
-// Logger используется для записи ошибок HTTP-слоя и должен быть создан
-// точкой входа приложения. NewHandler возвращает ошибку, если встроенные
-// HTML-шаблоны невозможно разобрать.
-func NewHandler(logger *slog.Logger) (http.Handler, error) {
-	statusTemplate, err := template.ParseFS(templateFiles, "templates/status.html")
+// Logger используется для записи ошибок HTTP-слоя, а equipmentService
+// предоставляет сценарии учёта оборудования. Обе зависимости должны быть
+// созданы точкой входа приложения. NewHandler возвращает ошибку, если
+// встроенные HTML-шаблоны невозможно разобрать.
+func NewHandler(
+	logger *slog.Logger,
+	equipmentService equipmentService,
+) (http.Handler, error) {
+	pageTemplates, err := template.ParseFS(templateFiles, "templates/*.html")
 	if err != nil {
-		return nil, fmt.Errorf("parse status template: %w", err)
+		return nil, fmt.Errorf("parse HTML templates: %w", err)
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		status(logger, statusTemplate, w, r)
+		status(logger, pageTemplates, w, r)
 	})
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		health(logger, w, r)
+	})
+	mux.HandleFunc("/equipment", func(w http.ResponseWriter, r *http.Request) {
+		equipmentPage(logger, equipmentService, pageTemplates, w, r)
+	})
+	mux.HandleFunc("POST /equipment/{id}/status", func(w http.ResponseWriter, r *http.Request) {
+		changeEquipmentStatus(logger, equipmentService, pageTemplates, w, r)
 	})
 
 	return mux, nil

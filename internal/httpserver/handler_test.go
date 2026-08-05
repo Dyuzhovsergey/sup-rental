@@ -2,6 +2,7 @@ package httpserver
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io"
 	"log/slog"
@@ -9,6 +10,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
 )
 
 func TestStatus(t *testing.T) {
@@ -149,10 +152,19 @@ func TestHealthLogsWriteError(t *testing.T) {
 	}
 }
 
-func newTestHandler(t *testing.T, logger *slog.Logger) http.Handler {
+func newTestHandler(
+	t *testing.T,
+	logger *slog.Logger,
+	services ...equipmentService,
+) http.Handler {
 	t.Helper()
 
-	handler, err := NewHandler(logger)
+	var service equipmentService = &equipmentServiceStub{}
+	if len(services) > 0 {
+		service = services[0]
+	}
+
+	handler, err := NewHandler(logger, service)
 	if err != nil {
 		t.Fatalf("create handler: %v", err)
 	}
@@ -191,4 +203,41 @@ func (r *responseRecorder) Write(body []byte) (int, error) {
 
 func (r *responseRecorder) WriteHeader(statusCode int) {
 	r.statusCode = statusCode
+}
+
+type equipmentServiceStub struct {
+	create       func(context.Context, equipment.CreateInput) (equipment.Item, error)
+	list         func(context.Context) ([]equipment.Item, error)
+	changeStatus func(context.Context, int64, equipment.Status) (equipment.Item, error)
+}
+
+func (s *equipmentServiceStub) Create(
+	ctx context.Context,
+	input equipment.CreateInput,
+) (equipment.Item, error) {
+	if s.create == nil {
+		return equipment.Item{}, nil
+	}
+
+	return s.create(ctx, input)
+}
+
+func (s *equipmentServiceStub) List(ctx context.Context) ([]equipment.Item, error) {
+	if s.list == nil {
+		return []equipment.Item{}, nil
+	}
+
+	return s.list(ctx)
+}
+
+func (s *equipmentServiceStub) ChangeStatus(
+	ctx context.Context,
+	id int64,
+	status equipment.Status,
+) (equipment.Item, error) {
+	if s.changeStatus == nil {
+		return equipment.Item{}, nil
+	}
+
+	return s.changeStatus(ctx, id, status)
 }

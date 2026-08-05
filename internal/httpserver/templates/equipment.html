@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    <style>
+        body {
+            max-width: 64rem;
+            margin: 3rem auto;
+            padding: 0 1rem;
+            color: #1f2937;
+            font-family: system-ui, sans-serif;
+            line-height: 1.5;
+        }
+
+        .create-form {
+            display: grid;
+            gap: 1rem;
+            max-width: 30rem;
+            padding: 1.5rem;
+            border: 1px solid #d1d5db;
+            border-radius: 0.75rem;
+            background: #f9fafb;
+        }
+
+        label {
+            display: grid;
+            gap: 0.25rem;
+            font-weight: 600;
+        }
+
+        input,
+        select,
+        button {
+            padding: 0.65rem;
+            font: inherit;
+        }
+
+        button {
+            cursor: pointer;
+        }
+
+        .status-form {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .error {
+            color: #b91c1c;
+            font-weight: 600;
+        }
+
+        table {
+            width: 100%;
+            margin-top: 1rem;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            padding: 0.75rem;
+            border-bottom: 1px solid #d1d5db;
+            text-align: left;
+        }
+    </style>
+</head>
+<body>
+    <nav><a href="/">Состояние приложения</a></nav>
+    <main>
+        <h1>Оборудование</h1>
+
+        <section aria-labelledby="create-equipment-heading">
+            <h2 id="create-equipment-heading">Добавить оборудование</h2>
+            {{if .Error}}<p class="error" role="alert">{{.Error}}</p>{{end}}
+            <form class="create-form" method="post" action="/equipment">
+                <label>
+                    Инвентарный номер
+                    <input
+                        name="inventory_number"
+                        value="{{.Form.InventoryNumber}}"
+                        required
+                    >
+                </label>
+
+                <label>
+                    Тип
+                    <select name="kind" required>
+                        <option value="">Выберите тип</option>
+                        {{range .Kinds}}
+                        <option value="{{.Value}}"{{if eq $.Form.Kind .Value}} selected{{end}}>
+                            {{.Label}}
+                        </option>
+                        {{end}}
+                    </select>
+                </label>
+
+                <button type="submit">Добавить</button>
+            </form>
+        </section>
+
+        <section aria-labelledby="equipment-list-heading">
+            <h2 id="equipment-list-heading">Список оборудования</h2>
+            {{if .Items}}
+            <table>
+                <thead>
+                    <tr>
+                        <th scope="col">ID</th>
+                        <th scope="col">Инвентарный номер</th>
+                        <th scope="col">Тип</th>
+                        <th scope="col">Состояние</th>
+                        <th scope="col">Действие</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Items}}
+                    <tr>
+                        <td>{{.ID}}</td>
+                        <td>{{.InventoryNumber}}</td>
+                        <td>{{.Kind}}</td>
+                        <td>{{.Status}}</td>
+                        <td>
+                            {{if .StatusOptions}}
+                            <form class="status-form" method="post" action="/equipment/{{.ID}}/status">
+                                <select name="status" aria-label="Новое состояние для {{.InventoryNumber}}">
+                                    {{range .StatusOptions}}
+                                    <option value="{{.Value}}">{{.Label}}</option>
+                                    {{end}}
+                                </select>
+                                <button type="submit">Изменить</button>
+                            </form>
+                            {{else}}
+                            <span>Недоступно</span>
+                            {{end}}
+                        </td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
+            {{else}}
+            <p>Оборудование пока не добавлено.</p>
+            {{end}}
+        </section>
+    </main>
+</body>
+</html>

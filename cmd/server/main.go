@@ -11,6 +11,7 @@ import (
 	"syscall"
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/config"
+	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
 	"github.com/Dyuzhovsergey/sup-rental/internal/httpserver"
 	"github.com/Dyuzhovsergey/sup-rental/internal/postgres"
 )
@@ -51,7 +52,10 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		slog.String("component", "httpserver"),
 	)
 
-	handler, err := httpserver.NewHandler(httpLogger)
+	equipmentRepository := postgres.NewEquipmentRepository(pool)
+	equipmentService := equipment.NewService(equipmentRepository)
+
+	handler, err := httpserver.NewHandler(httpLogger, equipmentService)
 	if err != nil {
 		return fmt.Errorf("create HTTP handler: %w", err)
 	}
