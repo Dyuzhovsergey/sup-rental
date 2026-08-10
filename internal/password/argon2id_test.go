@@ -158,7 +158,7 @@ func BenchmarkHasherHash(b *testing.B) {
 	hasher := NewHasher()
 	b.ReportAllocs()
 
-	for range b.N {
+	for b.Loop() {
 		if _, err := hasher.Hash("sup-more-27"); err != nil {
 			b.Fatal(err)
 		}
