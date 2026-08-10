@@ -15,9 +15,12 @@ type equipmentEditPageData struct {
 	Title                string
 	ID                   int64
 	Kinds                []equipmentKindOption
+	Statuses             []equipmentStatusOption
 	Form                 equipmentFormData
+	CanRetire            bool
 	InventoryNumberError string
 	KindError            string
+	StatusError          string
 }
 
 func showEquipmentEditPage(
@@ -57,7 +60,9 @@ func showEquipmentEditPage(
 		equipmentFormData{
 			InventoryNumber: item.InventoryNumber,
 			Kind:            string(item.Kind),
+			Status:          string(item.Status),
 		},
+		"",
 		"",
 		"",
 	)
@@ -84,14 +89,21 @@ func updateEquipment(
 	form := equipmentFormData{
 		InventoryNumber: r.PostForm.Get("inventory_number"),
 		Kind:            r.PostForm.Get("kind"),
+		Status:          r.PostForm.Get("status"),
 	}
 
-	_, err := service.Update(r.Context(), id, equipment.UpdateInput{
+	updated, err := service.Update(r.Context(), id, equipment.UpdateInput{
 		InventoryNumber: form.InventoryNumber,
 		Kind:            equipment.Kind(form.Kind),
+		Status:          equipment.Status(form.Status),
 	})
 	if err == nil {
-		http.Redirect(w, r, "/equipment?updated=1", http.StatusSeeOther)
+		http.Redirect(
+			w,
+			r,
+			equipmentRedirectURL(equipmentNoticeUpdated, updated),
+			http.StatusSeeOther,
+		)
 		return
 	}
 
@@ -114,6 +126,7 @@ func updateEquipment(
 			form,
 			"Введите инвентарный номер.",
 			"",
+			"",
 		)
 	case errors.Is(err, equipment.ErrInvalidKind):
 		renderEquipmentEditPage(
@@ -125,6 +138,31 @@ func updateEquipment(
 			form,
 			"",
 			"Выберите тип оборудования.",
+			"",
+		)
+	case errors.Is(err, equipment.ErrInvalidStatus):
+		renderEquipmentEditPage(
+			logger,
+			pageTemplates,
+			w,
+			http.StatusUnprocessableEntity,
+			id,
+			form,
+			"",
+			"",
+			"Выберите допустимый статус оборудования.",
+		)
+	case errors.Is(err, equipment.ErrStatusTransitionNotAllowed):
+		renderEquipmentEditPage(
+			logger,
+			pageTemplates,
+			w,
+			http.StatusUnprocessableEntity,
+			id,
+			form,
+			"",
+			"",
+			"Этот переход статуса недоступен в форме редактирования.",
 		)
 	case errors.Is(err, equipment.ErrInventoryNumberExists):
 		renderEquipmentEditPage(
@@ -135,6 +173,7 @@ func updateEquipment(
 			id,
 			form,
 			"Оборудование с таким инвентарным номером уже существует.",
+			"",
 			"",
 		)
 	default:
@@ -172,14 +211,18 @@ func renderEquipmentEditPage(
 	form equipmentFormData,
 	inventoryNumberError string,
 	kindError string,
+	statusError string,
 ) {
 	data := equipmentEditPageData{
 		Title:                "Редактирование оборудования — SUP Rental",
 		ID:                   id,
 		Kinds:                equipmentKindOptions(),
+		Statuses:             equipmentEditableStatusOptions(equipment.Status(form.Status)),
 		Form:                 form,
+		CanRetire:            equipment.Status(form.Status).CanTransitionTo(equipment.StatusRetired),
 		InventoryNumberError: inventoryNumberError,
 		KindError:            kindError,
+		StatusError:          statusError,
 	}
 
 	var body bytes.Buffer

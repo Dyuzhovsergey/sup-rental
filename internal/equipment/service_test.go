@@ -168,6 +168,7 @@ func TestServiceUpdate(t *testing.T) {
 		wantErr       error
 		wantNumber    string
 		wantKind      Kind
+		wantStatus    Status
 	}{
 		{
 			name:          "updates available equipment and trims number",
@@ -175,9 +176,11 @@ func TestServiceUpdate(t *testing.T) {
 			input: UpdateInput{
 				InventoryNumber: "  SUP-017-UPDATED  ",
 				Kind:            KindLifeJacket,
+				Status:          StatusMaintenance,
 			},
 			wantNumber: "SUP-017-UPDATED",
 			wantKind:   KindLifeJacket,
+			wantStatus: StatusMaintenance,
 		},
 		{
 			name:          "updates equipment in maintenance",
@@ -185,9 +188,11 @@ func TestServiceUpdate(t *testing.T) {
 			input: UpdateInput{
 				InventoryNumber: "PADDLE-017",
 				Kind:            KindPaddle,
+				Status:          StatusAvailable,
 			},
 			wantNumber: "PADDLE-017",
 			wantKind:   KindPaddle,
+			wantStatus: StatusAvailable,
 		},
 		{
 			name:          "rejects empty inventory number",
@@ -195,6 +200,7 @@ func TestServiceUpdate(t *testing.T) {
 			input: UpdateInput{
 				InventoryNumber: " \t ",
 				Kind:            KindPaddle,
+				Status:          StatusAvailable,
 			},
 			wantErr: ErrInventoryNumberRequired,
 		},
@@ -204,8 +210,29 @@ func TestServiceUpdate(t *testing.T) {
 			input: UpdateInput{
 				InventoryNumber: "SUP-017",
 				Kind:            Kind("unknown"),
+				Status:          StatusAvailable,
 			},
 			wantErr: ErrInvalidKind,
+		},
+		{
+			name:          "rejects invalid status",
+			currentStatus: StatusAvailable,
+			input: UpdateInput{
+				InventoryNumber: "SUP-017",
+				Kind:            KindSUPBoard,
+				Status:          Status("unknown"),
+			},
+			wantErr: ErrInvalidStatus,
+		},
+		{
+			name:          "requires separate retirement confirmation",
+			currentStatus: StatusAvailable,
+			input: UpdateInput{
+				InventoryNumber: "SUP-017",
+				Kind:            KindSUPBoard,
+				Status:          StatusRetired,
+			},
+			wantErr: ErrStatusTransitionNotAllowed,
 		},
 		{
 			name:          "rejects issued equipment",
@@ -213,6 +240,7 @@ func TestServiceUpdate(t *testing.T) {
 			input: UpdateInput{
 				InventoryNumber: "SUP-017",
 				Kind:            KindSUPBoard,
+				Status:          StatusAvailable,
 			},
 			wantErr: ErrEquipmentUpdateNotAllowed,
 		},
@@ -222,6 +250,7 @@ func TestServiceUpdate(t *testing.T) {
 			input: UpdateInput{
 				InventoryNumber: "SUP-017",
 				Kind:            KindSUPBoard,
+				Status:          StatusAvailable,
 			},
 			wantErr: ErrEquipmentUpdateNotAllowed,
 		},
@@ -236,6 +265,7 @@ func TestServiceUpdate(t *testing.T) {
 			input: UpdateInput{
 				InventoryNumber: "SUP-001",
 				Kind:            KindSUPBoard,
+				Status:          StatusAvailable,
 			},
 			updateErr: ErrInventoryNumberExists,
 			wantErr:   ErrInventoryNumberExists,
@@ -246,6 +276,7 @@ func TestServiceUpdate(t *testing.T) {
 			input: UpdateInput{
 				InventoryNumber: "SUP-017",
 				Kind:            KindSUPBoard,
+				Status:          StatusAvailable,
 			},
 			updateErr: updateError,
 			wantErr:   updateError,
@@ -256,6 +287,7 @@ func TestServiceUpdate(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var gotNumber string
 			var gotKind Kind
+			var gotStatus Status
 			repository := &repositoryStub{
 				get: func(_ context.Context, _ int64) (Item, error) {
 					if tt.getErr != nil {
@@ -264,14 +296,16 @@ func TestServiceUpdate(t *testing.T) {
 
 					return Item{ID: 17, Status: tt.currentStatus}, nil
 				},
-				updateDetails: func(
+				update: func(
 					_ context.Context,
 					id int64,
 					inventoryNumber string,
 					kind Kind,
+					status Status,
 				) (Item, error) {
 					gotNumber = inventoryNumber
 					gotKind = kind
+					gotStatus = status
 					if tt.updateErr != nil {
 						return Item{}, tt.updateErr
 					}
@@ -280,7 +314,7 @@ func TestServiceUpdate(t *testing.T) {
 						ID:              id,
 						InventoryNumber: inventoryNumber,
 						Kind:            kind,
-						Status:          tt.currentStatus,
+						Status:          status,
 					}, nil
 				},
 			}
@@ -295,27 +329,37 @@ func TestServiceUpdate(t *testing.T) {
 				if tt.updateErr != nil {
 					wantCalls = 1
 				}
-				if repository.updateDetailsCalls != wantCalls {
+				if repository.updateCalls != wantCalls {
 					t.Errorf(
-						"repository UpdateDetails() calls = %d, want %d",
-						repository.updateDetailsCalls,
+						"repository Update() calls = %d, want %d",
+						repository.updateCalls,
 						wantCalls,
 					)
 				}
 				return
 			}
 
-			if gotNumber != tt.wantNumber || gotKind != tt.wantKind {
+			if gotNumber != tt.wantNumber || gotKind != tt.wantKind || gotStatus != tt.wantStatus {
 				t.Errorf(
-					"UpdateDetails() input = (%q, %q), want (%q, %q)",
+					"Update() input = (%q, %q, %q), want (%q, %q, %q)",
 					gotNumber,
 					gotKind,
+					gotStatus,
 					tt.wantNumber,
 					tt.wantKind,
+					tt.wantStatus,
 				)
 			}
-			if got.InventoryNumber != tt.wantNumber || got.Kind != tt.wantKind {
-				t.Errorf("Update() = %+v, want number %q and kind %q", got, tt.wantNumber, tt.wantKind)
+			if got.InventoryNumber != tt.wantNumber ||
+				got.Kind != tt.wantKind ||
+				got.Status != tt.wantStatus {
+				t.Errorf(
+					"Update() = %+v, want number %q, kind %q and status %q",
+					got,
+					tt.wantNumber,
+					tt.wantKind,
+					tt.wantStatus,
+				)
 			}
 		})
 	}
@@ -439,15 +483,110 @@ func TestServiceChangeStatus(t *testing.T) {
 	}
 }
 
+func TestServiceDelete(t *testing.T) {
+	deleteError := errors.New("delete failed")
+	tests := []struct {
+		name          string
+		currentStatus Status
+		getErr        error
+		deleteErr     error
+		wantErr       error
+		wantCalls     int
+	}{
+		{
+			name:          "deletes retired equipment",
+			currentStatus: StatusRetired,
+			wantCalls:     1,
+		},
+		{
+			name:          "rejects available equipment",
+			currentStatus: StatusAvailable,
+			wantErr:       ErrEquipmentDeleteNotAllowed,
+		},
+		{
+			name:          "rejects equipment under maintenance",
+			currentStatus: StatusMaintenance,
+			wantErr:       ErrEquipmentDeleteNotAllowed,
+		},
+		{
+			name:          "rejects issued equipment",
+			currentStatus: StatusIssued,
+			wantErr:       ErrEquipmentDeleteNotAllowed,
+		},
+		{
+			name:    "returns not found error",
+			getErr:  ErrEquipmentNotFound,
+			wantErr: ErrEquipmentNotFound,
+		},
+		{
+			name:          "preserves repository error",
+			currentStatus: StatusRetired,
+			deleteErr:     deleteError,
+			wantErr:       deleteError,
+			wantCalls:     1,
+		},
+		{
+			name:          "preserves history conflict",
+			currentStatus: StatusRetired,
+			deleteErr:     ErrEquipmentHasHistory,
+			wantErr:       ErrEquipmentHasHistory,
+			wantCalls:     1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			item := Item{
+				ID:              17,
+				InventoryNumber: "SUP-017",
+				Kind:            KindSUPBoard,
+				Status:          tt.currentStatus,
+			}
+			repository := &repositoryStub{
+				get: func(_ context.Context, _ int64) (Item, error) {
+					if tt.getErr != nil {
+						return Item{}, tt.getErr
+					}
+
+					return item, nil
+				},
+				delete: func(_ context.Context, id int64) error {
+					if id != 17 {
+						t.Errorf("Delete() ID = %d, want 17", id)
+					}
+					return tt.deleteErr
+				},
+			}
+
+			got, err := NewService(repository).Delete(context.Background(), 17)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Delete() error = %v, want %v", err, tt.wantErr)
+			}
+			if repository.deleteCalls != tt.wantCalls {
+				t.Errorf(
+					"repository Delete() calls = %d, want %d",
+					repository.deleteCalls,
+					tt.wantCalls,
+				)
+			}
+			if tt.wantErr == nil && got != item {
+				t.Errorf("Delete() = %+v, want %+v", got, item)
+			}
+		})
+	}
+}
+
 type repositoryStub struct {
-	create             func(context.Context, Item) (Item, error)
-	list               func(context.Context) ([]Item, error)
-	get                func(context.Context, int64) (Item, error)
-	updateDetails      func(context.Context, int64, string, Kind) (Item, error)
-	updateStatus       func(context.Context, int64, Status) (Item, error)
-	createCalls        int
-	updateDetailsCalls int
-	updateStatusCalls  int
+	create            func(context.Context, Item) (Item, error)
+	list              func(context.Context) ([]Item, error)
+	get               func(context.Context, int64) (Item, error)
+	update            func(context.Context, int64, string, Kind, Status) (Item, error)
+	updateStatus      func(context.Context, int64, Status) (Item, error)
+	delete            func(context.Context, int64) error
+	createCalls       int
+	updateCalls       int
+	updateStatusCalls int
+	deleteCalls       int
 }
 
 func (r *repositoryStub) Create(ctx context.Context, item Item) (Item, error) {
@@ -463,14 +602,15 @@ func (r *repositoryStub) Get(ctx context.Context, id int64) (Item, error) {
 	return r.get(ctx, id)
 }
 
-func (r *repositoryStub) UpdateDetails(
+func (r *repositoryStub) Update(
 	ctx context.Context,
 	id int64,
 	inventoryNumber string,
 	kind Kind,
+	status Status,
 ) (Item, error) {
-	r.updateDetailsCalls++
-	return r.updateDetails(ctx, id, inventoryNumber, kind)
+	r.updateCalls++
+	return r.update(ctx, id, inventoryNumber, kind, status)
 }
 
 func (r *repositoryStub) UpdateStatus(
@@ -480,4 +620,9 @@ func (r *repositoryStub) UpdateStatus(
 ) (Item, error) {
 	r.updateStatusCalls++
 	return r.updateStatus(ctx, id, status)
+}
+
+func (r *repositoryStub) Delete(ctx context.Context, id int64) error {
+	r.deleteCalls++
+	return r.delete(ctx, id)
 }

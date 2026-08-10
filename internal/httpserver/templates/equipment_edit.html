@@ -4,117 +4,168 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{.Title}}</title>
-    <style>
-        body {
-            max-width: 40rem;
-            margin: 3rem auto;
-            padding: 0 1rem;
-            color: #1f2937;
-            font-family: system-ui, sans-serif;
-            line-height: 1.5;
-        }
-
-        .edit-form {
-            display: grid;
-            gap: 1rem;
-            max-width: 30rem;
-            padding: 1.5rem;
-            border: 1px solid #d1d5db;
-            border-radius: 0.75rem;
-            background: #f9fafb;
-        }
-
-        label {
-            display: grid;
-            gap: 0.25rem;
-            font-weight: 600;
-        }
-
-        input,
-        select,
-        button {
-            box-sizing: border-box;
-            width: 100%;
-            padding: 0.65rem;
-            font: inherit;
-        }
-
-        button {
-            cursor: pointer;
-        }
-
-        a:focus-visible,
-        input:focus-visible,
-        select:focus-visible,
-        button:focus-visible {
-            outline: 3px solid #2563eb;
-            outline-offset: 2px;
-        }
-
-        .field-error {
-            margin: 0.25rem 0 0;
-            color: #b91c1c;
-            font-weight: 600;
-        }
-
-        .form-actions {
-            display: grid;
-            gap: 0.75rem;
-        }
-
-        .cancel-link {
-            justify-self: start;
-            padding: 0.5rem 0;
-        }
-    </style>
+    <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
-    <nav><a href="/equipment">Оборудование</a></nav>
-    <main>
-        <h1 id="edit-equipment-heading">Редактировать оборудование</h1>
-        <form
-            class="edit-form"
-            method="post"
-            action="/equipment/{{.ID}}/edit"
-            aria-labelledby="edit-equipment-heading"
-        >
-            <label for="inventory-number">
-                Инвентарный номер
-            </label>
-            <input
-                id="inventory-number"
-                name="inventory_number"
-                value="{{.Form.InventoryNumber}}"
-                required
-                {{if .InventoryNumberError}}aria-invalid="true" aria-describedby="inventory-number-error"{{end}}
-            >
-            {{if .InventoryNumberError}}
-            <p id="inventory-number-error" class="field-error" role="alert">{{.InventoryNumberError}}</p>
-            {{end}}
+    <a class="skip-link" href="#main-content">К содержимому</a>
 
-            <label for="kind">Тип</label>
-            <select
-                id="kind"
-                name="kind"
-                required
-                {{if .KindError}}aria-invalid="true" aria-describedby="kind-error"{{end}}
-            >
-                <option value="">Выберите тип</option>
-                {{range .Kinds}}
-                <option value="{{.Value}}"{{if eq $.Form.Kind .Value}} selected{{end}}>
-                    {{.Label}}
-                </option>
-                {{end}}
-            </select>
-            {{if .KindError}}
-            <p id="kind-error" class="field-error" role="alert">{{.KindError}}</p>
-            {{end}}
+    <div class="app-shell">
+        {{template "equipment-sidebar" .}}
 
-            <div class="form-actions">
-                <button type="submit">Сохранить</button>
-                <a class="cancel-link" href="/equipment">Отмена</a>
+        <main class="main-content" id="main-content" tabindex="-1">
+            <div class="content-container">
+                <nav class="breadcrumb" aria-label="Хлебные крошки">
+                    <a href="/equipment">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="m15 18-6-6 6-6"></path>
+                        </svg>
+                        Оборудование
+                    </a>
+                    <span aria-hidden="true">/</span>
+                    <span>Редактирование</span>
+                </nav>
+
+                <header class="page-header">
+                    <div>
+                        <p class="page-eyebrow">Инвентарь</p>
+                        <h1 id="edit-equipment-heading">Редактировать оборудование</h1>
+                        <p class="page-description">
+                            Измените основные данные и рабочий статус предмета.
+                        </p>
+                    </div>
+                </header>
+
+                <div class="content-stack content-stack--narrow">
+                    <section class="panel">
+                        <header class="panel-header">
+                            <div>
+                                <h2>Основные данные</h2>
+                                <p class="panel-description">
+                                    Обязательные поля отмечены символом «*».
+                                </p>
+                            </div>
+                        </header>
+
+                        <form
+                            method="post"
+                            action="/equipment/{{.ID}}/edit"
+                            aria-labelledby="edit-equipment-heading"
+                        >
+                            <div class="panel-body form-stack">
+                            <div class="field">
+                                <label class="field-label" for="inventory-number">
+                                    Инвентарный номер
+                                    <span class="required" aria-hidden="true">*</span>
+                                    <span class="visually-hidden">(обязательное поле)</span>
+                                </label>
+                                <input
+                                    id="inventory-number"
+                                    name="inventory_number"
+                                    value="{{.Form.InventoryNumber}}"
+                                    autocomplete="off"
+                                    spellcheck="false"
+                                    required
+                                    {{if .InventoryNumberError}}aria-invalid="true" aria-describedby="inventory-number-error"{{end}}
+                                >
+                                {{if .InventoryNumberError}}
+                                <p id="inventory-number-error" class="field-error" role="alert">{{.InventoryNumberError}}</p>
+                                {{end}}
+                            </div>
+
+                            <div class="field">
+                                <label class="field-label" for="kind">
+                                    Тип
+                                    <span class="required" aria-hidden="true">*</span>
+                                    <span class="visually-hidden">(обязательное поле)</span>
+                                </label>
+                                <select
+                                    id="kind"
+                                    name="kind"
+                                    required
+                                    {{if .KindError}}aria-invalid="true" aria-describedby="kind-error"{{end}}
+                                >
+                                    <option value="">Выберите тип</option>
+                                    {{range .Kinds}}
+                                    <option value="{{.Value}}"{{if eq $.Form.Kind .Value}} selected{{end}}>
+                                        {{.Label}}
+                                    </option>
+                                    {{end}}
+                                </select>
+                                {{if .KindError}}
+                                <p id="kind-error" class="field-error" role="alert">{{.KindError}}</p>
+                                {{end}}
+                            </div>
+
+                            <div class="field">
+                                <label class="field-label" for="status">
+                                    Статус
+                                    <span class="required" aria-hidden="true">*</span>
+                                    <span class="visually-hidden">(обязательное поле)</span>
+                                </label>
+                                <select
+                                    id="status"
+                                    name="status"
+                                    required
+                                    {{if .StatusError}}aria-invalid="true" aria-describedby="status-error"{{end}}
+                                >
+                                    {{range .Statuses}}
+                                    <option value="{{.Value}}"{{if .Selected}} selected{{end}}>
+                                        {{.Label}}
+                                    </option>
+                                    {{end}}
+                                </select>
+                                {{if .StatusError}}
+                                <p id="status-error" class="field-error" role="alert">{{.StatusError}}</p>
+                                {{end}}
+                            </div>
+
+                            <div class="form-actions">
+                                <button class="button button--primary" type="submit">
+                                    <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                        <path d="M5 4h12l2 2v14H5V4Z"></path>
+                                        <path d="M8 4v6h8V4"></path>
+                                        <path d="M8 20v-6h8v6"></path>
+                                    </svg>
+                                    Сохранить
+                                </button>
+                                <a class="button button--secondary cancel-link" href="/equipment/{{.ID}}">Отмена</a>
+                            </div>
+                            </div>
+                        </form>
+                    </section>
+
+                    {{if .CanRetire}}
+                    <section
+                        class="panel retirement-panel"
+                        aria-labelledby="retire-equipment-heading"
+                    >
+                        <header class="panel-header retirement-panel-header">
+                            <div>
+                                <h2 id="retire-equipment-heading">Списание оборудования</h2>
+                                <p class="panel-description">
+                                    Необратимое действие
+                                </p>
+                            </div>
+                        </header>
+                        <div class="panel-body retirement-panel-body">
+                            <p>
+                                После подтверждения оборудование нельзя будет
+                                редактировать или вернуть в работу.
+                            </p>
+                            <a class="button button--danger" href="/equipment/{{.ID}}/retire">
+                                <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path d="M12 8v5"></path>
+                                    <path d="M12 16.5h.01"></path>
+                                    <path d="M10.2 4.5 3.4 17a2 2 0 0 0 1.8 3h13.6a2 2 0 0 0 1.8-3L13.8 4.5a2 2 0 0 0-3.6 0Z"></path>
+                                </svg>
+                                Списать оборудование
+                            </a>
+                        </div>
+                    </section>
+                    {{end}}
+                </div>
             </div>
-        </form>
-    </main>
+        </main>
+    </div>
 </body>
 </html>

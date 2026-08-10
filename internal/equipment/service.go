@@ -23,6 +23,12 @@ var (
 	// ErrEquipmentUpdateNotAllowed означает, что данные предмета нельзя
 	// редактировать в его текущем состоянии.
 	ErrEquipmentUpdateNotAllowed = errors.New("equipment update is not allowed")
+	// ErrEquipmentDeleteNotAllowed означает, что предмет нельзя удалить в его
+	// текущем состоянии.
+	ErrEquipmentDeleteNotAllowed = errors.New("equipment deletion is not allowed")
+	// ErrEquipmentHasHistory означает, что предмет связан с историческими
+	// данными и поэтому не может быть удалён.
+	ErrEquipmentHasHistory = errors.New("equipment has history")
 )
 
 // Repository определяет операции хранения, необходимые сервису оборудования.
@@ -30,11 +36,12 @@ type Repository interface {
 	Create(ctx context.Context, item Item) (Item, error)
 	List(ctx context.Context) ([]Item, error)
 	Get(ctx context.Context, id int64) (Item, error)
-	UpdateDetails(ctx context.Context, id int64, inventoryNumber string, kind Kind) (Item, error)
+	Update(ctx context.Context, id int64, inventoryNumber string, kind Kind, status Status) (Item, error)
 	UpdateStatus(ctx context.Context, id int64, status Status) (Item, error)
+	Delete(ctx context.Context, id int64) error
 }
 
-// Service реализует сценарии создания и просмотра оборудования.
+// Service реализует сценарии учёта оборудования.
 type Service struct {
 	repository Repository
 }
@@ -53,6 +60,8 @@ type UpdateInput struct {
 	InventoryNumber string
 	// Kind — исправленный тип оборудования.
 	Kind Kind
+	// Status — выбранное физическое состояние оборудования.
+	Status Status
 }
 
 // NewService создаёт сервис оборудования с обязательным repository.
@@ -109,10 +118,13 @@ func (s *Service) Get(ctx context.Context, id int64) (Item, error) {
 	return item, nil
 }
 
-// Update изменяет инвентарный номер и тип оборудования.
+// Update изменяет инвентарный номер, тип и обратимое физическое состояние
+// оборудования.
 //
 // Редактирование разрешено только для доступного оборудования и оборудования
-// на обслуживании. Внешние пробелы инвентарного номера удаляются.
+// на обслуживании. Через форму редактирования можно переключаться только между
+// этими двумя состояниями; списание требует отдельного подтверждения. Внешние
+// пробелы инвентарного номера удаляются.
 func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) (Item, error) {
 	item, err := s.repository.Get(ctx, id)
 	if err != nil {
@@ -132,14 +144,24 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) (Item
 		return Item{}, ErrInvalidKind
 	}
 
-	updated, err := s.repository.UpdateDetails(
+	if !input.Status.Valid() {
+		return Item{}, ErrInvalidStatus
+	}
+
+	if !input.Status.CanEditDetails() ||
+		(input.Status != item.Status && !item.Status.CanTransitionTo(input.Status)) {
+		return Item{}, ErrStatusTransitionNotAllowed
+	}
+
+	updated, err := s.repository.Update(
 		ctx,
 		id,
 		inventoryNumber,
 		input.Kind,
+		input.Status,
 	)
 	if err != nil {
-		return Item{}, fmt.Errorf("update equipment details: %w", err)
+		return Item{}, fmt.Errorf("update equipment: %w", err)
 	}
 
 	return updated, nil
@@ -167,4 +189,28 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, target Status) (It
 	}
 
 	return updated, nil
+}
+
+// Delete удаляет списанное оборудование и возвращает данные удалённого
+// предмета.
+//
+// Оборудование в любом другом состоянии сохраняется. Repository может вернуть
+// ErrEquipmentHasHistory, если предмет уже связан с историческими данными.
+// Возвращённый предмет позволяет вызывающему коду сформировать подтверждение
+// удаления без повторного запроса уже удалённой записи.
+func (s *Service) Delete(ctx context.Context, id int64) (Item, error) {
+	item, err := s.repository.Get(ctx, id)
+	if err != nil {
+		return Item{}, fmt.Errorf("get equipment for deletion: %w", err)
+	}
+
+	if item.Status != StatusRetired {
+		return Item{}, ErrEquipmentDeleteNotAllowed
+	}
+
+	if err := s.repository.Delete(ctx, id); err != nil {
+		return Item{}, fmt.Errorf("delete equipment: %w", err)
+	}
+
+	return item, nil
 }

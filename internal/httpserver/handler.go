@@ -13,6 +13,9 @@ import (
 //go:embed templates/*.html
 var templateFiles embed.FS
 
+//go:embed static/app.css
+var appStyles []byte
+
 // NewHandler создаёт HTTP-обработчик со всеми маршрутами приложения.
 //
 // Logger используется для записи ошибок HTTP-слоя, а equipmentService
@@ -35,11 +38,20 @@ func NewHandler(
 	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		health(logger, w, r)
 	})
+	mux.HandleFunc("/static/app.css", func(w http.ResponseWriter, r *http.Request) {
+		stylesheet(logger, w, r)
+	})
 	mux.HandleFunc("/equipment", func(w http.ResponseWriter, r *http.Request) {
 		equipmentPage(logger, equipmentService, pageTemplates, w, r)
 	})
-	mux.HandleFunc("POST /equipment/{id}/status", func(w http.ResponseWriter, r *http.Request) {
-		changeEquipmentStatus(logger, equipmentService, pageTemplates, w, r)
+	mux.HandleFunc("/equipment/{id}", func(w http.ResponseWriter, r *http.Request) {
+		showEquipmentDetailPage(logger, equipmentService, pageTemplates, w, r)
+	})
+	mux.HandleFunc("/equipment/{id}/retire", func(w http.ResponseWriter, r *http.Request) {
+		equipmentRetirement(logger, equipmentService, pageTemplates, w, r)
+	})
+	mux.HandleFunc("/equipment/{id}/delete", func(w http.ResponseWriter, r *http.Request) {
+		equipmentDeletion(logger, equipmentService, pageTemplates, w, r)
 	})
 	mux.HandleFunc("GET /equipment/{id}/edit", func(w http.ResponseWriter, r *http.Request) {
 		showEquipmentEditPage(logger, equipmentService, pageTemplates, w, r)
@@ -49,6 +61,25 @@ func NewHandler(
 	})
 
 	return mux, nil
+}
+
+func stylesheet(logger *slog.Logger, w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Allow", http.MethodGet)
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.WriteHeader(http.StatusOK)
+
+	if _, err := w.Write(appStyles); err != nil {
+		logger.Error(
+			"write application stylesheet",
+			slog.Any("error", err),
+		)
+	}
 }
 
 type statusPageData struct {

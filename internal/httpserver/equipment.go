@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
-	"strconv"
+	"net/url"
+	"strings"
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
 )
@@ -18,15 +20,21 @@ type equipmentService interface {
 	Get(ctx context.Context, id int64) (equipment.Item, error)
 	Update(ctx context.Context, id int64, input equipment.UpdateInput) (equipment.Item, error)
 	ChangeStatus(ctx context.Context, id int64, target equipment.Status) (equipment.Item, error)
+	Delete(ctx context.Context, id int64) (equipment.Item, error)
 }
 
 type equipmentPageData struct {
-	Title   string
-	Items   []equipmentItemView
-	Kinds   []equipmentKindOption
-	Form    equipmentFormData
-	Error   string
-	Success string
+	Title                string
+	ActiveItems          []equipmentItemView
+	RetiredItems         []equipmentItemView
+	CountLabel           string
+	ActiveCountLabel     string
+	RetiredCountLabel    string
+	Kinds                []equipmentKindOption
+	Form                 equipmentFormData
+	InventoryNumberError string
+	KindError            string
+	Success              string
 }
 
 type equipmentItemView struct {
@@ -34,7 +42,6 @@ type equipmentItemView struct {
 	InventoryNumber string
 	Kind            string
 	Status          string
-	StatusOptions   []equipmentStatusOption
 	CanEdit         bool
 }
 
@@ -44,13 +51,15 @@ type equipmentKindOption struct {
 }
 
 type equipmentStatusOption struct {
-	Value string
-	Label string
+	Value    string
+	Label    string
+	Selected bool
 }
 
 type equipmentFormData struct {
 	InventoryNumber string
 	Kind            string
+	Status          string
 }
 
 func equipmentPage(
@@ -70,6 +79,7 @@ func equipmentPage(
 			r,
 			http.StatusOK,
 			equipmentFormData{},
+			"",
 			"",
 		)
 	case http.MethodPost:
@@ -117,6 +127,7 @@ func createEquipment(
 			http.StatusUnprocessableEntity,
 			form,
 			"Введите инвентарный номер.",
+			"",
 		)
 	case errors.Is(err, equipment.ErrInvalidKind):
 		renderEquipmentPage(
@@ -127,6 +138,7 @@ func createEquipment(
 			r,
 			http.StatusUnprocessableEntity,
 			form,
+			"",
 			"Выберите тип оборудования.",
 		)
 	case errors.Is(err, equipment.ErrInventoryNumberExists):
@@ -139,72 +151,11 @@ func createEquipment(
 			http.StatusConflict,
 			form,
 			"Оборудование с таким инвентарным номером уже существует.",
+			"",
 		)
 	default:
 		logger.Error(
 			"create equipment",
-			slog.Any("error", err),
-		)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-	}
-}
-
-func changeEquipmentStatus(
-	logger *slog.Logger,
-	service equipmentService,
-	pageTemplates *template.Template,
-	w http.ResponseWriter,
-	r *http.Request,
-) {
-	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
-	if err != nil || id <= 0 {
-		http.NotFound(w, r)
-		return
-	}
-
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Bad Request", http.StatusBadRequest)
-		return
-	}
-
-	_, err = service.ChangeStatus(
-		r.Context(),
-		id,
-		equipment.Status(r.PostForm.Get("status")),
-	)
-	if err == nil {
-		http.Redirect(w, r, "/equipment", http.StatusSeeOther)
-		return
-	}
-
-	switch {
-	case errors.Is(err, equipment.ErrEquipmentNotFound):
-		http.NotFound(w, r)
-	case errors.Is(err, equipment.ErrInvalidStatus):
-		renderEquipmentPage(
-			logger,
-			service,
-			pageTemplates,
-			w,
-			r,
-			http.StatusUnprocessableEntity,
-			equipmentFormData{},
-			"Выберите допустимое состояние оборудования.",
-		)
-	case errors.Is(err, equipment.ErrStatusTransitionNotAllowed):
-		renderEquipmentPage(
-			logger,
-			service,
-			pageTemplates,
-			w,
-			r,
-			http.StatusUnprocessableEntity,
-			equipmentFormData{},
-			"Этот переход состояния сейчас недоступен.",
-		)
-	default:
-		logger.Error(
-			"change equipment status",
 			slog.Any("error", err),
 		)
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -219,7 +170,8 @@ func renderEquipmentPage(
 	r *http.Request,
 	statusCode int,
 	form equipmentFormData,
-	errorMessage string,
+	inventoryNumberError string,
+	kindError string,
 ) {
 	items, err := service.List(r.Context())
 	if err != nil {
@@ -231,16 +183,20 @@ func renderEquipmentPage(
 		return
 	}
 
+	activeItems, retiredItems := equipmentItemsByLifecycle(items)
 	data := equipmentPageData{
-		Title: "Оборудование — SUP Rental",
-		Items: equipmentItemsView(items),
-		Kinds: equipmentKindOptions(),
-		Form:  form,
-		Error: errorMessage,
+		Title:                "Оборудование — SUP Rental",
+		ActiveItems:          activeItems,
+		RetiredItems:         retiredItems,
+		CountLabel:           equipmentCountLabel(len(items)),
+		ActiveCountLabel:     equipmentCountLabel(len(activeItems)),
+		RetiredCountLabel:    equipmentCountLabel(len(retiredItems)),
+		Kinds:                equipmentKindOptions(),
+		Form:                 form,
+		InventoryNumberError: inventoryNumberError,
+		KindError:            kindError,
 	}
-	if r.URL.Query().Get("updated") == "1" {
-		data.Success = "Оборудование обновлено."
-	}
+	data.Success = equipmentSuccessMessage(r.URL.Query())
 
 	var body bytes.Buffer
 	if err := pageTemplates.ExecuteTemplate(&body, "equipment.html", data); err != nil {
@@ -263,36 +219,43 @@ func renderEquipmentPage(
 	}
 }
 
-func equipmentItemsView(items []equipment.Item) []equipmentItemView {
-	result := make([]equipmentItemView, 0, len(items))
+func equipmentItemsByLifecycle(
+	items []equipment.Item,
+) ([]equipmentItemView, []equipmentItemView) {
+	active := make([]equipmentItemView, 0, len(items))
+	retired := make([]equipmentItemView, 0)
+
 	for _, item := range items {
-		result = append(result, equipmentItemView{
+		view := equipmentItemView{
 			ID:              item.ID,
 			InventoryNumber: item.InventoryNumber,
 			Kind:            equipmentKindLabel(item.Kind),
 			Status:          equipmentStatusLabel(item.Status),
-			StatusOptions:   equipmentStatusOptions(item.Status),
 			CanEdit:         item.Status.CanEditDetails(),
-		})
+		}
+		if item.Status == equipment.StatusRetired {
+			retired = append(retired, view)
+			continue
+		}
+
+		active = append(active, view)
 	}
 
-	return result
+	return active, retired
 }
 
-func equipmentStatusOptions(status equipment.Status) []equipmentStatusOption {
-	switch status {
-	case equipment.StatusAvailable:
-		return []equipmentStatusOption{
-			{Value: string(equipment.StatusMaintenance), Label: "На обслуживании"},
-			{Value: string(equipment.StatusRetired), Label: "Списан"},
-		}
-	case equipment.StatusMaintenance:
-		return []equipmentStatusOption{
-			{Value: string(equipment.StatusAvailable), Label: "Доступен"},
-			{Value: string(equipment.StatusRetired), Label: "Списан"},
-		}
-	default:
-		return nil
+func equipmentEditableStatusOptions(status equipment.Status) []equipmentStatusOption {
+	return []equipmentStatusOption{
+		{
+			Value:    string(equipment.StatusAvailable),
+			Label:    "Доступен",
+			Selected: status == equipment.StatusAvailable,
+		},
+		{
+			Value:    string(equipment.StatusMaintenance),
+			Label:    "На обслуживании",
+			Selected: status == equipment.StatusMaintenance,
+		},
 	}
 }
 
@@ -330,4 +293,72 @@ func equipmentStatusLabel(status equipment.Status) string {
 	default:
 		return string(status)
 	}
+}
+
+func equipmentCountLabel(count int) string {
+	lastTwoDigits := count % 100
+	if lastTwoDigits >= 11 && lastTwoDigits <= 14 {
+		return fmt.Sprintf("%d позиций", count)
+	}
+
+	switch count % 10 {
+	case 1:
+		return fmt.Sprintf("%d позиция", count)
+	case 2, 3, 4:
+		return fmt.Sprintf("%d позиции", count)
+	default:
+		return fmt.Sprintf("%d позиций", count)
+	}
+}
+
+const (
+	equipmentNoticeUpdated = "updated"
+	equipmentNoticeRetired = "retired"
+	equipmentNoticeDeleted = "deleted"
+)
+
+func equipmentRedirectURL(notice string, item equipment.Item) string {
+	query := url.Values{}
+	query.Set("notice", notice)
+	query.Set("kind", string(item.Kind))
+	query.Set("inventory_number", item.InventoryNumber)
+
+	return "/equipment?" + query.Encode()
+}
+
+func equipmentSuccessMessage(query url.Values) string {
+	if len(query["notice"]) != 1 ||
+		len(query["kind"]) != 1 ||
+		len(query["inventory_number"]) != 1 {
+		return ""
+	}
+
+	kind := equipment.Kind(query.Get("kind"))
+	inventoryNumber := query.Get("inventory_number")
+	if !kind.Valid() || !validNoticeInventoryNumber(inventoryNumber) {
+		return ""
+	}
+
+	var action string
+	switch query.Get("notice") {
+	case equipmentNoticeUpdated:
+		action = "обновлено"
+	case equipmentNoticeRetired:
+		action = "списано"
+	case equipmentNoticeDeleted:
+		action = "удалено"
+	default:
+		return ""
+	}
+
+	return fmt.Sprintf(
+		"Оборудование %s %s %s.",
+		equipmentKindLabel(kind),
+		inventoryNumber,
+		action,
+	)
+}
+
+func validNoticeInventoryNumber(inventoryNumber string) bool {
+	return inventoryNumber != "" && strings.TrimSpace(inventoryNumber) == inventoryNumber
 }

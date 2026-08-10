@@ -152,6 +152,85 @@ func TestHealthLogsWriteError(t *testing.T) {
 	}
 }
 
+func TestStylesheet(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/static/app.css", nil)
+	response := httptest.NewRecorder()
+
+	newTestHandler(t, slog.New(slog.NewTextHandler(io.Discard, nil))).ServeHTTP(
+		response,
+		request,
+	)
+
+	if response.Code != http.StatusOK {
+		t.Errorf("status code = %d, want %d", response.Code, http.StatusOK)
+	}
+	if got := response.Header().Get("Content-Type"); got != "text/css; charset=utf-8" {
+		t.Errorf("Content-Type = %q, want %q", got, "text/css; charset=utf-8")
+	}
+	if got := response.Header().Get("Cache-Control"); got != "public, max-age=300" {
+		t.Errorf("Cache-Control = %q, want %q", got, "public, max-age=300")
+	}
+
+	for _, want := range []string{
+		"--color-primary: #4f46e5;",
+		".app-shell",
+		".equipment-layout",
+		".equipment-list-column",
+		".button--compact",
+		".button--edit",
+		".retirement-panel",
+		":focus-visible",
+		"prefers-reduced-motion",
+	} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestStylesheetRejectsUnsupportedMethod(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/static/app.css", nil)
+	response := httptest.NewRecorder()
+
+	newTestHandler(t, slog.New(slog.NewTextHandler(io.Discard, nil))).ServeHTTP(
+		response,
+		request,
+	)
+
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Errorf("status code = %d, want %d", response.Code, http.StatusMethodNotAllowed)
+	}
+	if got := response.Header().Get("Allow"); got != http.MethodGet {
+		t.Errorf("Allow = %q, want %q", got, http.MethodGet)
+	}
+}
+
+func TestStylesheetLogsWriteError(t *testing.T) {
+	const writeErrorText = "write response"
+
+	request := httptest.NewRequest(http.MethodGet, "/static/app.css", nil)
+	response := newResponseRecorder()
+	response.writeErr = errors.New(writeErrorText)
+
+	var logOutput bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logOutput, nil)).With(
+		slog.String("component", "httpserver"),
+	)
+
+	stylesheet(logger, response, request)
+
+	for _, want := range []string{
+		`level=ERROR`,
+		`msg="write application stylesheet"`,
+		`component=httpserver`,
+		`error="` + writeErrorText + `"`,
+	} {
+		if !strings.Contains(logOutput.String(), want) {
+			t.Errorf("log output = %q, want it to contain %q", logOutput.String(), want)
+		}
+	}
+}
+
 func newTestHandler(
 	t *testing.T,
 	logger *slog.Logger,
@@ -211,6 +290,7 @@ type equipmentServiceStub struct {
 	get          func(context.Context, int64) (equipment.Item, error)
 	update       func(context.Context, int64, equipment.UpdateInput) (equipment.Item, error)
 	changeStatus func(context.Context, int64, equipment.Status) (equipment.Item, error)
+	delete       func(context.Context, int64) (equipment.Item, error)
 }
 
 func (s *equipmentServiceStub) Create(
@@ -265,4 +345,15 @@ func (s *equipmentServiceStub) ChangeStatus(
 	}
 
 	return s.changeStatus(ctx, id, status)
+}
+
+func (s *equipmentServiceStub) Delete(
+	ctx context.Context,
+	id int64,
+) (equipment.Item, error) {
+	if s.delete == nil {
+		return equipment.Item{}, nil
+	}
+
+	return s.delete(ctx, id)
 }

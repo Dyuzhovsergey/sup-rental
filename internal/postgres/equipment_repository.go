@@ -12,6 +12,7 @@ import (
 )
 
 const uniqueEquipmentInventoryNumberConstraint = "equipment_inventory_number_lower_idx"
+const foreignKeyViolationCode = "23503"
 
 // EquipmentRepository хранит оборудование в PostgreSQL.
 type EquipmentRepository struct {
@@ -115,21 +116,22 @@ func (r *EquipmentRepository) Get(ctx context.Context, id int64) (equipment.Item
 	return item, nil
 }
 
-// UpdateDetails сохраняет новый инвентарный номер и тип оборудования по ID.
-func (r *EquipmentRepository) UpdateDetails(
+// Update сохраняет инвентарный номер, тип и состояние одной SQL-командой.
+func (r *EquipmentRepository) Update(
 	ctx context.Context,
 	id int64,
 	inventoryNumber string,
 	kind equipment.Kind,
+	status equipment.Status,
 ) (equipment.Item, error) {
 	const query = `
 		UPDATE equipment
-		SET inventory_number = $1, kind = $2
-		WHERE id = $3
+		SET inventory_number = $1, kind = $2, status = $3
+		WHERE id = $4
 		RETURNING id, inventory_number, kind, status
 	`
 
-	item, err := r.queryEquipment(ctx, query, inventoryNumber, kind, id)
+	item, err := r.queryEquipment(ctx, query, inventoryNumber, kind, status, id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return equipment.Item{}, equipment.ErrEquipmentNotFound
 	}
@@ -140,7 +142,7 @@ func (r *EquipmentRepository) UpdateDetails(
 			return equipment.Item{}, equipment.ErrInventoryNumberExists
 		}
 
-		return equipment.Item{}, fmt.Errorf("update equipment details: %w", err)
+		return equipment.Item{}, fmt.Errorf("update equipment: %w", err)
 	}
 
 	return item, nil
@@ -168,6 +170,34 @@ func (r *EquipmentRepository) UpdateStatus(
 	}
 
 	return item, nil
+}
+
+// Delete безвозвратно удаляет оборудование по ID.
+//
+// Если строка связана внешним ключом с историческими данными, метод возвращает
+// equipment.ErrEquipmentHasHistory.
+func (r *EquipmentRepository) Delete(ctx context.Context, id int64) error {
+	const query = `
+		DELETE FROM equipment
+		WHERE id = $1
+	`
+
+	commandTag, err := r.pool.Exec(ctx, query, id)
+	if err != nil {
+		var postgresError *pgconn.PgError
+		if errors.As(err, &postgresError) &&
+			postgresError.Code == foreignKeyViolationCode {
+			return equipment.ErrEquipmentHasHistory
+		}
+
+		return fmt.Errorf("delete equipment: %w", err)
+	}
+
+	if commandTag.RowsAffected() == 0 {
+		return equipment.ErrEquipmentNotFound
+	}
+
+	return nil
 }
 
 func (r *EquipmentRepository) queryEquipment(
