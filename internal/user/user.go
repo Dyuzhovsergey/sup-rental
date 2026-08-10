@@ -35,6 +35,12 @@ var (
 	ErrInvalidLogin = errors.New("login contains invalid characters")
 	// ErrInvalidRole означает, что роль пользователя не поддерживается.
 	ErrInvalidRole = errors.New("invalid user role")
+	// ErrUserNotFound означает, что пользователь не найден.
+	ErrUserNotFound = errors.New("user not found")
+	// ErrLoginExists означает, что нормализованный login уже занят.
+	ErrLoginExists = errors.New("login already exists")
+	// ErrAdminExists означает, что единственная учётная запись admin уже существует.
+	ErrAdminExists = errors.New("admin already exists")
 )
 
 // User содержит безопасные доменные сведения об учётной записи.
