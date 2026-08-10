@@ -13,6 +13,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     -o /out/server \
     ./cmd/server
 
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -trimpath \
+    -o /out/admin \
+    ./cmd/admin
+
 FROM golang:1.26.5-alpine3.24 AS migration-build
 
 RUN CGO_ENABLED=0 GOBIN=/out go install github.com/jackc/tern/v2@v2.4.0
@@ -41,6 +46,7 @@ FROM runtime-base AS app
 WORKDIR /app
 
 COPY --from=app-build /out/server /app/server
+COPY --from=app-build /out/admin /app/admin
 
 USER app
 

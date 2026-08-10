@@ -32,6 +32,14 @@ type Config struct {
 	DBConnectTimeout time.Duration
 }
 
+// DatabaseConfig содержит проверенные параметры подключения к PostgreSQL.
+type DatabaseConfig struct {
+	// DatabaseURL содержит connection string для подключения к PostgreSQL.
+	DatabaseURL string
+	// DBConnectTimeout ограничивает время подключения к PostgreSQL.
+	DBConnectTimeout time.Duration
+}
+
 // Load загружает конфигурацию из переменных окружения.
 //
 // Load возвращает ошибку, если обязательная переменная отсутствует или содержит
@@ -56,12 +64,7 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
-	databaseURL, err := requiredEnv(databaseURLEnv)
-	if err != nil {
-		return Config{}, err
-	}
-
-	dbConnectTimeout, err := positiveDurationEnv(dbConnectTimeoutEnv)
+	databaseConfig, err := LoadDatabase()
 	if err != nil {
 		return Config{}, err
 	}
@@ -70,8 +73,27 @@ func Load() (Config, error) {
 		HTTPAddress:           address,
 		HTTPReadHeaderTimeout: readHeaderTimeout,
 		HTTPShutdownTimeout:   shutdownTimeout,
-		DatabaseURL:           databaseURL,
-		DBConnectTimeout:      dbConnectTimeout,
+		DatabaseURL:           databaseConfig.DatabaseURL,
+		DBConnectTimeout:      databaseConfig.DBConnectTimeout,
+	}, nil
+}
+
+// LoadDatabase загружает только параметры PostgreSQL, необходимые server и
+// административному CLI.
+func LoadDatabase() (DatabaseConfig, error) {
+	databaseURL, err := requiredEnv(databaseURLEnv)
+	if err != nil {
+		return DatabaseConfig{}, err
+	}
+
+	dbConnectTimeout, err := positiveDurationEnv(dbConnectTimeoutEnv)
+	if err != nil {
+		return DatabaseConfig{}, err
+	}
+
+	return DatabaseConfig{
+		DatabaseURL:      databaseURL,
+		DBConnectTimeout: dbConnectTimeout,
 	}, nil
 }
 

@@ -157,3 +157,62 @@ func TestLoad(t *testing.T) {
 		})
 	}
 }
+
+func TestLoadDatabase(t *testing.T) {
+	tests := []struct {
+		name        string
+		databaseURL string
+		timeout     string
+		want        DatabaseConfig
+		wantErrText string
+	}{
+		{
+			name:        "valid database configuration",
+			databaseURL: "postgres://sup_rental:secret@localhost:5432/sup_rental",
+			timeout:     "5s",
+			want: DatabaseConfig{
+				DatabaseURL:      "postgres://sup_rental:secret@localhost:5432/sup_rental",
+				DBConnectTimeout: 5 * time.Second,
+			},
+		},
+		{name: "missing database URL", timeout: "5s", wantErrText: "DATABASE_URL: environment variable is required"},
+		{
+			name:        "missing timeout",
+			databaseURL: "postgres://localhost/sup_rental",
+			wantErrText: "DB_CONNECT_TIMEOUT: environment variable is required",
+		},
+		{
+			name:        "invalid timeout",
+			databaseURL: "postgres://localhost/sup_rental",
+			timeout:     "five seconds",
+			wantErrText: "DB_CONNECT_TIMEOUT: parse duration",
+		},
+		{
+			name:        "non-positive timeout",
+			databaseURL: "postgres://localhost/sup_rental",
+			timeout:     "0s",
+			wantErrText: "DB_CONNECT_TIMEOUT: must be greater than zero",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv(databaseURLEnv, tt.databaseURL)
+			t.Setenv(dbConnectTimeoutEnv, tt.timeout)
+
+			got, err := LoadDatabase()
+			if tt.wantErrText != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrText) {
+					t.Fatalf("LoadDatabase() error = %v, want containing %q", err, tt.wantErrText)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("LoadDatabase() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("LoadDatabase() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
