@@ -36,6 +36,7 @@ func TestEquipmentPageListsItems(t *testing.T) {
 
 	for _, want := range []string{
 		`action="/equipment"`,
+		`name="csrf_token" value="csrf-token"`,
 		`name="inventory_number"`,
 		`value="sup_board"`,
 		`class="equipment-layout"`,
@@ -527,8 +528,8 @@ func TestEquipmentDetailPageRejectsUnsupportedMethod(t *testing.T) {
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status code = %d, want %d", response.Code, http.StatusMethodNotAllowed)
 	}
-	if got := response.Header().Get("Allow"); got != http.MethodGet {
-		t.Errorf("Allow = %q, want %q", got, http.MethodGet)
+	if got := response.Header().Get("Allow"); got != "GET, HEAD" {
+		t.Errorf("Allow = %q, want %q", got, "GET, HEAD")
 	}
 }
 
@@ -750,6 +751,7 @@ func TestEquipmentEditPageShowsCurrentValues(t *testing.T) {
 	}
 	for _, want := range []string{
 		`action="/equipment/17/edit"`,
+		`name="csrf_token" value="csrf-token"`,
 		`value="SUP-017"`,
 		`value="sup_board" selected`,
 		`value="available" selected`,
@@ -1128,8 +1130,8 @@ func TestEquipmentPageRejectsUnsupportedMethod(t *testing.T) {
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status code = %d, want %d", response.Code, http.StatusMethodNotAllowed)
 	}
-	if got := response.Header().Get("Allow"); got != "GET, POST" {
-		t.Errorf("Allow = %q, want %q", got, "GET, POST")
+	if got := response.Header().Get("Allow"); got != "GET, HEAD, POST" {
+		t.Errorf("Allow = %q, want %q", got, "GET, HEAD, POST")
 	}
 }
 

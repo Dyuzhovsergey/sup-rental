@@ -19,8 +19,9 @@ import (
 )
 
 const (
-	sessionCookieName = "sup_rental_session"
-	maxLoginBodyBytes = 16 * 1024
+	sessionCookieName             = "sup_rental_session"
+	maxLoginBodyBytes             = 16 * 1024
+	maxAuthenticatedFormBodyBytes = 64 * 1024
 )
 
 type authService interface {
@@ -41,9 +42,15 @@ type CookieSettings struct {
 type authenticationContextKey struct{}
 
 type authenticationView struct {
-	Login     string
-	Role      string
-	CSRFToken string
+	Login              string
+	Role               string
+	CSRFToken          string
+	HomePath           string
+	IsAdmin            bool
+	IsOperator         bool
+	HomeActive         bool
+	EquipmentActive    bool
+	CanManageEquipment bool
 }
 
 type loginPageData struct {
@@ -100,8 +107,8 @@ func showLoginPage(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	if _, ok := authenticatedSession(r); ok {
-		http.Redirect(w, r, "/equipment", http.StatusFound)
+	if authenticated, ok := authenticatedSession(r); ok {
+		http.Redirect(w, r, homePathForRole(authenticated.User.Role), http.StatusFound)
 		return
 	}
 
@@ -126,6 +133,11 @@ func login(
 	r *http.Request,
 ) {
 	w.Header().Set("Cache-Control", "no-store")
+	if authenticated, ok := authenticatedSession(r); ok {
+		http.Redirect(w, r, homePathForRole(authenticated.User.Role), http.StatusSeeOther)
+		return
+	}
+
 	r.Body = http.MaxBytesReader(w, r.Body, maxLoginBodyBytes)
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
@@ -147,7 +159,7 @@ func login(
 	})
 	if err == nil {
 		setSessionCookie(w, result.Token, cookieSettings)
-		http.Redirect(w, r, "/equipment", http.StatusSeeOther)
+		http.Redirect(w, r, homePathForRole(result.User.Role), http.StatusSeeOther)
 		return
 	}
 
@@ -244,11 +256,85 @@ func authenticationForPage(r *http.Request) *authenticationView {
 		return nil
 	}
 
+	isAdmin := authenticated.User.Role == user.RoleAdmin
+	isOperator := authenticated.User.Role == user.RoleOperator
+
 	return &authenticationView{
-		Login:     authenticated.User.Login,
-		Role:      roleLabel(authenticated.User.Role),
-		CSRFToken: authenticated.Session.CSRFToken,
+		Login:              authenticated.User.Login,
+		Role:               roleLabel(authenticated.User.Role),
+		CSRFToken:          authenticated.Session.CSRFToken,
+		HomePath:           homePathForRole(authenticated.User.Role),
+		IsAdmin:            isAdmin,
+		IsOperator:         isOperator,
+		HomeActive:         r.URL.Path == "/operator",
+		EquipmentActive:    strings.HasPrefix(r.URL.Path, "/equipment"),
+		CanManageEquipment: isAdmin,
 	}
+}
+
+func requireAuthentication(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := authenticatedSession(r); ok {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		statusCode := http.StatusFound
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			statusCode = http.StatusSeeOther
+		}
+		http.Redirect(w, r, "/login", statusCode)
+	})
+}
+
+func requireRole(
+	logger *slog.Logger,
+	pageTemplates *template.Template,
+	role user.Role,
+	next http.Handler,
+) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authenticated, ok := authenticatedSession(r)
+		if ok && authenticated.User.Role == role {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			renderForbiddenPage(logger, pageTemplates, w, r)
+			return
+		}
+		http.Error(w, "Forbidden", http.StatusForbidden)
+	})
+}
+
+func requireCSRF(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authenticated, ok := authenticatedSession(r)
+		if !ok {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
+		r.Body = http.MaxBytesReader(w, r.Body, maxAuthenticatedFormBodyBytes)
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "Bad Request", http.StatusBadRequest)
+			return
+		}
+		if !equalSecret(r.PostForm.Get("csrf_token"), authenticated.Session.CSRFToken) {
+			http.Error(w, "Forbidden", http.StatusForbidden)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func homePathForRole(role user.Role) string {
+	if role == user.RoleOperator {
+		return "/operator"
+	}
+	return "/equipment"
 }
 
 func roleLabel(role user.Role) string {

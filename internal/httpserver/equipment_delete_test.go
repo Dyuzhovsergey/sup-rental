@@ -38,6 +38,7 @@ func TestEquipmentDeletionPageShowsWarningAndItem(t *testing.T) {
 		"SUP-доска",
 		"Списан",
 		`action="/equipment/17/delete"`,
+		`name="csrf_token" value="csrf-token"`,
 		"Подтвердить удаление",
 		`href="/equipment/17">Отмена</a>`,
 		`<link rel="stylesheet" href="/static/app.css">`,
@@ -248,7 +249,7 @@ func TestEquipmentDeletionRejectsUnsupportedMethod(t *testing.T) {
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status code = %d, want %d", response.Code, http.StatusMethodNotAllowed)
 	}
-	if got := response.Header().Get("Allow"); got != "GET, POST" {
-		t.Errorf("Allow = %q, want %q", got, "GET, POST")
+	if got := response.Header().Get("Allow"); got != "GET, HEAD, POST" {
+		t.Errorf("Allow = %q, want %q", got, "GET, HEAD, POST")
 	}
 }

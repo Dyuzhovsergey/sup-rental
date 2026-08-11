@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <a class="skip-link" href="#main-content">К содержимому</a>
+
+    <div class="app-shell">
+        {{template "equipment-sidebar" .}}
+
+        <main class="main-content" id="main-content" tabindex="-1">
+            <div class="content-container access-denied">
+                <section class="panel access-denied__panel" aria-labelledby="access-denied-heading">
+                    <div class="panel-body access-denied__content">
+                        <span class="access-denied__icon" aria-hidden="true">
+                            <svg class="icon" viewBox="0 0 24 24" fill="none">
+                                <rect x="4" y="10" width="16" height="11" rx="2"></rect>
+                                <path d="M8 10V7a4 4 0 0 1 8 0v3"></path>
+                            </svg>
+                        </span>
+                        <p class="page-eyebrow">Доступ ограничен</p>
+                        <h1 id="access-denied-heading">Недостаточно прав</h1>
+                        <p role="alert">
+                            Эта операция недоступна для вашей роли. Вернитесь в свой
+                            рабочий раздел и выберите разрешённое действие.
+                        </p>
+                        <a class="button button--primary" href="{{.HomePath}}">Вернуться на главную</a>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

@@ -337,6 +337,10 @@ p {
     align-items: start;
 }
 
+.equipment-layout--readonly {
+    grid-template-columns: minmax(0, 1fr);
+}
+
 .equipment-layout .panel-header {
     min-height: 81px;
 }
@@ -1041,6 +1045,71 @@ tbody tr:last-child td {
     margin-top: 2px;
 }
 
+.operator-entry-panel {
+    max-width: 880px;
+}
+
+.operator-entry {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 20px;
+    align-items: center;
+}
+
+.operator-entry__icon,
+.access-denied__icon {
+    display: inline-grid;
+    width: 48px;
+    height: 48px;
+    color: var(--color-primary);
+    background: var(--color-primary-container);
+    border-radius: 14px;
+    place-items: center;
+}
+
+.operator-entry__icon .icon,
+.access-denied__icon .icon {
+    width: 24px;
+    height: 24px;
+}
+
+.operator-entry__copy h2 {
+    margin: 0;
+    font-size: 18px;
+}
+
+.operator-entry__copy p {
+    max-width: 65ch;
+    margin: 6px 0 0;
+    color: var(--color-muted);
+}
+
+.access-denied {
+    display: grid;
+    min-height: calc(100vh - 64px);
+    place-items: center;
+}
+
+.access-denied__panel {
+    width: min(100%, 560px);
+}
+
+.access-denied__content {
+    display: grid;
+    justify-items: start;
+    gap: 14px;
+}
+
+.access-denied__content h1,
+.access-denied__content p {
+    margin: 0;
+}
+
+.access-denied__content > p:not(.page-eyebrow) {
+    max-width: 58ch;
+    color: var(--color-muted);
+}
+
 @media (max-width: 960px) {
     :root {
         --sidebar-width: 208px;
@@ -1089,6 +1158,14 @@ tbody tr:last-child td {
 
     .page-header {
         display: block;
+    }
+
+    .operator-entry {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .operator-entry .button {
+        justify-self: start;
     }
 
     .details-row {

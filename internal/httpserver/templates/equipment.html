@@ -19,14 +19,20 @@
                         <p class="page-eyebrow">Инвентарь</p>
                         <h1>Оборудование</h1>
                         <p class="page-description">
+                            {{if .CanManageEquipment}}
                             Добавляйте оборудование и управляйте его данными
                             на протяжении всего срока эксплуатации.
+                            {{else}}
+                            Просматривайте актуальный состав и состояние инвентаря.
+                            Изменение оборудования доступно администратору.
+                            {{end}}
                         </p>
                     </div>
                     <span class="count-chip count-chip--total">Всего {{.CountLabel}}</span>
                 </header>
 
-                <div class="equipment-layout">
+                <div class="equipment-layout{{if not .CanManageEquipment}} equipment-layout--readonly{{end}}">
+                    {{if .CanManageEquipment}}
                     <section
                         class="panel equipment-create-panel"
                         aria-labelledby="create-equipment-heading"
@@ -42,6 +48,7 @@
 
                         <div class="panel-body">
                             <form class="equipment-create-form" method="post" action="/equipment">
+                                <input type="hidden" name="csrf_token" value="{{.Authentication.CSRFToken}}">
                                 <div class="field">
                                     <label class="field-label" for="inventory-number">
                                         Инвентарный номер
@@ -100,6 +107,7 @@
                             </form>
                         </div>
                     </section>
+                    {{end}}
 
                     <div class="equipment-list-column">
                         <section
@@ -146,7 +154,7 @@
                                             <th scope="col">Инвентарный номер</th>
                                             <th scope="col">Тип</th>
                                             <th scope="col">Статус</th>
-                                            <th scope="col">Действия</th>
+                                            {{if $.CanManageEquipment}}<th scope="col">Действия</th>{{end}}
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -158,6 +166,7 @@
                                             </td>
                                             <td>{{.Kind}}</td>
                                             <td>{{template "equipment-status-chip" .Status}}</td>
+                                            {{if $.CanManageEquipment}}
                                             <td class="table-actions">
                                                 <div
                                                     class="item-actions"
@@ -203,6 +212,7 @@
                                                     {{end}}
                                                 </div>
                                             </td>
+                                            {{end}}
                                         </tr>
                                         {{end}}
                                     </tbody>
@@ -217,7 +227,7 @@
                                     </svg>
                                 </span>
                                 <h3>Действующего оборудования пока нет</h3>
-                                <p>Заполните форму слева, чтобы создать первый предмет.</p>
+                                <p>{{if .CanManageEquipment}}Заполните форму слева, чтобы создать первый предмет.{{else}}Администратор ещё не добавил оборудование.{{end}}</p>
                             </div>
                             {{end}}
                         </section>
@@ -254,7 +264,7 @@
                                             <th scope="col">Инвентарный номер</th>
                                             <th scope="col">Тип</th>
                                             <th scope="col">Статус</th>
-                                            <th scope="col">Действия</th>
+                                            {{if $.CanManageEquipment}}<th scope="col">Действия</th>{{end}}
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -266,6 +276,7 @@
                                             </td>
                                             <td>{{.Kind}}</td>
                                             <td>{{template "equipment-status-chip" .Status}}</td>
+                                            {{if $.CanManageEquipment}}
                                             <td class="table-actions">
                                                 <div
                                                     class="item-actions"
@@ -287,6 +298,7 @@
                                                     </a>
                                                 </div>
                                             </td>
+                                            {{end}}
                                         </tr>
                                         {{end}}
                                     </tbody>

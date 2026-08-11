@@ -86,6 +86,7 @@
 
                     <div class="confirmation-actions">
                         <form method="post" action="/equipment/{{.ID}}/retire">
+                            <input type="hidden" name="csrf_token" value="{{.Authentication.CSRFToken}}">
                             <button class="button button--danger-filled" type="submit">
                                 <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                     <path d="M12 8v5"></path>

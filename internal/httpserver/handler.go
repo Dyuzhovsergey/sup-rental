@@ -2,12 +2,13 @@
 package httpserver
 
 import (
-	"bytes"
 	"embed"
 	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
+
+	"github.com/Dyuzhovsergey/sup-rental/internal/user"
 )
 
 //go:embed templates/*.html
@@ -36,13 +37,21 @@ func NewHandler(
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		status(logger, pageTemplates, w, r)
-	})
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	authenticated := func(handler http.Handler) http.Handler {
+		return requireAuthentication(handler)
+	}
+	adminOnly := func(handler http.Handler) http.Handler {
+		return authenticated(requireRole(logger, pageTemplates, user.RoleAdmin, handler))
+	}
+	operatorOnly := func(handler http.Handler) http.Handler {
+		return authenticated(requireRole(logger, pageTemplates, user.RoleOperator, handler))
+	}
+
+	mux.Handle("GET /{$}", authenticated(http.HandlerFunc(redirectToRoleHome)))
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		health(logger, w, r)
 	})
-	mux.HandleFunc("/static/app.css", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /static/app.css", func(w http.ResponseWriter, r *http.Request) {
 		stylesheet(logger, w, r)
 	})
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
@@ -51,27 +60,39 @@ func NewHandler(
 	mux.HandleFunc("POST /login", func(w http.ResponseWriter, r *http.Request) {
 		login(logger, authenticationService, pageTemplates, cookieSettings, w, r)
 	})
-	mux.HandleFunc("POST /logout", func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("POST /logout", authenticated(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logout(logger, authenticationService, cookieSettings, w, r)
-	})
-	mux.HandleFunc("/equipment", func(w http.ResponseWriter, r *http.Request) {
+	}))))
+	mux.Handle("GET /operator", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showOperatorPage(logger, pageTemplates, w, r)
+	})))
+	mux.Handle("GET /equipment", authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		equipmentPage(logger, equipmentService, pageTemplates, w, r)
-	})
-	mux.HandleFunc("/equipment/{id}", func(w http.ResponseWriter, r *http.Request) {
+	})))
+	mux.Handle("POST /equipment", adminOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		equipmentPage(logger, equipmentService, pageTemplates, w, r)
+	}))))
+	mux.Handle("GET /equipment/{id}", authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		showEquipmentDetailPage(logger, equipmentService, pageTemplates, w, r)
-	})
-	mux.HandleFunc("/equipment/{id}/retire", func(w http.ResponseWriter, r *http.Request) {
-		equipmentRetirement(logger, equipmentService, pageTemplates, w, r)
-	})
-	mux.HandleFunc("/equipment/{id}/delete", func(w http.ResponseWriter, r *http.Request) {
-		equipmentDeletion(logger, equipmentService, pageTemplates, w, r)
-	})
-	mux.HandleFunc("GET /equipment/{id}/edit", func(w http.ResponseWriter, r *http.Request) {
+	})))
+	mux.Handle("GET /equipment/{id}/retire", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showEquipmentRetirePage(logger, equipmentService, pageTemplates, w, r)
+	})))
+	mux.Handle("POST /equipment/{id}/retire", adminOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		retireEquipment(logger, equipmentService, w, r)
+	}))))
+	mux.Handle("GET /equipment/{id}/delete", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showEquipmentDeletePage(logger, equipmentService, pageTemplates, w, r)
+	})))
+	mux.Handle("POST /equipment/{id}/delete", adminOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		deleteEquipment(logger, equipmentService, w, r)
+	}))))
+	mux.Handle("GET /equipment/{id}/edit", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		showEquipmentEditPage(logger, equipmentService, pageTemplates, w, r)
-	})
-	mux.HandleFunc("POST /equipment/{id}/edit", func(w http.ResponseWriter, r *http.Request) {
+	})))
+	mux.Handle("POST /equipment/{id}/edit", adminOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		updateEquipment(logger, equipmentService, pageTemplates, w, r)
-	})
+	}))))
 
 	protected := http.NewCrossOriginProtection().Handler(
 		optionalSession(logger, sessions, cookieSettings, mux),
@@ -94,56 +115,6 @@ func stylesheet(logger *slog.Logger, w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(appStyles); err != nil {
 		logger.Error(
 			"write application stylesheet",
-			slog.Any("error", err),
-		)
-	}
-}
-
-type statusPageData struct {
-	Title      string
-	Status     string
-	HealthPath string
-}
-
-func status(
-	logger *slog.Logger,
-	statusTemplate *template.Template,
-	w http.ResponseWriter,
-	r *http.Request,
-) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
-
-	if r.Method != http.MethodGet {
-		w.Header().Set("Allow", http.MethodGet)
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		return
-	}
-
-	data := statusPageData{
-		Title:      "SUP Rental",
-		Status:     "Приложение работает",
-		HealthPath: "/health",
-	}
-
-	var body bytes.Buffer
-	if err := statusTemplate.ExecuteTemplate(&body, "status.html", data); err != nil {
-		logger.Error(
-			"render status page",
-			slog.Any("error", err),
-		)
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-
-	if _, err := w.Write(body.Bytes()); err != nil {
-		logger.Error(
-			"write status response",
 			slog.Any("error", err),
 		)
 	}

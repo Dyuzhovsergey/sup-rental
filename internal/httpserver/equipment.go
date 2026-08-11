@@ -25,6 +25,7 @@ type equipmentService interface {
 
 type equipmentPageData struct {
 	Authentication       *authenticationView
+	CanManageEquipment   bool
 	Title                string
 	ActiveItems          []equipmentItemView
 	RetiredItems         []equipmentItemView
@@ -185,8 +186,10 @@ func renderEquipmentPage(
 	}
 
 	activeItems, retiredItems := equipmentItemsByLifecycle(items)
+	authentication := authenticationForPage(r)
 	data := equipmentPageData{
-		Authentication:       authenticationForPage(r),
+		Authentication:       authentication,
+		CanManageEquipment:   authentication != nil && authentication.CanManageEquipment,
 		Title:                "Оборудование — SUP Rental",
 		ActiveItems:          activeItems,
 		RetiredItems:         retiredItems,

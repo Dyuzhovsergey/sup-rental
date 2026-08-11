@@ -52,7 +52,10 @@ func TestLoginSuccessSetsSessionCookie(t *testing.T) {
 			if input.Login != "admin" || input.Password != "secret1" || input.RemoteIP != "192.0.2.1" {
 				t.Errorf("Login() input = %+v", input)
 			}
-			return appauth.LoginResult{Token: "raw-session-token"}, nil
+			return appauth.LoginResult{
+				User:  user.User{Role: user.RoleAdmin},
+				Token: "raw-session-token",
+			}, nil
 		},
 	}
 	handler := newAuthenticationTestHandler(
@@ -82,6 +85,25 @@ func TestLoginSuccessSetsSessionCookie(t *testing.T) {
 		cookie.SameSite != http.SameSiteStrictMode || cookie.Domain != "" ||
 		cookie.MaxAge != 0 || !cookie.Expires.IsZero() {
 		t.Errorf("session cookie = %+v", cookie)
+	}
+}
+
+func TestOperatorLoginRedirectsToOperatorHome(t *testing.T) {
+	service := &authServiceStub{
+		login: func(context.Context, appauth.LoginInput) (appauth.LoginResult, error) {
+			return appauth.LoginResult{
+				User:  user.User{Role: user.RoleOperator},
+				Token: "raw-session-token",
+			}, nil
+		},
+	}
+	handler := newAuthenticationTestHandler(t, service, &sessionResolverStub{}, CookieSettings{})
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, loginRequest(url.Values{"login": {"operator"}, "password": {"secret1"}}))
+
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/operator" {
+		t.Fatalf("response = %d Location %q", response.Code, response.Header().Get("Location"))
 	}
 }
 

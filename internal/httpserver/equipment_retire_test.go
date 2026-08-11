@@ -43,6 +43,7 @@ func TestEquipmentRetirementPageShowsWarningAndItem(t *testing.T) {
 		"SUP-доска",
 		"Доступен",
 		`action="/equipment/17/retire"`,
+		`name="csrf_token" value="csrf-token"`,
 		"Подтвердить списание",
 		`href="/equipment/17/edit">Отмена</a>`,
 		`<link rel="stylesheet" href="/static/app.css">`,
@@ -246,7 +247,7 @@ func TestEquipmentRetirementRejectsUnsupportedMethod(t *testing.T) {
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status code = %d, want %d", response.Code, http.StatusMethodNotAllowed)
 	}
-	if got := response.Header().Get("Allow"); got != "GET, POST" {
-		t.Errorf("Allow = %q, want %q", got, "GET, POST")
+	if got := response.Header().Get("Allow"); got != "GET, HEAD, POST" {
+		t.Errorf("Allow = %q, want %q", got, "GET, HEAD, POST")
 	}
 }

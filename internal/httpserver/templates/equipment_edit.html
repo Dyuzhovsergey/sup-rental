@@ -51,6 +51,7 @@
                             action="/equipment/{{.ID}}/edit"
                             aria-labelledby="edit-equipment-heading"
                         >
+                            <input type="hidden" name="csrf_token" value="{{.Authentication.CSRFToken}}">
                             <div class="panel-body form-stack">
                             <div class="field">
                                 <label class="field-label" for="inventory-number">

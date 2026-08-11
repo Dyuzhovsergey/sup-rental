@@ -58,8 +58,8 @@ func showEquipmentDetailPage(
 		InventoryNumber: item.InventoryNumber,
 		Kind:            equipmentKindLabel(item.Kind),
 		Status:          equipmentStatusLabel(item.Status),
-		CanEdit:         item.Status.CanEditDetails(),
-		CanDelete:       item.Status == equipment.StatusRetired,
+		CanEdit:         canManageEquipment(r) && item.Status.CanEditDetails(),
+		CanDelete:       canManageEquipment(r) && item.Status == equipment.StatusRetired,
 	}
 
 	var body bytes.Buffer
@@ -75,4 +75,9 @@ func showEquipmentDetailPage(
 	if _, err := w.Write(body.Bytes()); err != nil {
 		logger.Error("write equipment detail response", slog.Any("error", err))
 	}
+}
+
+func canManageEquipment(r *http.Request) bool {
+	authentication := authenticationForPage(r)
+	return authentication != nil && authentication.CanManageEquipment
 }

@@ -16,30 +16,18 @@ import (
 	"github.com/Dyuzhovsergey/sup-rental/internal/session"
 )
 
-func TestStatus(t *testing.T) {
+func TestRootRedirectsUnauthenticatedUserToLogin(t *testing.T) {
 	request := httptest.NewRequest(http.MethodGet, "/", nil)
 	response := httptest.NewRecorder()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	newTestHandler(t, logger).ServeHTTP(response, request)
+	newUnauthenticatedTestHandler(t, logger).ServeHTTP(response, request)
 
-	if response.Code != http.StatusOK {
-		t.Errorf("status code = %d, want %d", response.Code, http.StatusOK)
+	if response.Code != http.StatusFound {
+		t.Errorf("status code = %d, want %d", response.Code, http.StatusFound)
 	}
-
-	const wantContentType = "text/html; charset=utf-8"
-	if got := response.Header().Get("Content-Type"); got != wantContentType {
-		t.Errorf("Content-Type = %q, want %q", got, wantContentType)
-	}
-
-	for _, want := range []string{
-		"<h1>SUP Rental</h1>",
-		"Приложение работает",
-		`href="/health"`,
-	} {
-		if !strings.Contains(response.Body.String(), want) {
-			t.Errorf("body = %q, want it to contain %q", response.Body.String(), want)
-		}
+	if got := response.Header().Get("Location"); got != "/login" {
+		t.Errorf("Location = %q, want /login", got)
 	}
 }
 
@@ -54,35 +42,8 @@ func TestStatusRejectsUnsupportedMethod(t *testing.T) {
 		t.Errorf("status code = %d, want %d", response.Code, http.StatusMethodNotAllowed)
 	}
 
-	if got := response.Header().Get("Allow"); got != http.MethodGet {
-		t.Errorf("Allow = %q, want %q", got, http.MethodGet)
-	}
-}
-
-func TestStatusLogsWriteError(t *testing.T) {
-	request := httptest.NewRequest(http.MethodGet, "/", nil)
-
-	const writeErrorText = "write response"
-
-	response := newResponseRecorder()
-	response.writeErr = errors.New(writeErrorText)
-
-	var logOutput bytes.Buffer
-	logger := slog.New(slog.NewTextHandler(&logOutput, nil)).With(
-		slog.String("component", "httpserver"),
-	)
-
-	newTestHandler(t, logger).ServeHTTP(response, request)
-
-	for _, want := range []string{
-		`level=ERROR`,
-		`msg="write status response"`,
-		`component=httpserver`,
-		`error="` + writeErrorText + `"`,
-	} {
-		if !strings.Contains(logOutput.String(), want) {
-			t.Errorf("log output = %q, want it to contain %q", logOutput.String(), want)
-		}
+	if got := response.Header().Get("Allow"); got != "GET, HEAD" {
+		t.Errorf("Allow = %q, want %q", got, "GET, HEAD")
 	}
 }
 
@@ -202,8 +163,8 @@ func TestStylesheetRejectsUnsupportedMethod(t *testing.T) {
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status code = %d, want %d", response.Code, http.StatusMethodNotAllowed)
 	}
-	if got := response.Header().Get("Allow"); got != http.MethodGet {
-		t.Errorf("Allow = %q, want %q", got, http.MethodGet)
+	if got := response.Header().Get("Allow"); got != "GET, HEAD" {
+		t.Errorf("Allow = %q, want %q", got, "GET, HEAD")
 	}
 }
 
@@ -245,11 +206,60 @@ func newTestHandler(
 		service = services[0]
 	}
 
+	resolver := &sessionResolverStub{
+		resolve: func(context.Context, string) (session.AuthenticatedSession, error) {
+			return authenticatedFixture(), nil
+		},
+	}
+	handler := newHandlerWithDependencies(t, logger, service, resolver)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.AddCookie(&http.Cookie{Name: sessionCookieName, Value: "raw-session-token"})
+		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/equipment") {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatalf("read request body: %v", err)
+			}
+			encoded := string(body)
+			if !strings.Contains(encoded, "csrf_token=") {
+				if encoded != "" {
+					encoded += "&"
+				}
+				encoded += "csrf_token=csrf-token"
+			}
+			r.Body = io.NopCloser(strings.NewReader(encoded))
+			r.ContentLength = int64(len(encoded))
+			if r.Header.Get("Content-Type") == "" {
+				r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			}
+		}
+		handler.ServeHTTP(w, r)
+	})
+}
+
+func newUnauthenticatedTestHandler(t *testing.T, logger *slog.Logger) http.Handler {
+	t.Helper()
+	return newHandlerWithDependencies(
+		t,
+		logger,
+		&equipmentServiceStub{},
+		&sessionResolverStub{},
+	)
+}
+
+func newHandlerWithDependencies(
+	t *testing.T,
+	logger *slog.Logger,
+	service equipmentService,
+	resolver sessionResolver,
+) http.Handler {
+	t.Helper()
+
 	handler, err := NewHandler(
 		logger,
 		service,
 		&authServiceStub{},
-		&sessionResolverStub{},
+		resolver,
 		CookieSettings{},
 	)
 	if err != nil {
