@@ -24,6 +24,7 @@ type equipmentService interface {
 }
 
 type equipmentPageData struct {
+	Authentication       *authenticationView
 	Title                string
 	ActiveItems          []equipmentItemView
 	RetiredItems         []equipmentItemView
@@ -185,6 +186,7 @@ func renderEquipmentPage(
 
 	activeItems, retiredItems := equipmentItemsByLifecycle(items)
 	data := equipmentPageData{
+		Authentication:       authenticationForPage(r),
 		Title:                "Оборудование — SUP Rental",
 		ActiveItems:          activeItems,
 		RetiredItems:         retiredItems,

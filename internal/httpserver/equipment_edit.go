@@ -12,6 +12,7 @@ import (
 )
 
 type equipmentEditPageData struct {
+	Authentication       *authenticationView
 	Title                string
 	ID                   int64
 	Kinds                []equipmentKindOption
@@ -55,6 +56,7 @@ func showEquipmentEditPage(
 		logger,
 		pageTemplates,
 		w,
+		r,
 		http.StatusOK,
 		id,
 		equipmentFormData{
@@ -121,6 +123,7 @@ func updateEquipment(
 			logger,
 			pageTemplates,
 			w,
+			r,
 			http.StatusUnprocessableEntity,
 			id,
 			form,
@@ -133,6 +136,7 @@ func updateEquipment(
 			logger,
 			pageTemplates,
 			w,
+			r,
 			http.StatusUnprocessableEntity,
 			id,
 			form,
@@ -145,6 +149,7 @@ func updateEquipment(
 			logger,
 			pageTemplates,
 			w,
+			r,
 			http.StatusUnprocessableEntity,
 			id,
 			form,
@@ -157,6 +162,7 @@ func updateEquipment(
 			logger,
 			pageTemplates,
 			w,
+			r,
 			http.StatusUnprocessableEntity,
 			id,
 			form,
@@ -169,6 +175,7 @@ func updateEquipment(
 			logger,
 			pageTemplates,
 			w,
+			r,
 			http.StatusConflict,
 			id,
 			form,
@@ -206,6 +213,7 @@ func renderEquipmentEditPage(
 	logger *slog.Logger,
 	pageTemplates *template.Template,
 	w http.ResponseWriter,
+	r *http.Request,
 	statusCode int,
 	id int64,
 	form equipmentFormData,
@@ -214,6 +222,7 @@ func renderEquipmentEditPage(
 	statusError string,
 ) {
 	data := equipmentEditPageData{
+		Authentication:       authenticationForPage(r),
 		Title:                "Редактирование оборудования — SUP Rental",
 		ID:                   id,
 		Kinds:                equipmentKindOptions(),

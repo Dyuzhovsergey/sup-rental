@@ -13,6 +13,7 @@ import (
 const deletionUnavailableMessage = "Перед удалением оборудование необходимо списать."
 
 type equipmentDeletePageData struct {
+	Authentication  *authenticationView
 	Title           string
 	ID              int64
 	InventoryNumber string
@@ -64,6 +65,7 @@ func showEquipmentDeletePage(
 	}
 
 	data := equipmentDeletePageData{
+		Authentication:  authenticationForPage(r),
 		Title:           "Удаление оборудования — SUP Rental",
 		ID:              item.ID,
 		InventoryNumber: item.InventoryNumber,

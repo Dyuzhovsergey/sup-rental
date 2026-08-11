@@ -8,28 +8,31 @@ import (
 
 func TestLoad(t *testing.T) {
 	tests := []struct {
-		name        string
-		address     string
-		timeout     string
-		shutdown    string
-		databaseURL string
-		dbTimeout   string
-		want        Config
-		wantErrText string
+		name         string
+		address      string
+		timeout      string
+		shutdown     string
+		databaseURL  string
+		dbTimeout    string
+		cookieSecure string
+		want         Config
+		wantErrText  string
 	}{
 		{
-			name:        "valid configuration",
-			address:     "127.0.0.1:8080",
-			timeout:     "5s",
-			shutdown:    "10s",
-			databaseURL: "postgres://sup_rental:secret@localhost:5432/sup_rental",
-			dbTimeout:   "5s",
+			name:         "valid configuration",
+			address:      "127.0.0.1:8080",
+			timeout:      "5s",
+			shutdown:     "10s",
+			databaseURL:  "postgres://sup_rental:secret@localhost:5432/sup_rental",
+			dbTimeout:    "5s",
+			cookieSecure: "false",
 			want: Config{
 				HTTPAddress:           "127.0.0.1:8080",
 				HTTPReadHeaderTimeout: 5 * time.Second,
 				HTTPShutdownTimeout:   10 * time.Second,
 				DatabaseURL:           "postgres://sup_rental:secret@localhost:5432/sup_rental",
 				DBConnectTimeout:      5 * time.Second,
+				SessionCookieSecure:   false,
 			},
 		},
 		{
@@ -126,6 +129,25 @@ func TestLoad(t *testing.T) {
 			dbTimeout:   "0s",
 			wantErrText: "DB_CONNECT_TIMEOUT: must be greater than zero",
 		},
+		{
+			name:        "missing session cookie secure",
+			address:     "127.0.0.1:8080",
+			timeout:     "5s",
+			shutdown:    "10s",
+			databaseURL: "postgres://localhost/sup_rental",
+			dbTimeout:   "5s",
+			wantErrText: "SESSION_COOKIE_SECURE: environment variable is required",
+		},
+		{
+			name:         "invalid session cookie secure",
+			address:      "127.0.0.1:8080",
+			timeout:      "5s",
+			shutdown:     "10s",
+			databaseURL:  "postgres://localhost/sup_rental",
+			dbTimeout:    "5s",
+			cookieSecure: "sometimes",
+			wantErrText:  "SESSION_COOKIE_SECURE: parse boolean",
+		},
 	}
 
 	for _, tt := range tests {
@@ -135,6 +157,7 @@ func TestLoad(t *testing.T) {
 			t.Setenv(httpShutdownTimeoutEnv, tt.shutdown)
 			t.Setenv(databaseURLEnv, tt.databaseURL)
 			t.Setenv(dbConnectTimeoutEnv, tt.dbTimeout)
+			t.Setenv(sessionCookieSecureEnv, tt.cookieSecure)
 
 			got, err := Load()
 			if tt.wantErrText != "" {

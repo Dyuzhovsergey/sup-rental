@@ -13,6 +13,7 @@ import (
 const retirementUnavailableMessage = "Списание оборудования в текущем состоянии недоступно."
 
 type equipmentRetirePageData struct {
+	Authentication  *authenticationView
 	Title           string
 	ID              int64
 	InventoryNumber string
@@ -68,6 +69,7 @@ func showEquipmentRetirePage(
 	}
 
 	data := equipmentRetirePageData{
+		Authentication:  authenticationForPage(r),
 		Title:           "Списание оборудования — SUP Rental",
 		ID:              item.ID,
 		InventoryNumber: item.InventoryNumber,

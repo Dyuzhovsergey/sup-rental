@@ -19,12 +19,16 @@ var appStyles []byte
 // NewHandler создаёт HTTP-обработчик со всеми маршрутами приложения.
 //
 // Logger используется для записи ошибок HTTP-слоя, а equipmentService
-// предоставляет сценарии учёта оборудования. Обе зависимости должны быть
+// предоставляет сценарии учёта оборудования. Auth service, session resolver и
+// cookie settings обеспечивают login/logout. Все зависимости должны быть
 // созданы точкой входа приложения. NewHandler возвращает ошибку, если
 // встроенные HTML-шаблоны невозможно разобрать.
 func NewHandler(
 	logger *slog.Logger,
 	equipmentService equipmentService,
+	authenticationService authService,
+	sessions sessionResolver,
+	cookieSettings CookieSettings,
 ) (http.Handler, error) {
 	pageTemplates, err := template.ParseFS(templateFiles, "templates/*.html")
 	if err != nil {
@@ -40,6 +44,15 @@ func NewHandler(
 	})
 	mux.HandleFunc("/static/app.css", func(w http.ResponseWriter, r *http.Request) {
 		stylesheet(logger, w, r)
+	})
+	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
+		showLoginPage(logger, pageTemplates, w, r)
+	})
+	mux.HandleFunc("POST /login", func(w http.ResponseWriter, r *http.Request) {
+		login(logger, authenticationService, pageTemplates, cookieSettings, w, r)
+	})
+	mux.HandleFunc("POST /logout", func(w http.ResponseWriter, r *http.Request) {
+		logout(logger, authenticationService, cookieSettings, w, r)
 	})
 	mux.HandleFunc("/equipment", func(w http.ResponseWriter, r *http.Request) {
 		equipmentPage(logger, equipmentService, pageTemplates, w, r)
@@ -60,7 +73,11 @@ func NewHandler(
 		updateEquipment(logger, equipmentService, pageTemplates, w, r)
 	})
 
-	return mux, nil
+	protected := http.NewCrossOriginProtection().Handler(
+		optionalSession(logger, sessions, cookieSettings, mux),
+	)
+
+	return protected, nil
 }
 
 func stylesheet(logger *slog.Logger, w http.ResponseWriter, r *http.Request) {

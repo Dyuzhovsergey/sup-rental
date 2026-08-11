@@ -10,10 +10,13 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/Dyuzhovsergey/sup-rental/internal/auth"
 	"github.com/Dyuzhovsergey/sup-rental/internal/config"
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
 	"github.com/Dyuzhovsergey/sup-rental/internal/httpserver"
+	"github.com/Dyuzhovsergey/sup-rental/internal/password"
 	"github.com/Dyuzhovsergey/sup-rental/internal/postgres"
+	"github.com/Dyuzhovsergey/sup-rental/internal/session"
 )
 
 func main() {
@@ -54,8 +57,25 @@ func run(ctx context.Context, logger *slog.Logger) error {
 
 	equipmentRepository := postgres.NewEquipmentRepository(pool)
 	equipmentService := equipment.NewService(equipmentRepository)
+	sessionRepository := postgres.NewSessionRepository(pool)
+	sessionService := session.NewService(sessionRepository)
+	authRepository := postgres.NewAuthRepository(pool)
+	authService, err := auth.NewService(
+		authRepository,
+		password.NewHasher(),
+		sessionService,
+	)
+	if err != nil {
+		return fmt.Errorf("create authentication service: %w", err)
+	}
 
-	handler, err := httpserver.NewHandler(httpLogger, equipmentService)
+	handler, err := httpserver.NewHandler(
+		httpLogger,
+		equipmentService,
+		authService,
+		sessionService,
+		httpserver.CookieSettings{Secure: cfg.SessionCookieSecure},
+	)
 	if err != nil {
 		return fmt.Errorf("create HTTP handler: %w", err)
 	}

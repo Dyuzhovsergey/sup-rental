@@ -11,7 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	appauth "github.com/Dyuzhovsergey/sup-rental/internal/auth"
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
+	"github.com/Dyuzhovsergey/sup-rental/internal/session"
 )
 
 func TestStatus(t *testing.T) {
@@ -243,12 +245,57 @@ func newTestHandler(
 		service = services[0]
 	}
 
-	handler, err := NewHandler(logger, service)
+	handler, err := NewHandler(
+		logger,
+		service,
+		&authServiceStub{},
+		&sessionResolverStub{},
+		CookieSettings{},
+	)
 	if err != nil {
 		t.Fatalf("create handler: %v", err)
 	}
 
 	return handler
+}
+
+type authServiceStub struct {
+	login  func(context.Context, appauth.LoginInput) (appauth.LoginResult, error)
+	logout func(context.Context, session.AuthenticatedSession) error
+}
+
+func (s *authServiceStub) Login(
+	ctx context.Context,
+	input appauth.LoginInput,
+) (appauth.LoginResult, error) {
+	if s.login == nil {
+		return appauth.LoginResult{}, appauth.ErrInvalidCredentials
+	}
+	return s.login(ctx, input)
+}
+
+func (s *authServiceStub) Logout(
+	ctx context.Context,
+	authenticated session.AuthenticatedSession,
+) error {
+	if s.logout == nil {
+		return nil
+	}
+	return s.logout(ctx, authenticated)
+}
+
+type sessionResolverStub struct {
+	resolve func(context.Context, string) (session.AuthenticatedSession, error)
+}
+
+func (s *sessionResolverStub) Resolve(
+	ctx context.Context,
+	token string,
+) (session.AuthenticatedSession, error) {
+	if s.resolve == nil {
+		return session.AuthenticatedSession{}, session.ErrSessionNotFound
+	}
+	return s.resolve(ctx, token)
 }
 
 type responseRecorder struct {

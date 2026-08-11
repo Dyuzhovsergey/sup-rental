@@ -16,6 +16,7 @@ const (
 	httpShutdownTimeoutEnv   = "HTTP_SHUTDOWN_TIMEOUT"
 	databaseURLEnv           = "DATABASE_URL"
 	dbConnectTimeoutEnv      = "DB_CONNECT_TIMEOUT"
+	sessionCookieSecureEnv   = "SESSION_COOKIE_SECURE"
 )
 
 // Config содержит проверенные параметры запуска приложения.
@@ -30,6 +31,8 @@ type Config struct {
 	DatabaseURL string
 	// DBConnectTimeout ограничивает время подключения к PostgreSQL.
 	DBConnectTimeout time.Duration
+	// SessionCookieSecure включает передачу session cookie только через HTTPS.
+	SessionCookieSecure bool
 }
 
 // DatabaseConfig содержит проверенные параметры подключения к PostgreSQL.
@@ -69,13 +72,33 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	sessionCookieSecure, err := booleanEnv(sessionCookieSecureEnv)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		HTTPAddress:           address,
 		HTTPReadHeaderTimeout: readHeaderTimeout,
 		HTTPShutdownTimeout:   shutdownTimeout,
 		DatabaseURL:           databaseConfig.DatabaseURL,
 		DBConnectTimeout:      databaseConfig.DBConnectTimeout,
+		SessionCookieSecure:   sessionCookieSecure,
 	}, nil
+}
+
+func booleanEnv(name string) (bool, error) {
+	value, err := requiredEnv(name)
+	if err != nil {
+		return false, err
+	}
+
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("%s: parse boolean: %w", name, err)
+	}
+
+	return parsed, nil
 }
 
 // LoadDatabase загружает только параметры PostgreSQL, необходимые server и

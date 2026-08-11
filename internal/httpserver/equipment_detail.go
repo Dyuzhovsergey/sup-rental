@@ -11,6 +11,7 @@ import (
 )
 
 type equipmentDetailPageData struct {
+	Authentication  *authenticationView
 	Title           string
 	ID              int64
 	InventoryNumber string
@@ -51,6 +52,7 @@ func showEquipmentDetailPage(
 	}
 
 	data := equipmentDetailPageData{
+		Authentication:  authenticationForPage(r),
 		Title:           item.InventoryNumber + " — SUP Rental",
 		ID:              item.ID,
 		InventoryNumber: item.InventoryNumber,
