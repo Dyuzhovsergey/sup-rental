@@ -338,7 +338,7 @@ HTML-интерфейс
 2. [x] Добавить миграцию и PostgreSQL repository пользователей.
 3. [x] Добавить CLI-команды создания единственного `admin` и безопасной замены
    его password.
-4. [ ] Добавить PostgreSQL server-side sessions.
+4. [x] Добавить PostgreSQL server-side sessions.
 5. [ ] Реализовать login, logout, CSRF-защиту, throttling и обязательные audit
    events этих операций.
 6. [ ] Защитить маршруты, удалить пользовательскую страницу технического
@@ -587,12 +587,15 @@ desktop viewport. Tablet/mobile не становятся частью приё�
   пользователя по нормализованному login.
 * добавлены интерактивные CLI-команды создания и восстановления единственного
   `admin`; изменения атомарно записываются с событиями в `audit_events`.
+* добавлены PostgreSQL server-side sessions с idle timeout, абсолютным сроком,
+  отзывом и session-bound CSRF token; замена password admin отзывает его сессии
+  в той же транзакции.
 
 ### Следующий кандидат на инкремент
 
-Согласовать PostgreSQL server-side sessions.
+Согласовать login, logout, CSRF-защиту и throttling.
 
 ## 7. Следующий шаг
 
-Согласовать небольшой следующий инкремент этапа 5: PostgreSQL server-side
-sessions без login-страницы и защиты HTTP-маршрутов.
+Согласовать следующий инкремент этапа 5: login, logout, CSRF-защиту, throttling
+и обязательные audit events без преждевременного открытия бизнес-маршрутов.

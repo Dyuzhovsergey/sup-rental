@@ -85,7 +85,8 @@ func (r *AdminRepository) CreateAdmin(
 }
 
 // ResetAdminPassword одной транзакцией заменяет password hash существующего
-// admin и записывает audit event. Login, роль и active не изменяются.
+// admin, отзывает все его сессии и записывает audit event. Login, роль и active
+// не изменяются.
 func (r *AdminRepository) ResetAdminPassword(
 	ctx context.Context,
 	passwordHash string,
@@ -125,6 +126,15 @@ func (r *AdminRepository) ResetAdminPassword(
 	`
 	if _, err := tx.Exec(ctx, updateQuery, passwordHash, account.ID); err != nil {
 		return user.User{}, fmt.Errorf("update admin password hash: %w", err)
+	}
+
+	const revokeSessionsQuery = `
+		UPDATE sessions
+		SET revoked_at = now()
+		WHERE user_id = $1 AND revoked_at IS NULL
+	`
+	if _, err := tx.Exec(ctx, revokeSessionsQuery, account.ID); err != nil {
+		return user.User{}, fmt.Errorf("revoke admin sessions: %w", err)
 	}
 
 	if err := r.writeAudit(ctx, tx, actionAdminPasswordChanged, account); err != nil {

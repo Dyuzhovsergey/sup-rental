@@ -1,6 +1,7 @@
 package postgres
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -34,6 +35,7 @@ func TestAdminRepositoryCreateAndResetPasswordWithAudit(t *testing.T) {
 		t.Fatalf("CreateAdmin() error = %v; apply migrations to TEST_DATABASE_URL first", err)
 	}
 	cleanupAdminFixture(t, pool, created.ID)
+	insertAdminSessionFixture(t, ctx, pool, created.ID, 20)
 
 	newHash, err := password.NewHasher().Hash("new-password")
 	if err != nil {
@@ -58,6 +60,7 @@ func TestAdminRepositoryCreateAndResetPasswordWithAudit(t *testing.T) {
 	if storedHash != newHash || storedHash == oldHash {
 		t.Error("stored password hash was not replaced")
 	}
+	assertAdminSessionsRevoked(t, ctx, pool, created.ID, true)
 
 	rows, err := pool.Query(
 		ctx,
@@ -161,6 +164,7 @@ func TestAdminRepositoryRollsBackPasswordWhenAuditFails(t *testing.T) {
 		t.Fatalf("CreateAdmin() error = %v", err)
 	}
 	cleanupAdminFixture(t, pool, created.ID)
+	insertAdminSessionFixture(t, ctx, pool, created.ID, 21)
 
 	repository.writeAudit = func(context.Context, pgx.Tx, string, user.User) error {
 		return errors.New("audit unavailable")
@@ -181,6 +185,7 @@ func TestAdminRepositoryRollsBackPasswordWhenAuditFails(t *testing.T) {
 	if storedHash != "old-password-hash" {
 		t.Errorf("password hash after rollback = %q, want old hash", storedHash)
 	}
+	assertAdminSessionsRevoked(t, ctx, pool, created.ID, false)
 }
 
 func TestAdminRepositoryResetRequiresAdmin(t *testing.T) {
@@ -216,6 +221,9 @@ func cleanupAdminFixture(t *testing.T, pool *pgxpool.Pool, id int64) {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
+		if _, err := pool.Exec(ctx, "DELETE FROM sessions WHERE user_id = $1", id); err != nil {
+			t.Errorf("clean up admin sessions: %v", err)
+		}
 		if _, err := pool.Exec(ctx, "DELETE FROM audit_events WHERE target_id = $1", id); err != nil {
 			t.Errorf("clean up admin audit events: %v", err)
 		}
@@ -223,4 +231,49 @@ func cleanupAdminFixture(t *testing.T, pool *pgxpool.Pool, id int64) {
 			t.Errorf("clean up admin: %v", err)
 		}
 	})
+}
+
+func insertAdminSessionFixture(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	userID int64,
+	digestByte byte,
+) {
+	t.Helper()
+
+	_, err := pool.Exec(
+		ctx,
+		`INSERT INTO sessions (
+			user_id, token_digest, csrf_token, created_at, last_seen_at,
+			absolute_expires_at
+		) VALUES ($1, $2, 'admin-csrf', now(), now(), now() + interval '24 hours')`,
+		userID,
+		bytes.Repeat([]byte{digestByte}, 32),
+	)
+	if err != nil {
+		t.Fatalf("insert admin session fixture: %v; apply migrations to TEST_DATABASE_URL first", err)
+	}
+}
+
+func assertAdminSessionsRevoked(
+	t *testing.T,
+	ctx context.Context,
+	pool *pgxpool.Pool,
+	userID int64,
+	wantRevoked bool,
+) {
+	t.Helper()
+
+	var revoked bool
+	if err := pool.QueryRow(
+		ctx,
+		"SELECT revoked_at IS NOT NULL FROM sessions WHERE user_id = $1",
+		userID,
+	).Scan(&revoked); err != nil {
+		t.Fatalf("query admin session revocation: %v", err)
+	}
+	if revoked != wantRevoked {
+		t.Errorf("admin session revoked = %t, want %t", revoked, wantRevoked)
+	}
 }

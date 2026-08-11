@@ -153,9 +153,8 @@ Password hash не является полем безопасной доменн
 HTML, application log или audit log. Физическая операция удаления пользователя
 в repository отсутствует.
 
-До появления таблицы server-side sessions CLI-reset изменяет только password
-hash и audit event. Инкремент сессий обязан расширить ту же транзакцию отзывом
-всех действующих сессий admin до начала реализации login.
+CLI-reset изменяет password hash, отзывает все действующие сессии admin и
+записывает audit event одной PostgreSQL-транзакцией.
 
 ## Вход и маршрутизация
 
