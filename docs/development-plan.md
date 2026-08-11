@@ -339,7 +339,7 @@ HTML-интерфейс
 3. [x] Добавить CLI-команды создания единственного `admin` и безопасной замены
    его password.
 4. [x] Добавить PostgreSQL server-side sessions.
-5. [ ] Реализовать login, logout, CSRF-защиту, throttling и обязательные audit
+5. [x] Реализовать login, logout, CSRF-защиту, throttling и обязательные audit
    events этих операций.
 6. [ ] Защитить маршруты, удалить пользовательскую страницу технического
    состояния и добавить role-aware redirects для `/`.
@@ -356,8 +356,9 @@ HTML-интерфейс
 передаётся в эксплуатацию. Этап не завершён, пока приложение и Compose не
 ограничивают пользовательский порт loopback-интерфейсом.
 
-Инкремент 5 реализован и ожидает браузерной приёмки. Login/logout используют
-server-side session cookie, PostgreSQL throttling, `http.CrossOriginProtection`,
+Инкремент 5 завершён после автоматических проверок, технической
+Compose-проверки и браузерной приёмки. Login/logout используют server-side
+session cookie, PostgreSQL throttling, `http.CrossOriginProtection`,
 session-bound CSRF для logout и транзакционные audit events. Бизнес-маршруты
 останутся открытыми до отдельного связанного инкремента 6.
 
@@ -596,15 +597,14 @@ desktop viewport. Tablet/mobile не становятся частью приё�
   отзывом и session-bound CSRF token; замена password admin отзывает его сессии
   в той же транзакции.
 * реализованы login/logout, session cookie, PostgreSQL throttling, auth audit и
-  CSRF-защита auth-операций; инкремент ожидает браузерной приёмки.
+  CSRF-защита auth-операций; инкремент прошёл браузерную приёмку.
 
 ### Следующий кандидат на инкремент
 
-После браузерной приёмки завершить инкремент login/logout и согласовать защиту
-бизнес-маршрутов с role-aware redirects.
+Защитить бизнес-маршруты с серверной проверкой сессии и роли, подключить CSRF
+ко всем изменяющим формам и добавить role-aware redirects.
 
 ## 7. Следующий шаг
 
-Выполнить браузерную приёмку login/logout. После подтверждения согласовать
-инкремент 6: закрыть бизнес-маршруты, подключить CSRF ко всем изменяющим формам
-и добавить role-aware redirects.
+Согласовать инкремент 6: закрыть бизнес-маршруты, подключить CSRF ко всем
+изменяющим формам и добавить role-aware redirects.
