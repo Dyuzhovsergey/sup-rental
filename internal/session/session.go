@@ -72,6 +72,15 @@ type CreateParams struct {
 	AbsoluteExpiresAt time.Time
 }
 
+// Prepared содержит единственный raw token для browser и безопасные параметры
+// для транзакционного сохранения server-side сессии.
+type Prepared struct {
+	// Token содержит raw session token и не должен сохраняться или логироваться.
+	Token string
+	// Params содержит digest token, CSRF token и сроки новой сессии.
+	Params CreateParams
+}
+
 // Repository хранит и разрешает пользовательские сессии.
 type Repository interface {
 	// Create сохраняет подготовленную сессию активного пользователя.
@@ -108,28 +117,43 @@ func NewService(repository Repository) *Service {
 // Create создаёт новую сессию и единственный раз возвращает raw session token.
 // В repository передаётся только SHA-256 digest token.
 func (s *Service) Create(ctx context.Context, userID int64) (Session, string, error) {
-	token, err := s.randomToken()
+	prepared, err := s.Prepare(userID)
 	if err != nil {
-		return Session{}, "", fmt.Errorf("generate session token: %w", err)
-	}
-	csrfToken, err := s.randomToken()
-	if err != nil {
-		return Session{}, "", fmt.Errorf("generate CSRF token: %w", err)
+		return Session{}, "", err
 	}
 
-	now := s.now().UTC()
-	created, err := s.repository.Create(ctx, CreateParams{
-		UserID:            userID,
-		TokenDigest:       digest(token),
-		CSRFToken:         csrfToken,
-		CreatedAt:         now,
-		AbsoluteExpiresAt: now.Add(AbsoluteLifetime),
-	})
+	created, err := s.repository.Create(ctx, prepared.Params)
 	if err != nil {
 		return Session{}, "", fmt.Errorf("create session: %w", err)
 	}
 
-	return created, token, nil
+	return created, prepared.Token, nil
+}
+
+// Prepare создаёт raw token и параметры сессии без обращения к repository.
+// Метод нужен для транзакционного login, объединяющего создание сессии,
+// обновление пользователя и audit event.
+func (s *Service) Prepare(userID int64) (Prepared, error) {
+	token, err := s.randomToken()
+	if err != nil {
+		return Prepared{}, fmt.Errorf("generate session token: %w", err)
+	}
+	csrfToken, err := s.randomToken()
+	if err != nil {
+		return Prepared{}, fmt.Errorf("generate CSRF token: %w", err)
+	}
+
+	now := s.now().UTC()
+	return Prepared{
+		Token: token,
+		Params: CreateParams{
+			UserID:            userID,
+			TokenDigest:       digest(token),
+			CSRFToken:         csrfToken,
+			CreatedAt:         now,
+			AbsoluteExpiresAt: now.Add(AbsoluteLifetime),
+		},
+	}, nil
 }
 
 // Resolve проверяет token и возвращает сессию вместе с актуальным активным

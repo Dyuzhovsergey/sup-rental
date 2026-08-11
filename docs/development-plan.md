@@ -356,6 +356,11 @@ HTML-интерфейс
 передаётся в эксплуатацию. Этап не завершён, пока приложение и Compose не
 ограничивают пользовательский порт loopback-интерфейсом.
 
+Инкремент 5 реализован и ожидает браузерной приёмки. Login/logout используют
+server-side session cookie, PostgreSQL throttling, `http.CrossOriginProtection`,
+session-bound CSRF для logout и транзакционные audit events. Бизнес-маршруты
+останутся открытыми до отдельного связанного инкремента 6.
+
 ### Этап 6. Учёт клиентов
 
 Цель этапа — добавить работу с клиентами.
@@ -590,12 +595,16 @@ desktop viewport. Tablet/mobile не становятся частью приё�
 * добавлены PostgreSQL server-side sessions с idle timeout, абсолютным сроком,
   отзывом и session-bound CSRF token; замена password admin отзывает его сессии
   в той же транзакции.
+* реализованы login/logout, session cookie, PostgreSQL throttling, auth audit и
+  CSRF-защита auth-операций; инкремент ожидает браузерной приёмки.
 
 ### Следующий кандидат на инкремент
 
-Согласовать login, logout, CSRF-защиту и throttling.
+После браузерной приёмки завершить инкремент login/logout и согласовать защиту
+бизнес-маршрутов с role-aware redirects.
 
 ## 7. Следующий шаг
 
-Согласовать следующий инкремент этапа 5: login, logout, CSRF-защиту, throttling
-и обязательные audit events без преждевременного открытия бизнес-маршрутов.
+Выполнить браузерную приёмку login/logout. После подтверждения согласовать
+инкремент 6: закрыть бизнес-маршруты, подключить CSRF ко всем изменяющим формам
+и добавить role-aware redirects.
