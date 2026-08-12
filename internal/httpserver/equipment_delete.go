@@ -105,7 +105,7 @@ func deleteEquipment(
 		return
 	}
 
-	deleted, err := service.Delete(r.Context(), id)
+	deleted, err := service.Delete(r.Context(), currentUser(r), id)
 	if err == nil {
 		http.Redirect(
 			w,

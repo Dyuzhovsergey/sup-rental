@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/Dyuzhovsergey/sup-rental/internal/user"
 )
 
 func TestServiceCreate(t *testing.T) {
@@ -54,7 +56,7 @@ func TestServiceCreate(t *testing.T) {
 			}
 			service := NewService(repository)
 
-			got, err := service.Create(context.Background(), tt.input)
+			got, err := service.Create(context.Background(), equipmentAdminFixture(), tt.input)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Create() error = %v, want %v", err, tt.wantErr)
 			}
@@ -81,12 +83,50 @@ func TestServiceCreatePreservesDuplicateError(t *testing.T) {
 	}
 	service := NewService(repository)
 
-	_, err := service.Create(context.Background(), CreateInput{
+	_, err := service.Create(context.Background(), equipmentAdminFixture(), CreateInput{
 		InventoryNumber: "SUP-001",
 		Kind:            KindSUPBoard,
 	})
 	if !errors.Is(err, ErrInventoryNumberExists) {
 		t.Fatalf("Create() error = %v, want ErrInventoryNumberExists", err)
+	}
+}
+
+func TestServiceMutationsRequireActiveAdmin(t *testing.T) {
+	actors := []user.User{
+		{},
+		{ID: 2, Login: "operator", Role: user.RoleOperator, Active: true},
+		{ID: 1, Login: "admin", Role: user.RoleAdmin, Active: false},
+	}
+
+	for _, actor := range actors {
+		t.Run(string(actor.Role), func(t *testing.T) {
+			service := NewService(&repositoryStub{})
+			mutations := []func() error{
+				func() error {
+					_, err := service.Create(context.Background(), actor, CreateInput{})
+					return err
+				},
+				func() error {
+					_, err := service.Update(context.Background(), actor, 1, UpdateInput{})
+					return err
+				},
+				func() error {
+					_, err := service.ChangeStatus(context.Background(), actor, 1, StatusAvailable)
+					return err
+				},
+				func() error {
+					_, err := service.Delete(context.Background(), actor, 1)
+					return err
+				},
+			}
+
+			for index, mutation := range mutations {
+				if err := mutation(); !errors.Is(err, user.ErrAccessDenied) {
+					t.Errorf("mutation %d error = %v, want ErrAccessDenied", index, err)
+				}
+			}
+		})
 	}
 }
 
@@ -319,7 +359,12 @@ func TestServiceUpdate(t *testing.T) {
 				},
 			}
 
-			got, err := NewService(repository).Update(context.Background(), 17, tt.input)
+			got, err := NewService(repository).Update(
+				context.Background(),
+				equipmentAdminFixture(),
+				17,
+				tt.input,
+			)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Update() error = %v, want %v", err, tt.wantErr)
 			}
@@ -457,7 +502,12 @@ func TestServiceChangeStatus(t *testing.T) {
 			}
 			service := NewService(repository)
 
-			got, err := service.ChangeStatus(context.Background(), 1, tt.target)
+			got, err := service.ChangeStatus(
+				context.Background(),
+				equipmentAdminFixture(),
+				1,
+				tt.target,
+			)
 			if tt.updateErr != nil {
 				if !errors.Is(err, tt.updateErr) {
 					t.Fatalf("ChangeStatus() error = %v, want %v", err, tt.updateErr)
@@ -558,7 +608,11 @@ func TestServiceDelete(t *testing.T) {
 				},
 			}
 
-			got, err := NewService(repository).Delete(context.Background(), 17)
+			got, err := NewService(repository).Delete(
+				context.Background(),
+				equipmentAdminFixture(),
+				17,
+			)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Delete() error = %v, want %v", err, tt.wantErr)
 			}
@@ -589,7 +643,7 @@ type repositoryStub struct {
 	deleteCalls       int
 }
 
-func (r *repositoryStub) Create(ctx context.Context, item Item) (Item, error) {
+func (r *repositoryStub) Create(ctx context.Context, _ user.User, item Item) (Item, error) {
 	r.createCalls++
 	return r.create(ctx, item)
 }
@@ -604,6 +658,7 @@ func (r *repositoryStub) Get(ctx context.Context, id int64) (Item, error) {
 
 func (r *repositoryStub) Update(
 	ctx context.Context,
+	_ user.User,
 	id int64,
 	inventoryNumber string,
 	kind Kind,
@@ -615,6 +670,7 @@ func (r *repositoryStub) Update(
 
 func (r *repositoryStub) UpdateStatus(
 	ctx context.Context,
+	_ user.User,
 	id int64,
 	status Status,
 ) (Item, error) {
@@ -622,7 +678,14 @@ func (r *repositoryStub) UpdateStatus(
 	return r.updateStatus(ctx, id, status)
 }
 
-func (r *repositoryStub) Delete(ctx context.Context, id int64) error {
+func (r *repositoryStub) Delete(ctx context.Context, _ user.User, id int64) (Item, error) {
 	r.deleteCalls++
-	return r.delete(ctx, id)
+	if err := r.delete(ctx, id); err != nil {
+		return Item{}, err
+	}
+	return r.get(ctx, id)
+}
+
+func equipmentAdminFixture() user.User {
+	return user.User{ID: 1, Login: "admin", Role: user.RoleAdmin, Active: true}
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/Dyuzhovsergey/sup-rental/internal/password"
 	"github.com/Dyuzhovsergey/sup-rental/internal/postgres"
 	"github.com/Dyuzhovsergey/sup-rental/internal/session"
+	"github.com/Dyuzhovsergey/sup-rental/internal/user"
 )
 
 func main() {
@@ -60,20 +61,25 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	sessionRepository := postgres.NewSessionRepository(pool)
 	sessionService := session.NewService(sessionRepository)
 	authRepository := postgres.NewAuthRepository(pool)
+	passwordHasher := password.NewHasher()
 	authService, err := auth.NewService(
 		authRepository,
-		password.NewHasher(),
+		passwordHasher,
 		sessionService,
 	)
 	if err != nil {
 		return fmt.Errorf("create authentication service: %w", err)
 	}
 
+	operatorRepository := postgres.NewOperatorRepository(pool)
+	operatorService := user.NewOperatorService(operatorRepository, passwordHasher)
+
 	handler, err := httpserver.NewHandler(
 		httpLogger,
 		equipmentService,
 		authService,
 		sessionService,
+		operatorService,
 		httpserver.CookieSettings{Secure: cfg.SessionCookieSecure},
 	)
 	if err != nil {

@@ -104,7 +104,12 @@ func retireEquipment(
 		return
 	}
 
-	retired, err := service.ChangeStatus(r.Context(), id, equipment.StatusRetired)
+	retired, err := service.ChangeStatus(
+		r.Context(),
+		currentUser(r),
+		id,
+		equipment.StatusRetired,
+	)
 	if err == nil {
 		http.Redirect(
 			w,

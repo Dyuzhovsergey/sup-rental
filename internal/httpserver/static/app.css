@@ -739,6 +739,11 @@ tbody tr:last-child td {
     white-space: nowrap;
 }
 
+.operator-last-login {
+    color: var(--color-muted);
+    white-space: nowrap;
+}
+
 .status-chip {
     display: inline-flex;
     gap: 7px;

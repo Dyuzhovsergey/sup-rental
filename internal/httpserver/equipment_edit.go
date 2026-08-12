@@ -94,7 +94,7 @@ func updateEquipment(
 		Status:          r.PostForm.Get("status"),
 	}
 
-	updated, err := service.Update(r.Context(), id, equipment.UpdateInput{
+	updated, err := service.Update(r.Context(), currentUser(r), id, equipment.UpdateInput{
 		InventoryNumber: form.InventoryNumber,
 		Kind:            equipment.Kind(form.Kind),
 		Status:          equipment.Status(form.Status),

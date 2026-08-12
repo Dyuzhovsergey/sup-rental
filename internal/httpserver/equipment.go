@@ -12,15 +12,16 @@ import (
 	"strings"
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
+	"github.com/Dyuzhovsergey/sup-rental/internal/user"
 )
 
 type equipmentService interface {
-	Create(ctx context.Context, input equipment.CreateInput) (equipment.Item, error)
+	Create(ctx context.Context, actor user.User, input equipment.CreateInput) (equipment.Item, error)
 	List(ctx context.Context) ([]equipment.Item, error)
 	Get(ctx context.Context, id int64) (equipment.Item, error)
-	Update(ctx context.Context, id int64, input equipment.UpdateInput) (equipment.Item, error)
-	ChangeStatus(ctx context.Context, id int64, target equipment.Status) (equipment.Item, error)
-	Delete(ctx context.Context, id int64) (equipment.Item, error)
+	Update(ctx context.Context, actor user.User, id int64, input equipment.UpdateInput) (equipment.Item, error)
+	ChangeStatus(ctx context.Context, actor user.User, id int64, target equipment.Status) (equipment.Item, error)
+	Delete(ctx context.Context, actor user.User, id int64) (equipment.Item, error)
 }
 
 type equipmentPageData struct {
@@ -109,7 +110,7 @@ func createEquipment(
 		Kind:            r.PostForm.Get("kind"),
 	}
 
-	_, err := service.Create(r.Context(), equipment.CreateInput{
+	_, err := service.Create(r.Context(), currentUser(r), equipment.CreateInput{
 		InventoryNumber: form.InventoryNumber,
 		Kind:            equipment.Kind(form.Kind),
 	})

@@ -21,14 +21,16 @@ var appStyles []byte
 //
 // Logger используется для записи ошибок HTTP-слоя, а equipmentService
 // предоставляет сценарии учёта оборудования. Auth service, session resolver и
-// cookie settings обеспечивают login/logout. Все зависимости должны быть
-// созданы точкой входа приложения. NewHandler возвращает ошибку, если
+// cookie settings обеспечивают login/logout, а operator service — admin-only
+// управление учётными записями операторов. Все зависимости должны быть созданы
+// точкой входа приложения. NewHandler возвращает ошибку, если
 // встроенные HTML-шаблоны невозможно разобрать.
 func NewHandler(
 	logger *slog.Logger,
 	equipmentService equipmentService,
 	authenticationService authService,
 	sessions sessionResolver,
+	operators operatorService,
 	cookieSettings CookieSettings,
 ) (http.Handler, error) {
 	pageTemplates, err := template.ParseFS(templateFiles, "templates/*.html")
@@ -66,6 +68,27 @@ func NewHandler(
 	mux.Handle("GET /operator", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		showOperatorPage(logger, pageTemplates, w, r)
 	})))
+	mux.Handle("GET /admin/operators", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showOperatorsPage(logger, operators, pageTemplates, w, r)
+	})))
+	mux.Handle("POST /admin/operators", adminOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		createOperator(logger, operators, pageTemplates, w, r)
+	}))))
+	mux.Handle("GET /admin/operators/{id}/disable", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showOperatorDisablePage(logger, operators, pageTemplates, w, r)
+	})))
+	mux.Handle("POST /admin/operators/{id}/disable", adminOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		disableOperator(logger, operators, w, r)
+	}))))
+	mux.Handle("POST /admin/operators/{id}/activate", adminOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		activateOperator(logger, operators, w, r)
+	}))))
+	mux.Handle("GET /admin/operators/{id}/password", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showOperatorPasswordPage(logger, operators, pageTemplates, w, r)
+	})))
+	mux.Handle("POST /admin/operators/{id}/password", adminOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		changeOperatorPassword(logger, operators, pageTemplates, w, r)
+	}))))
 	mux.Handle("GET /equipment", authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		equipmentPage(logger, equipmentService, pageTemplates, w, r)
 	})))

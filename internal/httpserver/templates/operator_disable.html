@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}}</title><link rel="stylesheet" href="/static/app.css"></head>
+<body>
+<a class="skip-link" href="#main-content">К содержимому</a>
+<div class="app-shell">
+{{template "equipment-sidebar" .}}
+<main class="main-content" id="main-content" tabindex="-1">
+<div class="content-container confirmation">
+<nav class="breadcrumb" aria-label="Хлебные крошки"><a href="/admin/operators">Операторы</a><span aria-hidden="true">/</span><span>Отключение</span></nav>
+<header class="page-header"><div><p class="page-eyebrow">Управление доступом</p><h1>Отключить оператора {{.Operator.Login}}?</h1><p class="page-description">Оператор потеряет доступ к приложению.</p></div></header>
+<section class="panel" aria-labelledby="disable-operator-heading">
+<header class="panel-header"><div><h2 id="disable-operator-heading">Подтверждение отключения</h2><p class="panel-description">Учётную запись можно будет активировать повторно.</p></div></header>
+<div class="panel-body content-stack">
+<div class="alert alert--warning" role="alert"><p><strong>Все активные сессии будут завершены.</strong> Существующий пароль сохранится.</p></div>
+<dl class="details-list"><div class="details-row"><dt>Логин</dt><dd>{{.Operator.Login}}</dd></div><div class="details-row"><dt>Состояние</dt><dd>{{.Operator.State}}</dd></div></dl>
+</div>
+<div class="confirmation-actions"><form method="post" action="/admin/operators/{{.Operator.ID}}/disable"><input type="hidden" name="csrf_token" value="{{.Authentication.CSRFToken}}"><button class="button button--danger-filled" type="submit">Отключить оператора</button></form><a class="button" href="/admin/operators">Отмена</a></div>
+</section>
+</div></main></div>
+</body></html>

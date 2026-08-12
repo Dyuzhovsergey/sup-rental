@@ -213,6 +213,35 @@ func TestEquipmentMutationsRequireSessionCSRFToken(t *testing.T) {
 	}
 }
 
+func TestEquipmentMutationReceivesAuthenticatedAdmin(t *testing.T) {
+	service := &equipmentServiceStub{
+		create: func(context.Context, equipment.CreateInput) (equipment.Item, error) {
+			return equipment.Item{}, nil
+		},
+	}
+	handler := newRoleTestHandler(t, user.RoleAdmin, service)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(
+		response,
+		authenticatedRequest(
+			http.MethodPost,
+			"/equipment",
+			"csrf_token=csrf-token&inventory_number=SUP-AUDIT-1&kind=sup_board",
+		),
+	)
+
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusSeeOther)
+	}
+	if service.mutationActor.ID != 7 ||
+		service.mutationActor.Login != "admin" ||
+		service.mutationActor.Role != user.RoleAdmin ||
+		!service.mutationActor.Active {
+		t.Errorf("mutation actor = %+v, want authenticated admin", service.mutationActor)
+	}
+}
+
 func newRoleTestHandler(t *testing.T, role user.Role, service equipmentService) http.Handler {
 	t.Helper()
 	authenticated := authenticatedFixture()

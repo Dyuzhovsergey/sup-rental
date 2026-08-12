@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/Dyuzhovsergey/sup-rental/internal/user"
 )
 
 var (
@@ -33,12 +35,12 @@ var (
 
 // Repository определяет операции хранения, необходимые сервису оборудования.
 type Repository interface {
-	Create(ctx context.Context, item Item) (Item, error)
+	Create(ctx context.Context, actor user.User, item Item) (Item, error)
 	List(ctx context.Context) ([]Item, error)
 	Get(ctx context.Context, id int64) (Item, error)
-	Update(ctx context.Context, id int64, inventoryNumber string, kind Kind, status Status) (Item, error)
-	UpdateStatus(ctx context.Context, id int64, status Status) (Item, error)
-	Delete(ctx context.Context, id int64) error
+	Update(ctx context.Context, actor user.User, id int64, inventoryNumber string, kind Kind, status Status) (Item, error)
+	UpdateStatus(ctx context.Context, actor user.User, id int64, status Status) (Item, error)
+	Delete(ctx context.Context, actor user.User, id int64) (Item, error)
 }
 
 // Service реализует сценарии учёта оборудования.
@@ -74,7 +76,10 @@ func NewService(repository Repository) *Service {
 // Внешние пробелы инвентарного номера удаляются. Повторный номер возвращает
 // ErrInventoryNumberExists независимо от регистра, если repository
 // обеспечивает согласованный контракт уникальности.
-func (s *Service) Create(ctx context.Context, input CreateInput) (Item, error) {
+func (s *Service) Create(ctx context.Context, actor user.User, input CreateInput) (Item, error) {
+	if err := requireActiveAdmin(actor); err != nil {
+		return Item{}, err
+	}
 	inventoryNumber := strings.TrimSpace(input.InventoryNumber)
 	if inventoryNumber == "" {
 		return Item{}, ErrInventoryNumberRequired
@@ -90,7 +95,7 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (Item, error) {
 		Status:          StatusAvailable,
 	}
 
-	created, err := s.repository.Create(ctx, item)
+	created, err := s.repository.Create(ctx, actor, item)
 	if err != nil {
 		return Item{}, fmt.Errorf("create equipment: %w", err)
 	}
@@ -125,7 +130,10 @@ func (s *Service) Get(ctx context.Context, id int64) (Item, error) {
 // на обслуживании. Через форму редактирования можно переключаться только между
 // этими двумя состояниями; списание требует отдельного подтверждения. Внешние
 // пробелы инвентарного номера удаляются.
-func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) (Item, error) {
+func (s *Service) Update(ctx context.Context, actor user.User, id int64, input UpdateInput) (Item, error) {
+	if err := requireActiveAdmin(actor); err != nil {
+		return Item{}, err
+	}
 	item, err := s.repository.Get(ctx, id)
 	if err != nil {
 		return Item{}, fmt.Errorf("get equipment for update: %w", err)
@@ -155,6 +163,7 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) (Item
 
 	updated, err := s.repository.Update(
 		ctx,
+		actor,
 		id,
 		inventoryNumber,
 		input.Kind,
@@ -169,7 +178,10 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) (Item
 
 // ChangeStatus изменяет физическое состояние оборудования, если ручной
 // переход разрешён для его текущего состояния.
-func (s *Service) ChangeStatus(ctx context.Context, id int64, target Status) (Item, error) {
+func (s *Service) ChangeStatus(ctx context.Context, actor user.User, id int64, target Status) (Item, error) {
+	if err := requireActiveAdmin(actor); err != nil {
+		return Item{}, err
+	}
 	if !target.Valid() {
 		return Item{}, ErrInvalidStatus
 	}
@@ -183,7 +195,7 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, target Status) (It
 		return Item{}, ErrStatusTransitionNotAllowed
 	}
 
-	updated, err := s.repository.UpdateStatus(ctx, id, target)
+	updated, err := s.repository.UpdateStatus(ctx, actor, id, target)
 	if err != nil {
 		return Item{}, fmt.Errorf("update equipment status: %w", err)
 	}
@@ -198,7 +210,10 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, target Status) (It
 // ErrEquipmentHasHistory, если предмет уже связан с историческими данными.
 // Возвращённый предмет позволяет вызывающему коду сформировать подтверждение
 // удаления без повторного запроса уже удалённой записи.
-func (s *Service) Delete(ctx context.Context, id int64) (Item, error) {
+func (s *Service) Delete(ctx context.Context, actor user.User, id int64) (Item, error) {
+	if err := requireActiveAdmin(actor); err != nil {
+		return Item{}, err
+	}
 	item, err := s.repository.Get(ctx, id)
 	if err != nil {
 		return Item{}, fmt.Errorf("get equipment for deletion: %w", err)
@@ -208,9 +223,17 @@ func (s *Service) Delete(ctx context.Context, id int64) (Item, error) {
 		return Item{}, ErrEquipmentDeleteNotAllowed
 	}
 
-	if err := s.repository.Delete(ctx, id); err != nil {
+	deleted, err := s.repository.Delete(ctx, actor, id)
+	if err != nil {
 		return Item{}, fmt.Errorf("delete equipment: %w", err)
 	}
 
-	return item, nil
+	return deleted, nil
+}
+
+func requireActiveAdmin(actor user.User) error {
+	if actor.ID <= 0 || actor.Role != user.RoleAdmin || !actor.Active {
+		return user.ErrAccessDenied
+	}
+	return nil
 }

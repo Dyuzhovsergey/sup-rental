@@ -25,6 +25,8 @@ const (
 )
 
 var (
+	// ErrAccessDenied означает, что пользователь не вправе выполнять операцию.
+	ErrAccessDenied = errors.New("access denied")
 	// ErrLoginRequired означает, что login не указан после удаления внешних пробелов.
 	ErrLoginRequired = errors.New("login is required")
 	// ErrLoginTooShort означает, что login короче допустимого ограничения.

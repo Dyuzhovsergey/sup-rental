@@ -14,6 +14,7 @@ import (
 	appauth "github.com/Dyuzhovsergey/sup-rental/internal/auth"
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
 	"github.com/Dyuzhovsergey/sup-rental/internal/session"
+	"github.com/Dyuzhovsergey/sup-rental/internal/user"
 )
 
 func TestRootRedirectsUnauthenticatedUserToLogin(t *testing.T) {
@@ -260,6 +261,7 @@ func newHandlerWithDependencies(
 		service,
 		&authServiceStub{},
 		resolver,
+		&operatorServiceStub{},
 		CookieSettings{},
 	)
 	if err != nil {
@@ -272,6 +274,52 @@ func newHandlerWithDependencies(
 type authServiceStub struct {
 	login  func(context.Context, appauth.LoginInput) (appauth.LoginResult, error)
 	logout func(context.Context, session.AuthenticatedSession) error
+}
+
+type operatorServiceStub struct {
+	list           func(context.Context, user.User) ([]user.User, error)
+	get            func(context.Context, user.User, int64) (user.User, error)
+	create         func(context.Context, user.User, string, string) (user.User, error)
+	disable        func(context.Context, user.User, int64) (user.User, error)
+	activate       func(context.Context, user.User, int64) (user.User, error)
+	changePassword func(context.Context, user.User, int64, string) (user.User, error)
+}
+
+func (s *operatorServiceStub) List(ctx context.Context, actor user.User) ([]user.User, error) {
+	if s.list == nil {
+		return nil, nil
+	}
+	return s.list(ctx, actor)
+}
+func (s *operatorServiceStub) Get(ctx context.Context, actor user.User, id int64) (user.User, error) {
+	if s.get == nil {
+		return user.User{}, user.ErrOperatorNotFound
+	}
+	return s.get(ctx, actor, id)
+}
+func (s *operatorServiceStub) Create(ctx context.Context, actor user.User, login, plainPassword string) (user.User, error) {
+	if s.create == nil {
+		return user.User{}, nil
+	}
+	return s.create(ctx, actor, login, plainPassword)
+}
+func (s *operatorServiceStub) Disable(ctx context.Context, actor user.User, id int64) (user.User, error) {
+	if s.disable == nil {
+		return user.User{}, nil
+	}
+	return s.disable(ctx, actor, id)
+}
+func (s *operatorServiceStub) Activate(ctx context.Context, actor user.User, id int64) (user.User, error) {
+	if s.activate == nil {
+		return user.User{}, nil
+	}
+	return s.activate(ctx, actor, id)
+}
+func (s *operatorServiceStub) ChangePassword(ctx context.Context, actor user.User, id int64, plainPassword string) (user.User, error) {
+	if s.changePassword == nil {
+		return user.User{}, nil
+	}
+	return s.changePassword(ctx, actor, id, plainPassword)
 }
 
 func (s *authServiceStub) Login(
@@ -342,18 +390,21 @@ func (r *responseRecorder) WriteHeader(statusCode int) {
 }
 
 type equipmentServiceStub struct {
-	create       func(context.Context, equipment.CreateInput) (equipment.Item, error)
-	list         func(context.Context) ([]equipment.Item, error)
-	get          func(context.Context, int64) (equipment.Item, error)
-	update       func(context.Context, int64, equipment.UpdateInput) (equipment.Item, error)
-	changeStatus func(context.Context, int64, equipment.Status) (equipment.Item, error)
-	delete       func(context.Context, int64) (equipment.Item, error)
+	create        func(context.Context, equipment.CreateInput) (equipment.Item, error)
+	list          func(context.Context) ([]equipment.Item, error)
+	get           func(context.Context, int64) (equipment.Item, error)
+	update        func(context.Context, int64, equipment.UpdateInput) (equipment.Item, error)
+	changeStatus  func(context.Context, int64, equipment.Status) (equipment.Item, error)
+	delete        func(context.Context, int64) (equipment.Item, error)
+	mutationActor user.User
 }
 
 func (s *equipmentServiceStub) Create(
 	ctx context.Context,
+	actor user.User,
 	input equipment.CreateInput,
 ) (equipment.Item, error) {
+	s.mutationActor = actor
 	if s.create == nil {
 		return equipment.Item{}, nil
 	}
@@ -382,9 +433,11 @@ func (s *equipmentServiceStub) Get(
 
 func (s *equipmentServiceStub) Update(
 	ctx context.Context,
+	actor user.User,
 	id int64,
 	input equipment.UpdateInput,
 ) (equipment.Item, error) {
+	s.mutationActor = actor
 	if s.update == nil {
 		return equipment.Item{}, nil
 	}
@@ -394,9 +447,11 @@ func (s *equipmentServiceStub) Update(
 
 func (s *equipmentServiceStub) ChangeStatus(
 	ctx context.Context,
+	actor user.User,
 	id int64,
 	status equipment.Status,
 ) (equipment.Item, error) {
+	s.mutationActor = actor
 	if s.changeStatus == nil {
 		return equipment.Item{}, nil
 	}
@@ -406,8 +461,10 @@ func (s *equipmentServiceStub) ChangeStatus(
 
 func (s *equipmentServiceStub) Delete(
 	ctx context.Context,
+	actor user.User,
 	id int64,
 ) (equipment.Item, error) {
+	s.mutationActor = actor
 	if s.delete == nil {
 		return equipment.Item{}, nil
 	}
