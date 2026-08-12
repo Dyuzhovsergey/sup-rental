@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <a class="skip-link" href="#main-content">К содержимому</a>
+
+    <div class="app-shell">
+        {{template "equipment-sidebar" .}}
+
+        <main class="main-content main-content--equipment" id="main-content" tabindex="-1">
+            <div class="content-container">
+                <header class="page-header">
+                    <div>
+                        <p class="page-eyebrow">Инвентарь</p>
+                        <h1>Оборудование</h1>
+                        <p class="page-description">
+                            Добавляйте оборудование и управляйте его данными
+                            на протяжении всего срока эксплуатации.
+                        </p>
+                    </div>
+                    <span class="count-chip count-chip--total">Всего {{.CountLabel}}</span>
+                </header>
+
+                <div class="equipment-layout">
+                    <section
+                        class="panel equipment-create-panel"
+                        aria-labelledby="create-equipment-heading"
+                    >
+                        <header class="panel-header">
+                            <div>
+                                <h2 id="create-equipment-heading">Добавить оборудование</h2>
+                                <p class="panel-description">
+                                    Новая единица инвентаря
+                                </p>
+                            </div>
+                        </header>
+
+                        <div class="panel-body">
+                            <form class="equipment-create-form" method="post" action="/equipment">
+                                <div class="field">
+                                    <label class="field-label" for="inventory-number">
+                                        Инвентарный номер
+                                        <span class="required" aria-hidden="true">*</span>
+                                        <span class="visually-hidden">(обязательное поле)</span>
+                                    </label>
+                                    <input
+                                        id="inventory-number"
+                                        name="inventory_number"
+                                        value="{{.Form.InventoryNumber}}"
+                                        autocomplete="off"
+                                        spellcheck="false"
+                                        placeholder="Например, SUP-004"
+                                        required
+                                        {{if .InventoryNumberError}}aria-invalid="true" aria-describedby="create-inventory-number-error"{{end}}
+                                    >
+                                    {{if .InventoryNumberError}}
+                                    <p id="create-inventory-number-error" class="field-error" role="alert">{{.InventoryNumberError}}</p>
+                                    {{end}}
+                                </div>
+
+                                <div class="field">
+                                    <label class="field-label" for="kind">
+                                        Тип оборудования
+                                        <span class="required" aria-hidden="true">*</span>
+                                        <span class="visually-hidden">(обязательное поле)</span>
+                                    </label>
+                                    <select
+                                        id="kind"
+                                        name="kind"
+                                        required
+                                        {{if .KindError}}aria-invalid="true" aria-describedby="create-kind-error"{{end}}
+                                    >
+                                        <option value="">Выберите тип</option>
+                                        {{range .Kinds}}
+                                        <option value="{{.Value}}"{{if eq $.Form.Kind .Value}} selected{{end}}>
+                                            {{.Label}}
+                                        </option>
+                                        {{end}}
+                                    </select>
+                                    {{if .KindError}}
+                                    <p id="create-kind-error" class="field-error" role="alert">{{.KindError}}</p>
+                                    {{end}}
+                                </div>
+
+                                <button
+                                    class="button button--primary equipment-create-submit"
+                                    type="submit"
+                                >
+                                    <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                        <path d="M12 5v14"></path>
+                                        <path d="M5 12h14"></path>
+                                    </svg>
+                                    Добавить
+                                </button>
+                            </form>
+                        </div>
+                    </section>
+
+                    <div class="equipment-list-column">
+                        <section
+                            class="panel equipment-list-panel"
+                            aria-labelledby="equipment-active-heading"
+                        >
+                            <header class="panel-header">
+                                <div>
+                                    <h2 id="equipment-active-heading">Список оборудования</h2>
+                                    <p class="panel-description">
+                                        Доступное, выданное и находящееся на обслуживании
+                                    </p>
+                                </div>
+                                <span class="count-chip">{{.ActiveCountLabel}}</span>
+                            </header>
+
+                            {{if .Success}}
+                            <div class="equipment-list-notice">
+                                <div class="alert alert--success" role="status" aria-live="polite">
+                                    <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                        <path d="M20 11.1V12a8 8 0 1 1-4.7-7.3"></path>
+                                        <path d="m9 11 3 3L21 5"></path>
+                                    </svg>
+                                    <p>{{.Success}}</p>
+                                </div>
+                            </div>
+                            {{end}}
+
+                            {{if .ActiveItems}}
+                            <p id="equipment-active-table-hint" class="visually-hidden">
+                                При необходимости таблицу можно прокрутить по горизонтали.
+                            </p>
+                            <div
+                                class="table-scroll"
+                                role="region"
+                                aria-labelledby="equipment-active-heading"
+                                aria-describedby="equipment-active-table-hint"
+                                tabindex="0"
+                            >
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">ID</th>
+                                            <th scope="col">Инвентарный номер</th>
+                                            <th scope="col">Тип</th>
+                                            <th scope="col">Статус</th>
+                                            <th scope="col">Действия</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {{range .ActiveItems}}
+                                        <tr>
+                                            <td class="table-id">{{.ID}}</td>
+                                            <td>
+                                                <a class="inventory-link" href="/equipment/{{.ID}}">{{.InventoryNumber}}</a>
+                                            </td>
+                                            <td>{{.Kind}}</td>
+                                            <td>{{template "equipment-status-chip" .Status}}</td>
+                                            <td class="table-actions">
+                                                <div
+                                                    class="item-actions"
+                                                    role="group"
+                                                    aria-label="Действия с оборудованием {{.InventoryNumber}}"
+                                                >
+                                                    {{if .CanEdit}}
+                                                    <a
+                                                        class="button button--compact button--edit action-button edit-action"
+                                                        href="/equipment/{{.ID}}/edit"
+                                                    >
+                                                        <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                                            <path d="m14.5 5.5 4 4"></path>
+                                                            <path d="m4 20 3.8-.8L19 8a2.1 2.1 0 0 0-3-3L4.8 16.2 4 20Z"></path>
+                                                        </svg>
+                                                        Редактировать
+                                                    </a>
+                                                    <a
+                                                        class="button button--compact button--danger action-button retire-action"
+                                                        href="/equipment/{{.ID}}/retire"
+                                                    >
+                                                        <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                                            <path d="M12 8v5"></path>
+                                                            <path d="M12 16.5h.01"></path>
+                                                            <path d="M10.2 4.5 3.4 17a2 2 0 0 0 1.8 3h13.6a2 2 0 0 0 1.8-3L13.8 4.5a2 2 0 0 0-3.6 0Z"></path>
+                                                        </svg>
+                                                        Списать
+                                                    </a>
+                                                    {{else}}
+                                                    <a
+                                                        class="button button--compact button--danger action-button delete-action"
+                                                        href="/equipment/{{.ID}}/delete"
+                                                    >
+                                                        <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                                            <path d="M4 7h16"></path>
+                                                            <path d="m9 7 .6-2h4.8l.6 2"></path>
+                                                            <path d="m6.5 7 .7 13h9.6l.7-13"></path>
+                                                            <path d="M10 11v5"></path>
+                                                            <path d="M14 11v5"></path>
+                                                        </svg>
+                                                        Удалить
+                                                    </a>
+                                                    {{end}}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {{end}}
+                                    </tbody>
+                                </table>
+                            </div>
+                            {{else}}
+                            <div class="empty-state">
+                                <span class="empty-state-icon" aria-hidden="true">
+                                    <svg class="icon" viewBox="0 0 24 24" fill="none">
+                                        <path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z"></path>
+                                        <path d="m4 12 8 4.5 8-4.5"></path>
+                                    </svg>
+                                </span>
+                                <h3>Действующего оборудования пока нет</h3>
+                                <p>Заполните форму слева, чтобы создать первый предмет.</p>
+                            </div>
+                            {{end}}
+                        </section>
+
+                        {{if .RetiredItems}}
+                        <section
+                            class="panel equipment-list-panel retired-equipment-panel"
+                            aria-labelledby="equipment-retired-heading"
+                        >
+                            <header class="panel-header">
+                                <div>
+                                    <h2 id="equipment-retired-heading">Списанное оборудование</h2>
+                                    <p class="panel-description">
+                                        Недоступно для эксплуатации
+                                    </p>
+                                </div>
+                                <span class="count-chip">{{.RetiredCountLabel}}</span>
+                            </header>
+
+                            <p id="equipment-retired-table-hint" class="visually-hidden">
+                                При необходимости таблицу можно прокрутить по горизонтали.
+                            </p>
+                            <div
+                                class="table-scroll"
+                                role="region"
+                                aria-labelledby="equipment-retired-heading"
+                                aria-describedby="equipment-retired-table-hint"
+                                tabindex="0"
+                            >
+                                <table>
+                                    <thead>
+                                        <tr>
+                                            <th scope="col">ID</th>
+                                            <th scope="col">Инвентарный номер</th>
+                                            <th scope="col">Тип</th>
+                                            <th scope="col">Статус</th>
+                                            <th scope="col">Действия</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {{range .RetiredItems}}
+                                        <tr>
+                                            <td class="table-id">{{.ID}}</td>
+                                            <td>
+                                                <a class="inventory-link" href="/equipment/{{.ID}}">{{.InventoryNumber}}</a>
+                                            </td>
+                                            <td>{{.Kind}}</td>
+                                            <td>{{template "equipment-status-chip" .Status}}</td>
+                                            <td class="table-actions">
+                                                <div
+                                                    class="item-actions"
+                                                    role="group"
+                                                    aria-label="Действия с оборудованием {{.InventoryNumber}}"
+                                                >
+                                                    <a
+                                                        class="button button--compact button--danger action-button delete-action"
+                                                        href="/equipment/{{.ID}}/delete"
+                                                    >
+                                                        <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                                            <path d="M4 7h16"></path>
+                                                            <path d="m9 7 .6-2h4.8l.6 2"></path>
+                                                            <path d="m6.5 7 .7 13h9.6l.7-13"></path>
+                                                            <path d="M10 11v5"></path>
+                                                            <path d="M14 11v5"></path>
+                                                        </svg>
+                                                        Удалить
+                                                    </a>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                        {{end}}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+                        {{end}}
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

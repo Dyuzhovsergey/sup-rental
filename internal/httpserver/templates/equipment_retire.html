@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <a class="skip-link" href="#main-content">К содержимому</a>
+
+    <div class="app-shell">
+        {{template "equipment-sidebar" .}}
+
+        <main class="main-content" id="main-content" tabindex="-1">
+            <div class="content-container confirmation">
+                <nav class="breadcrumb" aria-label="Хлебные крошки">
+                    <a href="/equipment/{{.ID}}/edit">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                            <path d="m15 18-6-6 6-6"></path>
+                        </svg>
+                        Редактирование
+                    </a>
+                    <span aria-hidden="true">/</span>
+                    <span>Подтверждение списания</span>
+                </nav>
+
+                <header class="page-header">
+                    <div>
+                        <p class="page-eyebrow">Необратимое действие</p>
+                        <h1>Списать оборудование {{.InventoryNumber}}?</h1>
+                        <p class="page-description">
+                            Проверьте предмет перед окончательным подтверждением.
+                        </p>
+                    </div>
+                </header>
+
+                <section class="panel" aria-labelledby="retire-confirmation-heading">
+                    <header class="panel-header">
+                        <div class="confirmation-title">
+                            <span class="confirmation-icon" aria-hidden="true">
+                                <svg class="icon" viewBox="0 0 24 24" fill="none">
+                                    <path d="M12 8v5"></path>
+                                    <path d="M12 16.5h.01"></path>
+                                    <path d="M10.2 4.5 3.4 17a2 2 0 0 0 1.8 3h13.6a2 2 0 0 0 1.8-3L13.8 4.5a2 2 0 0 0-3.6 0Z"></path>
+                                </svg>
+                            </span>
+                            <div>
+                                <h2 id="retire-confirmation-heading">Подтверждение списания</h2>
+                                <p class="panel-description">
+                                    Операцию нельзя отменить после подтверждения.
+                                </p>
+                            </div>
+                        </div>
+                    </header>
+
+                    <div class="panel-body content-stack">
+                        <div class="alert alert--danger" role="alert">
+                            <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <circle cx="12" cy="12" r="9"></circle>
+                                <path d="M12 8v5"></path>
+                                <path d="M12 16.5h.01"></path>
+                            </svg>
+                            <p>
+                                <strong>Списание нельзя отменить.</strong>
+                                После списания оборудование нельзя редактировать
+                                или перевести в другой статус.
+                            </p>
+                        </div>
+
+                        <dl class="details-list">
+                            <div class="details-row">
+                                <dt>Инвентарный номер</dt>
+                                <dd>{{.InventoryNumber}}</dd>
+                            </div>
+                            <div class="details-row">
+                                <dt>Тип</dt>
+                                <dd>{{.Kind}}</dd>
+                            </div>
+                            <div class="details-row">
+                                <dt>Текущий статус</dt>
+                                <dd>{{template "equipment-status-chip" .Status}}</dd>
+                            </div>
+                        </dl>
+                    </div>
+
+                    <div class="confirmation-actions">
+                        <form method="post" action="/equipment/{{.ID}}/retire">
+                            <button class="button button--danger-filled" type="submit">
+                                <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path d="M12 8v5"></path>
+                                    <path d="M12 16.5h.01"></path>
+                                    <path d="M10.2 4.5 3.4 17a2 2 0 0 0 1.8 3h13.6a2 2 0 0 0 1.8-3L13.8 4.5a2 2 0 0 0-3.6 0Z"></path>
+                                </svg>
+                                Подтвердить списание
+                            </button>
+                        </form>
+                        <a class="button button--secondary cancel-link" href="/equipment/{{.ID}}/edit">Отмена</a>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+</body>
+</html>
