@@ -32,6 +32,7 @@ func NewHandler(
 	sessions sessionResolver,
 	operators operatorService,
 	auditLog auditService,
+	clients clientService,
 	cookieSettings CookieSettings,
 ) (http.Handler, error) {
 	pageTemplates, err := template.ParseFS(templateFiles, "templates/*.html")
@@ -93,6 +94,12 @@ func NewHandler(
 	mux.Handle("GET /admin/audit", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		showAuditPage(logger, auditLog, pageTemplates, w, r)
 	})))
+	mux.Handle("GET /clients", authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientsPage(logger, clients, pageTemplates, w, r)
+	})))
+	mux.Handle("POST /clients", operatorOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientsPage(logger, clients, pageTemplates, w, r)
+	}))))
 	mux.Handle("GET /equipment", authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		equipmentPage(logger, equipmentService, pageTemplates, w, r)
 	})))

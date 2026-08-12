@@ -237,6 +237,7 @@ func auditActionLabel(action string) string {
 		"equipment.created": "Оборудование добавлено", "equipment.updated": "Оборудование изменено",
 		"equipment.status_changed": "Состояние оборудования изменено", "equipment.retired": "Оборудование списано",
 		"equipment.deleted": "Оборудование удалено",
+		"client.created":    "Клиент создан",
 	}
 	if label := labels[action]; label != "" {
 		return label

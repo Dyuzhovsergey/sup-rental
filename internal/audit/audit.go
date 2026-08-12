@@ -22,9 +22,11 @@ const (
 	CategoryAuth      Category = "auth"
 	CategoryUsers     Category = "users"
 	CategoryEquipment Category = "equipment"
-	ResultAll                  = ""
-	ResultSuccess              = "success"
-	ResultFailure              = "failure"
+	// CategoryClients ограничивает журнал событиями работы с клиентами.
+	CategoryClients Category = "clients"
+	ResultAll                = ""
+	ResultSuccess            = "success"
+	ResultFailure            = "failure"
 )
 
 var (
@@ -111,7 +113,8 @@ func NewFilter(category, result, actor, target string, from, to *time.Time, page
 		Page:     page,
 	}
 	if filter.Category != CategoryAll && filter.Category != CategoryAuth &&
-		filter.Category != CategoryUsers && filter.Category != CategoryEquipment {
+		filter.Category != CategoryUsers && filter.Category != CategoryEquipment &&
+		filter.Category != CategoryClients {
 		return Filter{}, ErrInvalidFilter
 	}
 	if filter.Result != ResultAll && filter.Result != ResultSuccess && filter.Result != ResultFailure {

@@ -59,6 +59,24 @@ func TestAuditPageHidesUnknownDetails(t *testing.T) {
 	}
 }
 
+func TestAuditPageShowsClientCategoryAndAction(t *testing.T) {
+	service := &auditServiceStub{list: func(_ context.Context, _ user.User, filter audit.Filter) (audit.Page, error) {
+		if filter.Category != audit.CategoryClients {
+			t.Errorf("category = %q", filter.Category)
+		}
+		return audit.Page{Total: 1, Page: 1, Events: []audit.Event{{
+			Action: "client.created", TargetLabel: "Анна Иванова", Result: audit.ResultSuccess,
+		}}}, nil
+	}}
+	response := httptest.NewRecorder()
+	newAuditTestHandler(t, service, authenticatedFixture()).ServeHTTP(response, authenticatedRequest(http.MethodGet, "/admin/audit?category=clients", ""))
+	for _, want := range []string{`value="clients" selected`, "Клиенты", "Клиент создан", "Анна Иванова"} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
 func TestAuditPaginationPreservesFilters(t *testing.T) {
 	service := &auditServiceStub{list: func(context.Context, user.User, audit.Filter) (audit.Page, error) {
 		return audit.Page{Total: 51, Page: 1, Events: []audit.Event{{
@@ -95,7 +113,7 @@ func newAuditTestHandler(t *testing.T, service auditService, authenticated sessi
 	}}
 	handler, err := NewHandler(
 		slog.New(slog.NewTextHandler(io.Discard, nil)), &equipmentServiceStub{},
-		&authServiceStub{}, resolver, &operatorServiceStub{}, service, CookieSettings{},
+		&authServiceStub{}, resolver, &operatorServiceStub{}, service, &clientServiceStub{}, CookieSettings{},
 	)
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)

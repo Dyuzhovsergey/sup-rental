@@ -12,6 +12,7 @@ import (
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/audit"
 	"github.com/Dyuzhovsergey/sup-rental/internal/auth"
+	"github.com/Dyuzhovsergey/sup-rental/internal/client"
 	"github.com/Dyuzhovsergey/sup-rental/internal/config"
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
 	"github.com/Dyuzhovsergey/sup-rental/internal/httpserver"
@@ -76,6 +77,8 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	operatorService := user.NewOperatorService(operatorRepository, passwordHasher)
 	auditRepository := postgres.NewAuditRepository(pool)
 	auditService := audit.NewService(auditRepository)
+	clientRepository := postgres.NewClientRepository(pool)
+	clientService := client.NewService(clientRepository)
 
 	handler, err := httpserver.NewHandler(
 		httpLogger,
@@ -84,6 +87,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		sessionService,
 		operatorService,
 		auditService,
+		clientService,
 		httpserver.CookieSettings{Secure: cfg.SessionCookieSecure},
 	)
 	if err != nil {

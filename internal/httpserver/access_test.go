@@ -96,7 +96,9 @@ func TestOperatorHomeAndEquipmentAreReadOnly(t *testing.T) {
 
 	homeResponse := httptest.NewRecorder()
 	handler.ServeHTTP(homeResponse, authenticatedRequest(http.MethodGet, "/operator", ""))
-	if homeResponse.Code != http.StatusOK || !strings.Contains(homeResponse.Body.String(), "Рабочее место оператора") {
+	if homeResponse.Code != http.StatusOK ||
+		!strings.Contains(homeResponse.Body.String(), "Рабочее место оператора") ||
+		!strings.Contains(homeResponse.Body.String(), `href="/clients"`) {
 		t.Errorf("operator home = %d body %q", homeResponse.Code, homeResponse.Body.String())
 	}
 

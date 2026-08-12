@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/client"
+	"github.com/Dyuzhovsergey/sup-rental/internal/user"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -16,17 +19,18 @@ import (
 func TestClientRepositoryCreateGetAndFindByPhone(t *testing.T) {
 	pool, ctx := openClientRepositoryTestDatabase(t)
 	repository := NewClientRepository(pool)
+	actor := clientTestOperator(t, ctx, pool)
 	phone := fmt.Sprintf("+79%09d", time.Now().UnixNano()%1_000_000_000)
 	customer, err := client.New("  Тестовый   Клиент  ", phone)
 	if err != nil {
 		t.Fatalf("client.New() error = %v", err)
 	}
 
-	created, err := repository.Create(ctx, customer)
+	created, err := repository.Create(ctx, actor, customer)
 	if err != nil {
 		t.Fatalf("Create() error = %v; apply migrations to TEST_DATABASE_URL first", err)
 	}
-	cleanupClient(t, pool, created.ID)
+	cleanupClient(t, pool, created.ID, actor.ID)
 
 	if created.ID == 0 || created.FullName != "Тестовый Клиент" || created.Phone != customer.Phone {
 		t.Errorf("Create() = %+v", created)
@@ -52,7 +56,7 @@ func TestClientRepositoryCreateGetAndFindByPhone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("client.New() duplicate error = %v", err)
 	}
-	if _, err := repository.Create(ctx, duplicate); !errors.Is(err, client.ErrPhoneExists) {
+	if _, err := repository.Create(ctx, actor, duplicate); !errors.Is(err, client.ErrPhoneExists) {
 		t.Errorf("duplicate Create() error = %v, want ErrPhoneExists", err)
 	}
 
@@ -61,6 +65,50 @@ func TestClientRepositoryCreateGetAndFindByPhone(t *testing.T) {
 	}
 	if _, err := repository.FindByPhone(ctx, client.Phone("+100000000000000")); !errors.Is(err, client.ErrClientNotFound) {
 		t.Errorf("missing FindByPhone() error = %v, want ErrClientNotFound", err)
+	}
+
+	page, err := repository.ListPage(ctx, 1, 10)
+	if err != nil {
+		t.Fatalf("ListPage() error = %v", err)
+	}
+	if page.Total < 1 || len(page.Clients) == 0 {
+		t.Errorf("ListPage() = %+v", page)
+	}
+
+	var action, actorLogin, actorRole, targetType, targetLabel, details string
+	if err := pool.QueryRow(ctx, `SELECT action, actor_login, actor_role, target_type, target_label, details::text
+		FROM audit_events WHERE action = 'client.created' AND target_id = $1`, created.ID).Scan(
+		&action, &actorLogin, &actorRole, &targetType, &targetLabel, &details,
+	); err != nil {
+		t.Fatalf("query client audit event: %v", err)
+	}
+	if action != "client.created" || actorLogin != actor.Login || actorRole != "operator" || targetType != "client" || targetLabel != created.FullName || details != "{}" {
+		t.Errorf("audit = %q %q %q %q %q %q", action, actorLogin, actorRole, targetType, targetLabel, details)
+	}
+}
+
+func TestClientRepositoryRollsBackCreateWhenAuditFails(t *testing.T) {
+	pool, ctx := openClientRepositoryTestDatabase(t)
+	actor := clientTestOperator(t, ctx, pool)
+	t.Cleanup(func() { cleanupClientOperator(t, pool, actor.ID) })
+	repository := NewClientRepository(pool)
+	repository.writeAudit = func(context.Context, pgx.Tx, string, user.User, client.Client) error {
+		return errors.New("audit unavailable")
+	}
+	phone := fmt.Sprintf("+78%09d", time.Now().UnixNano()%1_000_000_000)
+	customer, err := client.New("Клиент Отката", phone)
+	if err != nil {
+		t.Fatalf("client.New() error = %v", err)
+	}
+	if _, err := repository.Create(ctx, actor, customer); err == nil || !strings.Contains(err.Error(), "audit unavailable") {
+		t.Fatalf("Create() error = %v", err)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM clients WHERE phone = $1", customer.Phone).Scan(&count); err != nil {
+		t.Fatalf("count rolled back client: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("client count after rollback = %d", count)
 	}
 }
 
@@ -102,13 +150,33 @@ func openClientRepositoryTestDatabase(t *testing.T) (*pgxpool.Pool, context.Cont
 	return pool, ctx
 }
 
-func cleanupClient(t *testing.T, pool *pgxpool.Pool, id int64) {
+func cleanupClient(t *testing.T, pool *pgxpool.Pool, id, actorID int64) {
 	t.Helper()
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		_, _ = pool.Exec(ctx, "DELETE FROM audit_events WHERE target_type = 'client' AND target_id = $1", id)
 		if _, err := pool.Exec(ctx, "DELETE FROM clients WHERE id = $1", id); err != nil {
 			t.Errorf("clean up client: %v", err)
 		}
+		cleanupClientOperator(t, pool, actorID)
 	})
+}
+
+func clientTestOperator(t *testing.T, ctx context.Context, pool *pgxpool.Pool) user.User {
+	t.Helper()
+	account := user.User{Login: fmt.Sprintf("clientop%d", time.Now().UnixNano()%1_000_000_000_000), Role: user.RoleOperator, Active: true}
+	if err := pool.QueryRow(ctx, `INSERT INTO users (login, password_hash, role, active)
+		VALUES ($1, 'test-hash', 'operator', true) RETURNING id`, account.Login).Scan(&account.ID); err != nil {
+		t.Fatalf("insert client test operator: %v", err)
+	}
+	return account
+}
+
+func cleanupClientOperator(t *testing.T, pool *pgxpool.Pool, actorID int64) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _ = pool.Exec(ctx, "DELETE FROM audit_events WHERE actor_user_id = $1", actorID)
+	_, _ = pool.Exec(ctx, "DELETE FROM users WHERE id = $1", actorID)
 }

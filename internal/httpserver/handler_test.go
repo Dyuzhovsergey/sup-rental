@@ -13,6 +13,7 @@ import (
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/audit"
 	appauth "github.com/Dyuzhovsergey/sup-rental/internal/auth"
+	"github.com/Dyuzhovsergey/sup-rental/internal/client"
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
 	"github.com/Dyuzhovsergey/sup-rental/internal/session"
 	"github.com/Dyuzhovsergey/sup-rental/internal/user"
@@ -264,6 +265,7 @@ func newHandlerWithDependencies(
 		resolver,
 		&operatorServiceStub{},
 		&auditServiceStub{},
+		&clientServiceStub{},
 		CookieSettings{},
 	)
 	if err != nil {
@@ -280,6 +282,41 @@ type authServiceStub struct {
 
 type auditServiceStub struct {
 	list func(context.Context, user.User, audit.Filter) (audit.Page, error)
+}
+
+type clientServiceStub struct {
+	create func(context.Context, user.User, string, string) (client.Client, error)
+	get    func(context.Context, int64) (client.Client, error)
+	find   func(context.Context, string) (client.Client, error)
+	list   func(context.Context, int) (client.Page, error)
+}
+
+func (s *clientServiceStub) Create(ctx context.Context, actor user.User, fullName, phone string) (client.Client, error) {
+	if s.create == nil {
+		return client.Client{}, nil
+	}
+	return s.create(ctx, actor, fullName, phone)
+}
+
+func (s *clientServiceStub) Get(ctx context.Context, id int64) (client.Client, error) {
+	if s.get == nil {
+		return client.Client{}, client.ErrClientNotFound
+	}
+	return s.get(ctx, id)
+}
+
+func (s *clientServiceStub) FindByPhone(ctx context.Context, phone string) (client.Client, error) {
+	if s.find == nil {
+		return client.Client{}, client.ErrClientNotFound
+	}
+	return s.find(ctx, phone)
+}
+
+func (s *clientServiceStub) ListPage(ctx context.Context, page int) (client.Page, error) {
+	if s.list == nil {
+		return client.Page{Page: page}, nil
+	}
+	return s.list(ctx, page)
 }
 
 func (s *auditServiceStub) List(ctx context.Context, actor user.User, filter audit.Filter) (audit.Page, error) {

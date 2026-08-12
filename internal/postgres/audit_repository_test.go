@@ -31,6 +31,11 @@ func TestAuditRepositoryListFiltersAndOrdersEvents(t *testing.T) {
 			t.Fatalf("insert audit fixture: %v; apply migrations first", err)
 		}
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO audit_events
+		(actor_login, actor_role, action, target_type, target_label, result, details)
+		VALUES ('audit.operator', 'operator', 'client.created', 'client', $1, 'success', '{}')`, label); err != nil {
+		t.Fatalf("insert client audit fixture: %v", err)
+	}
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cleanupCancel()
@@ -49,5 +54,16 @@ func TestAuditRepositoryListFiltersAndOrdersEvents(t *testing.T) {
 	}
 	if page.Total != 2 || len(page.Events) != 2 || page.Events[0].Action != "equipment.updated" {
 		t.Errorf("List() = %+v", page)
+	}
+	clientFilter, err := audit.NewFilter("clients", "success", "audit.operator", label, nil, nil, 1)
+	if err != nil {
+		t.Fatalf("NewFilter(clients) error = %v", err)
+	}
+	clientPage, err := NewAuditRepository(pool).List(ctx, clientFilter)
+	if err != nil {
+		t.Fatalf("List(clients) error = %v", err)
+	}
+	if clientPage.Total != 1 || len(clientPage.Events) != 1 || clientPage.Events[0].Action != "client.created" {
+		t.Errorf("List(clients) = %+v", clientPage)
 	}
 }
