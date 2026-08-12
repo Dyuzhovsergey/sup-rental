@@ -110,6 +110,13 @@
                     {{end}}
 
                     <div class="equipment-list-column">
+                        <form class="list-toolbar" method="get" action="/equipment">
+                            <label for="equipment-page-size">Строк на странице</label>
+                            <select id="equipment-page-size" name="page_size">
+                                {{range .PageSizeOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Value}}</option>{{end}}
+                            </select>
+                            <button class="button button--compact" type="submit">Показать</button>
+                        </form>
                         <section
                             class="panel equipment-list-panel"
                             aria-labelledby="equipment-active-heading"
@@ -185,7 +192,7 @@
                                                         Редактировать
                                                     </a>
                                                     <a
-                                                        class="button button--compact button--danger action-button retire-action"
+                                                        class="button button--compact button--retire action-button retire-action"
                                                         href="/equipment/{{.ID}}/retire"
                                                     >
                                                         <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -230,9 +237,10 @@
                                 <p>{{if .CanManageEquipment}}Заполните форму слева, чтобы создать первый предмет.{{else}}Администратор ещё не добавил оборудование.{{end}}</p>
                             </div>
                             {{end}}
+                            {{template "pagination" .ActivePagination}}
                         </section>
 
-                        {{if .RetiredItems}}
+                        {{if .HasRetiredItems}}
                         <section
                             class="panel equipment-list-panel retired-equipment-panel"
                             aria-labelledby="equipment-retired-heading"
@@ -304,6 +312,7 @@
                                     </tbody>
                                 </table>
                             </div>
+                            {{template "pagination" .RetiredPagination}}
                         </section>
                         {{end}}
                     </div>

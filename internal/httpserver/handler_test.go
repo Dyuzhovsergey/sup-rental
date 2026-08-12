@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Dyuzhovsergey/sup-rental/internal/audit"
 	appauth "github.com/Dyuzhovsergey/sup-rental/internal/auth"
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
 	"github.com/Dyuzhovsergey/sup-rental/internal/session"
@@ -131,8 +132,8 @@ func TestStylesheet(t *testing.T) {
 	if got := response.Header().Get("Content-Type"); got != "text/css; charset=utf-8" {
 		t.Errorf("Content-Type = %q, want %q", got, "text/css; charset=utf-8")
 	}
-	if got := response.Header().Get("Cache-Control"); got != "public, max-age=300" {
-		t.Errorf("Cache-Control = %q, want %q", got, "public, max-age=300")
+	if got := response.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control = %q, want %q", got, "no-cache")
 	}
 
 	for _, want := range []string{
@@ -262,6 +263,7 @@ func newHandlerWithDependencies(
 		&authServiceStub{},
 		resolver,
 		&operatorServiceStub{},
+		&auditServiceStub{},
 		CookieSettings{},
 	)
 	if err != nil {
@@ -274,6 +276,17 @@ func newHandlerWithDependencies(
 type authServiceStub struct {
 	login  func(context.Context, appauth.LoginInput) (appauth.LoginResult, error)
 	logout func(context.Context, session.AuthenticatedSession) error
+}
+
+type auditServiceStub struct {
+	list func(context.Context, user.User, audit.Filter) (audit.Page, error)
+}
+
+func (s *auditServiceStub) List(ctx context.Context, actor user.User, filter audit.Filter) (audit.Page, error) {
+	if s.list == nil {
+		return audit.Page{Page: filter.Page}, nil
+	}
+	return s.list(ctx, actor, filter)
 }
 
 type operatorServiceStub struct {
@@ -418,6 +431,36 @@ func (s *equipmentServiceStub) List(ctx context.Context) ([]equipment.Item, erro
 	}
 
 	return s.list(ctx)
+}
+
+func (s *equipmentServiceStub) ListPage(
+	ctx context.Context,
+	input equipment.ListPageInput,
+) (equipment.ListPage, error) {
+	items, err := s.List(ctx)
+	if err != nil {
+		return equipment.ListPage{}, err
+	}
+	filtered := make([]equipment.Item, 0, len(items))
+	for _, item := range items {
+		retired := item.Status == equipment.StatusRetired
+		if (input.Scope == equipment.ListScopeRetired && retired) ||
+			(input.Scope == equipment.ListScopeActive && !retired) {
+			filtered = append(filtered, item)
+		}
+	}
+	start := (input.Page - 1) * input.PageSize
+	if start > len(filtered) {
+		start = len(filtered)
+	}
+	end := start + input.PageSize
+	if end > len(filtered) {
+		end = len(filtered)
+	}
+	return equipment.ListPage{
+		Scope: input.Scope, Items: filtered[start:end], Total: len(filtered),
+		Page: input.Page, PageSize: input.PageSize,
+	}, nil
 }
 
 func (s *equipmentServiceStub) Get(

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <a class="skip-link" href="#main-content">К содержимому</a>
+    <div class="app-shell">
+        {{template "equipment-sidebar" .}}
+        <main class="main-content" id="main-content" tabindex="-1">
+            <div class="content-container">
+                <header class="page-header">
+                    <div>
+                        <p class="page-eyebrow">Администрирование</p>
+                        <h1>Журнал действий</h1>
+                        <p class="page-description">Проверяйте входы, изменения учётных записей и операции с оборудованием.</p>
+                    </div>
+                    <span class="count-chip count-chip--total">{{.TotalLabel}}</span>
+                </header>
+
+                <div class="content-stack">
+                    <section class="panel" aria-labelledby="audit-filters-heading">
+                        <header class="panel-header">
+                            <div>
+                                <h2 id="audit-filters-heading">Фильтры</h2>
+                                <p class="panel-description">Поля можно комбинировать</p>
+                            </div>
+                        </header>
+                        <div class="panel-body">
+                            {{if .PeriodError}}<div class="alert alert--danger" role="alert"><p>{{.PeriodError}}</p></div>{{end}}
+                            <form class="audit-filter-grid" method="get" action="/admin/audit">
+                                <div class="field">
+                                    <label class="field-label" for="audit-category">Категория</label>
+                                    <select id="audit-category" name="category">
+                                        <option value=""{{if eq .Filter.Category ""}} selected{{end}}>Все категории</option>
+                                        <option value="auth"{{if eq .Filter.Category "auth"}} selected{{end}}>Вход и сессии</option>
+                                        <option value="users"{{if eq .Filter.Category "users"}} selected{{end}}>Пользователи</option>
+                                        <option value="equipment"{{if eq .Filter.Category "equipment"}} selected{{end}}>Оборудование</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label class="field-label" for="audit-result">Результат</label>
+                                    <select id="audit-result" name="result">
+                                        <option value=""{{if eq .Filter.Result ""}} selected{{end}}>Все результаты</option>
+                                        <option value="success"{{if eq .Filter.Result "success"}} selected{{end}}>Успешно</option>
+                                        <option value="failure"{{if eq .Filter.Result "failure"}} selected{{end}}>Ошибка</option>
+                                    </select>
+                                </div>
+                                <div class="field">
+                                    <label class="field-label" for="audit-actor">Исполнитель</label>
+                                    <input id="audit-actor" name="actor" value="{{.Filter.Actor}}" placeholder="Логин">
+                                </div>
+                                <div class="field">
+                                    <label class="field-label" for="audit-target">Объект</label>
+                                    <input id="audit-target" name="target" value="{{.Filter.Target}}" placeholder="Номер или логин">
+                                </div>
+                                <div class="field">
+                                    <label class="field-label" for="audit-from">Дата от</label>
+                                    <input id="audit-from" name="from" type="date" value="{{.Filter.From}}"{{if .FromError}} aria-invalid="true" aria-describedby="audit-from-error"{{end}}>
+                                    {{if .FromError}}<p class="field-error" id="audit-from-error" role="alert">{{.FromError}}</p>{{end}}
+                                </div>
+                                <div class="field">
+                                    <label class="field-label" for="audit-to">Дата до</label>
+                                    <input id="audit-to" name="to" type="date" value="{{.Filter.To}}"{{if .ToError}} aria-invalid="true" aria-describedby="audit-to-error"{{end}}>
+                                    {{if .ToError}}<p class="field-error" id="audit-to-error" role="alert">{{.ToError}}</p>{{end}}
+                                </div>
+                                <div class="audit-filter-actions">
+                                    <button class="button button--primary" type="submit">Применить</button>
+                                    <a class="button" href="/admin/audit">Сбросить</a>
+                                </div>
+                            </form>
+                        </div>
+                    </section>
+
+                    <section class="panel" aria-labelledby="audit-list-heading">
+                        <header class="panel-header">
+                            <div>
+                                <h2 id="audit-list-heading">События</h2>
+                                <p class="panel-description">Новые события отображаются первыми, время указано по Москве</p>
+                            </div>
+                        </header>
+                        {{if .Events}}
+                        <div class="table-scroll" role="region" aria-labelledby="audit-list-heading" tabindex="0">
+                            <table class="audit-table">
+                                <thead><tr><th scope="col">Время</th><th scope="col">Действие</th><th scope="col">Исполнитель</th><th scope="col">Объект</th><th scope="col">Результат</th><th scope="col">Подробности</th></tr></thead>
+                                <tbody>
+                                {{range .Events}}
+                                    <tr>
+                                        <td class="audit-time">{{.OccurredAt}}</td>
+                                        <td><strong>{{.Action}}</strong><span class="audit-action-code">{{.ActionCode}}</span></td>
+                                        <td>{{.Actor}}</td>
+                                        <td>{{.Target}}</td>
+                                        <td><span class="status-chip {{if .Successful}}status-chip--available{{else}}status-chip--retired{{end}}"><span class="status-dot" aria-hidden="true"></span>{{.Result}}</span></td>
+                                        <td class="audit-summary">{{if .Summary}}{{.Summary}}{{else}}—{{end}}</td>
+                                    </tr>
+                                {{end}}
+                                </tbody>
+                            </table>
+                        </div>
+                        {{else}}
+                        <div class="empty-state"><h3>События не найдены</h3><p>Измените фильтры или сбросьте их.</p></div>
+                        {{end}}
+                        {{template "pagination" .}}
+                    </section>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

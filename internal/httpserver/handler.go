@@ -31,6 +31,7 @@ func NewHandler(
 	authenticationService authService,
 	sessions sessionResolver,
 	operators operatorService,
+	auditLog auditService,
 	cookieSettings CookieSettings,
 ) (http.Handler, error) {
 	pageTemplates, err := template.ParseFS(templateFiles, "templates/*.html")
@@ -89,6 +90,9 @@ func NewHandler(
 	mux.Handle("POST /admin/operators/{id}/password", adminOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		changeOperatorPassword(logger, operators, pageTemplates, w, r)
 	}))))
+	mux.Handle("GET /admin/audit", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showAuditPage(logger, auditLog, pageTemplates, w, r)
+	})))
 	mux.Handle("GET /equipment", authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		equipmentPage(logger, equipmentService, pageTemplates, w, r)
 	})))
@@ -132,7 +136,7 @@ func stylesheet(logger *slog.Logger, w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=300")
+	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
 
 	if _, err := w.Write(appStyles); err != nil {

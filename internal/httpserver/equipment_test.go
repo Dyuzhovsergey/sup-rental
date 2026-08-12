@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -52,6 +53,46 @@ func TestEquipmentPageListsItems(t *testing.T) {
 	} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("body = %q, want it to contain %q", response.Body.String(), want)
+		}
+	}
+}
+
+func TestEquipmentPagePaginatesActiveAndRetiredListsIndependently(t *testing.T) {
+	items := make([]equipment.Item, 0, 20)
+	for id := int64(1); id <= 12; id++ {
+		items = append(items, equipment.Item{ID: id, InventoryNumber: fmt.Sprintf("ACTIVE-%02d", id), Status: equipment.StatusAvailable})
+	}
+	for id := int64(13); id <= 19; id++ {
+		items = append(items, equipment.Item{ID: id, InventoryNumber: fmt.Sprintf("RETIRED-%02d", id), Status: equipment.StatusRetired})
+	}
+	service := &equipmentServiceStub{list: func(context.Context) ([]equipment.Item, error) { return items, nil }}
+	request := httptest.NewRequest(http.MethodGet, "/equipment?page_size=5&active_page=2&retired_page=2", nil)
+	response := httptest.NewRecorder()
+
+	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", response.Code)
+	}
+	body := response.Body.String()
+	for _, want := range []string{"ACTIVE-06", "ACTIVE-10", "RETIRED-18", "RETIRED-19", "12 позиций", "7 позиций", "Страница 2 из 3", "Страница 2 из 2", "active_page=3", "retired_page=2"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+	for _, unwanted := range []string{"ACTIVE-01", "ACTIVE-11", "RETIRED-13"} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("body unexpectedly contains %q", unwanted)
+		}
+	}
+}
+
+func TestEquipmentPageRejectsInvalidPagination(t *testing.T) {
+	for _, target := range []string{"/equipment?page_size=7", "/equipment?active_page=0", "/equipment?retired_page=no"} {
+		response := httptest.NewRecorder()
+		newTestHandler(t, discardLogger(), &equipmentServiceStub{}).ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
+		if response.Code != http.StatusNotFound {
+			t.Errorf("%s status = %d, want 404", target, response.Code)
 		}
 	}
 }

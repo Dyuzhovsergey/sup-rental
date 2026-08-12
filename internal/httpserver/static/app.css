@@ -15,6 +15,8 @@
     --color-danger: #b42318;
     --color-danger-hover: #8f1d14;
     --color-danger-container: #fff1f0;
+    --color-retire: #c2410c;
+    --color-retire-hover: #9a3412;
     --color-outline: #dce1e9;
     --color-control-outline: #8491a3;
     --color-focus: #6366f1;
@@ -472,6 +474,40 @@ select[aria-invalid="true"] {
     font-weight: 600;
 }
 
+.audit-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.audit-filter-actions {
+    display: flex;
+    gap: 8px;
+    align-items: end;
+    grid-column: 1 / -1;
+}
+
+.list-toolbar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+    min-height: 40px;
+}
+
+.list-toolbar label {
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 650;
+}
+
+.list-toolbar select {
+    width: 72px;
+    height: 34px;
+    padding-top: 4px;
+    padding-bottom: 4px;
+}
+
 .button {
     display: inline-flex;
     gap: 8px;
@@ -574,6 +610,31 @@ select[aria-invalid="true"] {
     border-color: var(--color-danger-hover);
 }
 
+.button--retire {
+    color: var(--color-retire);
+    background: var(--color-surface);
+    border-color: var(--color-retire);
+}
+
+.button--retire:hover,
+.button--retire:focus-visible {
+    color: #ffffff;
+    background: var(--color-retire);
+    border-color: var(--color-retire);
+}
+
+.button--retire-filled {
+    color: #ffffff;
+    background: var(--color-retire);
+    border-color: var(--color-retire);
+}
+
+.button--retire-filled:hover {
+    color: #ffffff;
+    background: var(--color-retire-hover);
+    border-color: var(--color-retire-hover);
+}
+
 .button--compact {
     min-height: 32px;
     padding: 5px 10px;
@@ -583,6 +644,13 @@ select[aria-invalid="true"] {
 .button--compact .icon {
     width: 16px;
     height: 16px;
+}
+
+.button.is-disabled {
+    color: var(--color-muted);
+    background: var(--color-surface-variant);
+    cursor: default;
+    opacity: 0.7;
 }
 
 .form-actions,
@@ -742,6 +810,41 @@ tbody tr:last-child td {
 .operator-last-login {
     color: var(--color-muted);
     white-space: nowrap;
+}
+
+.audit-time {
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.audit-action-code {
+    display: block;
+    margin-top: 2px;
+    color: var(--color-muted);
+    font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+    font-size: 11px;
+}
+
+.audit-summary {
+    min-width: 220px;
+    color: var(--color-muted);
+}
+
+.pagination {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: flex-end;
+    min-height: 58px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--color-outline);
+}
+
+.pagination-label {
+    color: var(--color-muted);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
 }
 
 .status-chip {

@@ -92,6 +92,31 @@ func TestServiceCreatePreservesDuplicateError(t *testing.T) {
 	}
 }
 
+func TestServiceListPageValidatesInputAndWrapsRepositoryError(t *testing.T) {
+	repositoryError := errors.New("database failure")
+	repository := &repositoryStub{listPage: func(_ context.Context, input ListPageInput) (ListPage, error) {
+		return ListPage{}, repositoryError
+	}}
+	service := NewService(repository)
+
+	for _, input := range []ListPageInput{
+		{Scope: ListScope("unknown"), Page: 1, PageSize: 5},
+		{Scope: ListScopeActive, Page: 0, PageSize: 5},
+		{Scope: ListScopeActive, Page: 1, PageSize: 7},
+	} {
+		if _, err := service.ListPage(context.Background(), input); err == nil {
+			t.Errorf("ListPage(%+v) error = nil", input)
+		}
+	}
+
+	_, err := service.ListPage(context.Background(), ListPageInput{
+		Scope: ListScopeActive, Page: 1, PageSize: 5,
+	})
+	if !errors.Is(err, repositoryError) {
+		t.Fatalf("ListPage() error = %v, want wrapped repository error", err)
+	}
+}
+
 func TestServiceMutationsRequireActiveAdmin(t *testing.T) {
 	actors := []user.User{
 		{},
@@ -633,6 +658,7 @@ func TestServiceDelete(t *testing.T) {
 type repositoryStub struct {
 	create            func(context.Context, Item) (Item, error)
 	list              func(context.Context) ([]Item, error)
+	listPage          func(context.Context, ListPageInput) (ListPage, error)
 	get               func(context.Context, int64) (Item, error)
 	update            func(context.Context, int64, string, Kind, Status) (Item, error)
 	updateStatus      func(context.Context, int64, Status) (Item, error)
@@ -649,7 +675,17 @@ func (r *repositoryStub) Create(ctx context.Context, _ user.User, item Item) (It
 }
 
 func (r *repositoryStub) List(ctx context.Context) ([]Item, error) {
+	if r.list == nil {
+		return nil, nil
+	}
 	return r.list(ctx)
+}
+
+func (r *repositoryStub) ListPage(ctx context.Context, input ListPageInput) (ListPage, error) {
+	if r.listPage == nil {
+		return ListPage{Scope: input.Scope, Page: input.Page, PageSize: input.PageSize}, nil
+	}
+	return r.listPage(ctx, input)
 }
 
 func (r *repositoryStub) Get(ctx context.Context, id int64) (Item, error) {

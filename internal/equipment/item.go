@@ -84,3 +84,37 @@ type Item struct {
 	// Status — текущее физическое состояние предмета.
 	Status Status
 }
+
+// ListScope определяет группу оборудования для постраничного списка.
+type ListScope string
+
+const (
+	// ListScopeActive включает всё оборудование, кроме списанного.
+	ListScopeActive ListScope = "active"
+	// ListScopeRetired включает только списанное оборудование.
+	ListScopeRetired ListScope = "retired"
+)
+
+// ListPageInput задаёт группу, номер страницы и количество строк.
+type ListPageInput struct {
+	// Scope выбирает действующее или списанное оборудование.
+	Scope ListScope
+	// Page задаёт номер страницы начиная с единицы.
+	Page int
+	// PageSize задаёт разрешённое количество строк.
+	PageSize int
+}
+
+// ListPage содержит одну страницу оборудования и общее количество записей.
+type ListPage struct {
+	// Scope повторяет группу выполненной выборки.
+	Scope ListScope
+	// Items содержит оборудование текущей страницы.
+	Items []Item
+	// Total — общее количество предметов в группе.
+	Total int
+	// Page — номер текущей страницы.
+	Page int
+	// PageSize — максимальное количество строк на странице.
+	PageSize int
+}

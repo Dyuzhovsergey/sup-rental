@@ -299,6 +299,7 @@ func newAuthenticationTestHandler(
 		authenticationService,
 		resolver,
 		&operatorServiceStub{},
+		&auditServiceStub{},
 		settings,
 	)
 	if err != nil {

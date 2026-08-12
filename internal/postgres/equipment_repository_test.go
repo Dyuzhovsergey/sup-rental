@@ -154,6 +154,15 @@ func TestEquipmentRepositoryCreateAndList(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
+	page, err := repository.ListPage(ctx, equipment.ListPageInput{
+		Scope: equipment.ListScopeActive, Page: 1, PageSize: 5,
+	})
+	if err != nil {
+		t.Fatalf("ListPage() error = %v", err)
+	}
+	if page.Scope != equipment.ListScopeActive || page.Page != 1 || page.PageSize != 5 || page.Total < 2 {
+		t.Errorf("ListPage() metadata = %+v", page)
+	}
 
 	for _, item := range items {
 		if item.ID == created.ID {

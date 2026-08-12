@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/Dyuzhovsergey/sup-rental/internal/audit"
 	"github.com/Dyuzhovsergey/sup-rental/internal/auth"
 	"github.com/Dyuzhovsergey/sup-rental/internal/config"
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
@@ -73,6 +74,8 @@ func run(ctx context.Context, logger *slog.Logger) error {
 
 	operatorRepository := postgres.NewOperatorRepository(pool)
 	operatorService := user.NewOperatorService(operatorRepository, passwordHasher)
+	auditRepository := postgres.NewAuditRepository(pool)
+	auditService := audit.NewService(auditRepository)
 
 	handler, err := httpserver.NewHandler(
 		httpLogger,
@@ -80,6 +83,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		authService,
 		sessionService,
 		operatorService,
+		auditService,
 		httpserver.CookieSettings{Secure: cfg.SessionCookieSecure},
 	)
 	if err != nil {

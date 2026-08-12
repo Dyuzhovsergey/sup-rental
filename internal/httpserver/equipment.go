@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
@@ -18,6 +19,7 @@ import (
 type equipmentService interface {
 	Create(ctx context.Context, actor user.User, input equipment.CreateInput) (equipment.Item, error)
 	List(ctx context.Context) ([]equipment.Item, error)
+	ListPage(ctx context.Context, input equipment.ListPageInput) (equipment.ListPage, error)
 	Get(ctx context.Context, id int64) (equipment.Item, error)
 	Update(ctx context.Context, actor user.User, id int64, input equipment.UpdateInput) (equipment.Item, error)
 	ChangeStatus(ctx context.Context, actor user.User, id int64, target equipment.Status) (equipment.Item, error)
@@ -38,6 +40,24 @@ type equipmentPageData struct {
 	InventoryNumberError string
 	KindError            string
 	Success              string
+	PageSize             int
+	PageSizeOptions      []pageSizeOption
+	ActivePagination     paginationView
+	RetiredPagination    paginationView
+	HasRetiredItems      bool
+}
+
+type pageSizeOption struct {
+	Value    int
+	Selected bool
+}
+
+type paginationView struct {
+	HasPrevious bool
+	HasNext     bool
+	PreviousURL string
+	NextURL     string
+	PageLabel   string
 }
 
 type equipmentItemView struct {
@@ -176,7 +196,15 @@ func renderEquipmentPage(
 	inventoryNumberError string,
 	kindError string,
 ) {
-	items, err := service.List(r.Context())
+	activePageNumber, retiredPageNumber, pageSize, err := equipmentPagination(r.URL.Query())
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	activePage, err := service.ListPage(r.Context(), equipment.ListPageInput{
+		Scope: equipment.ListScopeActive, Page: activePageNumber, PageSize: pageSize,
+	})
 	if err != nil {
 		logger.Error(
 			"list equipment",
@@ -185,22 +213,38 @@ func renderEquipmentPage(
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+	retiredPage, err := service.ListPage(r.Context(), equipment.ListPageInput{
+		Scope: equipment.ListScopeRetired, Page: retiredPageNumber, PageSize: pageSize,
+	})
+	if err != nil {
+		logger.Error("list retired equipment", slog.Any("error", err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	if pageOutOfRange(activePage) || pageOutOfRange(retiredPage) {
+		http.NotFound(w, r)
+		return
+	}
 
-	activeItems, retiredItems := equipmentItemsByLifecycle(items)
 	authentication := authenticationForPage(r)
 	data := equipmentPageData{
 		Authentication:       authentication,
 		CanManageEquipment:   authentication != nil && authentication.CanManageEquipment,
 		Title:                "Оборудование — SUP Rental",
-		ActiveItems:          activeItems,
-		RetiredItems:         retiredItems,
-		CountLabel:           equipmentCountLabel(len(items)),
-		ActiveCountLabel:     equipmentCountLabel(len(activeItems)),
-		RetiredCountLabel:    equipmentCountLabel(len(retiredItems)),
+		ActiveItems:          equipmentItemViews(activePage.Items),
+		RetiredItems:         equipmentItemViews(retiredPage.Items),
+		CountLabel:           equipmentCountLabel(activePage.Total + retiredPage.Total),
+		ActiveCountLabel:     equipmentCountLabel(activePage.Total),
+		RetiredCountLabel:    equipmentCountLabel(retiredPage.Total),
 		Kinds:                equipmentKindOptions(),
 		Form:                 form,
 		InventoryNumberError: inventoryNumberError,
 		KindError:            kindError,
+		PageSize:             pageSize,
+		PageSizeOptions:      equipmentPageSizeOptions(pageSize),
+		ActivePagination:     equipmentPaginationView(activePage, retiredPageNumber),
+		RetiredPagination:    equipmentPaginationView(retiredPage, activePageNumber),
+		HasRetiredItems:      retiredPage.Total > 0,
 	}
 	data.Success = equipmentSuccessMessage(r.URL.Query())
 
@@ -223,6 +267,81 @@ func renderEquipmentPage(
 			slog.Any("error", err),
 		)
 	}
+}
+
+func equipmentItemViews(items []equipment.Item) []equipmentItemView {
+	views := make([]equipmentItemView, 0, len(items))
+	for _, item := range items {
+		views = append(views, equipmentItemView{
+			ID: item.ID, InventoryNumber: item.InventoryNumber,
+			Kind: equipmentKindLabel(item.Kind), Status: equipmentStatusLabel(item.Status),
+			CanEdit: item.Status.CanEditDetails(),
+		})
+	}
+	return views
+}
+
+func equipmentPagination(query url.Values) (int, int, int, error) {
+	activePage, err := positivePage(query.Get("active_page"))
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	retiredPage, err := positivePage(query.Get("retired_page"))
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	pageSize := 5
+	if value := query.Get("page_size"); value != "" {
+		pageSize, err = strconv.Atoi(value)
+		if err != nil {
+			return 0, 0, 0, err
+		}
+	}
+	valid := false
+	for _, size := range equipment.AllowedPageSizes() {
+		if pageSize == size {
+			valid = true
+		}
+	}
+	if !valid {
+		return 0, 0, 0, equipment.ErrInvalidListPage
+	}
+	return activePage, retiredPage, pageSize, nil
+}
+
+func equipmentPageSizeOptions(selected int) []pageSizeOption {
+	allowedSizes := equipment.AllowedPageSizes()
+	options := make([]pageSizeOption, 0, len(allowedSizes))
+	for _, size := range allowedSizes {
+		options = append(options, pageSizeOption{Value: size, Selected: size == selected})
+	}
+	return options
+}
+
+func pageOutOfRange(page equipment.ListPage) bool {
+	return page.Total > 0 && len(page.Items) == 0
+}
+
+func equipmentPaginationView(page equipment.ListPage, otherPage int) paginationView {
+	totalPages := pageCount(page.Total, page.PageSize)
+	view := paginationView{PageLabel: pageLabel(page.Page, totalPages)}
+	view.HasPrevious = page.Page > 1
+	view.HasNext = page.Page < totalPages
+	view.PreviousURL = equipmentPageURL(page, page.Page-1, otherPage)
+	view.NextURL = equipmentPageURL(page, page.Page+1, otherPage)
+	return view
+}
+
+func equipmentPageURL(page equipment.ListPage, targetPage, otherPage int) string {
+	query := url.Values{"page_size": {strconv.Itoa(page.PageSize)}}
+	if page.Scope == equipment.ListScopeRetired {
+		query.Set("retired_page", strconv.Itoa(targetPage))
+		query.Set("active_page", strconv.Itoa(otherPage))
+	} else {
+		query.Set("active_page", strconv.Itoa(targetPage))
+		query.Set("retired_page", strconv.Itoa(otherPage))
+	}
+	return "/equipment?" + query.Encode()
 }
 
 func equipmentItemsByLifecycle(

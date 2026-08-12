@@ -31,17 +31,26 @@ var (
 	// ErrEquipmentHasHistory означает, что предмет связан с историческими
 	// данными и поэтому не может быть удалён.
 	ErrEquipmentHasHistory = errors.New("equipment has history")
+	// ErrInvalidListPage означает некорректный номер или размер страницы.
+	ErrInvalidListPage = errors.New("invalid equipment list page")
+	// ErrInvalidListScope означает неизвестную группу оборудования.
+	ErrInvalidListScope = errors.New("invalid equipment list scope")
 )
 
 // Repository определяет операции хранения, необходимые сервису оборудования.
 type Repository interface {
 	Create(ctx context.Context, actor user.User, item Item) (Item, error)
 	List(ctx context.Context) ([]Item, error)
+	ListPage(ctx context.Context, input ListPageInput) (ListPage, error)
 	Get(ctx context.Context, id int64) (Item, error)
 	Update(ctx context.Context, actor user.User, id int64, inventoryNumber string, kind Kind, status Status) (Item, error)
 	UpdateStatus(ctx context.Context, actor user.User, id int64, status Status) (Item, error)
 	Delete(ctx context.Context, actor user.User, id int64) (Item, error)
 }
+
+// AllowedPageSizes возвращает разрешённые количества строк на странице.
+// Новый slice не позволяет вызывающему коду изменить правила сервиса.
+func AllowedPageSizes() []int { return []int{5, 10, 15} }
 
 // Service реализует сценарии учёта оборудования.
 type Service struct {
@@ -111,6 +120,31 @@ func (s *Service) List(ctx context.Context) ([]Item, error) {
 	}
 
 	return items, nil
+}
+
+// ListPage возвращает одну страницу выбранной группы оборудования.
+func (s *Service) ListPage(ctx context.Context, input ListPageInput) (ListPage, error) {
+	if input.Scope != ListScopeActive && input.Scope != ListScopeRetired {
+		return ListPage{}, ErrInvalidListScope
+	}
+	if input.Page <= 0 || !validPageSize(input.PageSize) {
+		return ListPage{}, ErrInvalidListPage
+	}
+
+	page, err := s.repository.ListPage(ctx, input)
+	if err != nil {
+		return ListPage{}, fmt.Errorf("list equipment page: %w", err)
+	}
+	return page, nil
+}
+
+func validPageSize(size int) bool {
+	for _, allowed := range AllowedPageSizes() {
+		if size == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 // Get возвращает оборудование по внутреннему идентификатору.

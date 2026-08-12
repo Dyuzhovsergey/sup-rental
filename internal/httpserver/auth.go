@@ -51,6 +51,7 @@ type authenticationView struct {
 	HomeActive         bool
 	EquipmentActive    bool
 	OperatorsActive    bool
+	AuditActive        bool
 	CanManageEquipment bool
 }
 
@@ -270,6 +271,7 @@ func authenticationForPage(r *http.Request) *authenticationView {
 		HomeActive:         r.URL.Path == "/operator",
 		EquipmentActive:    strings.HasPrefix(r.URL.Path, "/equipment"),
 		OperatorsActive:    strings.HasPrefix(r.URL.Path, "/admin/operators"),
+		AuditActive:        strings.HasPrefix(r.URL.Path, "/admin/audit"),
 		CanManageEquipment: isAdmin,
 	}
 }

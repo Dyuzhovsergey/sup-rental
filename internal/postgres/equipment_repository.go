@@ -138,6 +138,50 @@ func (r *EquipmentRepository) List(ctx context.Context) ([]equipment.Item, error
 	return items, nil
 }
 
+// ListPage возвращает одну страницу действующего или списанного оборудования.
+func (r *EquipmentRepository) ListPage(
+	ctx context.Context,
+	input equipment.ListPageInput,
+) (equipment.ListPage, error) {
+	condition := "status <> 'retired'"
+	if input.Scope == equipment.ListScopeRetired {
+		condition = "status = 'retired'"
+	}
+
+	var total int
+	if err := r.pool.QueryRow(ctx, "SELECT count(*) FROM equipment WHERE "+condition).Scan(&total); err != nil {
+		return equipment.ListPage{}, fmt.Errorf("count equipment page: %w", err)
+	}
+
+	query := `SELECT id, inventory_number, kind, status
+		FROM equipment
+		WHERE ` + condition + `
+		ORDER BY id
+		LIMIT $1 OFFSET $2`
+	rows, err := r.pool.Query(ctx, query, input.PageSize, (input.Page-1)*input.PageSize)
+	if err != nil {
+		return equipment.ListPage{}, fmt.Errorf("query equipment page: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]equipment.Item, 0, input.PageSize)
+	for rows.Next() {
+		var item equipment.Item
+		if err := rows.Scan(&item.ID, &item.InventoryNumber, &item.Kind, &item.Status); err != nil {
+			return equipment.ListPage{}, fmt.Errorf("scan equipment page: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return equipment.ListPage{}, fmt.Errorf("iterate equipment page: %w", err)
+	}
+
+	return equipment.ListPage{
+		Scope: input.Scope, Items: items, Total: total,
+		Page: input.Page, PageSize: input.PageSize,
+	}, nil
+}
+
 // Get возвращает оборудование по ID.
 func (r *EquipmentRepository) Get(ctx context.Context, id int64) (equipment.Item, error) {
 	const query = `

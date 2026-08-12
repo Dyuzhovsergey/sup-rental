@@ -44,6 +44,12 @@
 			</svg>
 			<span>Операторы</span>
 		</a>
+		<a class="nav-item{{if .AuditActive}} is-active{{end}}" href="/admin/audit"{{if .AuditActive}} aria-current="page"{{end}}>
+			<svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+				<path d="M6 3h12v18H6z"></path><path d="M9 7h6M9 11h6M9 15h4"></path>
+			</svg>
+			<span>Журнал действий</span>
+		</a>
 		{{end}}
         {{end}}
     </nav>
@@ -79,6 +85,14 @@
     </div>
     {{end}}
 </aside>
+{{end}}
+
+{{define "pagination"}}
+<nav class="pagination" aria-label="Постраничная навигация">
+    {{if .HasPrevious}}<a class="button button--compact" href="{{.PreviousURL}}">Назад</a>{{else}}<span class="button button--compact is-disabled" aria-disabled="true">Назад</span>{{end}}
+    <span class="pagination-label">{{.PageLabel}}</span>
+    {{if .HasNext}}<a class="button button--compact" href="{{.NextURL}}">Вперёд</a>{{else}}<span class="button button--compact is-disabled" aria-disabled="true">Вперёд</span>{{end}}
+</nav>
 {{end}}
 
 {{define "equipment-status-chip"}}
