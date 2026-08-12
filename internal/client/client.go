@@ -22,6 +22,11 @@ var (
 	// ErrInvalidPhone означает, что номер нельзя привести к поддерживаемому
 	// каноническому формату.
 	ErrInvalidPhone = errors.New("invalid client phone")
+	// ErrClientNotFound означает, что клиент не найден в постоянном хранилище.
+	ErrClientNotFound = errors.New("client not found")
+	// ErrPhoneExists означает, что нормализованный телефон уже принадлежит
+	// другому клиенту.
+	ErrPhoneExists = errors.New("client phone already exists")
 )
 
 // Client представляет клиента проката с нормализованными контактными данными.
