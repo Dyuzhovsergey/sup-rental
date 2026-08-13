@@ -14,1229 +14,412 @@ import (
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
 )
 
-func TestEquipmentPageListsItems(t *testing.T) {
-	service := &equipmentServiceStub{
-		list: func(_ context.Context) ([]equipment.Item, error) {
-			return []equipment.Item{{
-				ID:              1,
-				InventoryNumber: "SUP-001",
-				Kind:            equipment.KindSUPBoard,
-				Status:          equipment.StatusAvailable,
-			}}, nil
-		},
-	}
-	request := httptest.NewRequest(http.MethodGet, "/equipment", nil)
+func TestEquipmentPageShowsBatchFormAndModelData(t *testing.T) {
+	service := &equipmentServiceStub{list: func(context.Context) ([]equipment.Item, error) {
+		return []equipment.Item{equipmentHTTPFixture(equipment.StatusAvailable)}, nil
+	}}
 	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
+	newTestHandler(t, discardLogger(), service).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/equipment", nil))
 	if response.Code != http.StatusOK {
-		t.Errorf("status code = %d, want %d", response.Code, http.StatusOK)
+		t.Fatalf("status = %d", response.Code)
 	}
-
 	for _, want := range []string{
-		`action="/equipment"`,
-		`name="inventory_number"`,
-		`value="sup_board"`,
-		`class="equipment-layout"`,
-		`class="panel equipment-create-panel"`,
-		`class="panel equipment-list-panel"`,
-		`class="main-content main-content--equipment"`,
-		`class="count-chip count-chip--total">Всего 1 позиция</span>`,
-		`class="count-chip">1 позиция</span>`,
-		`href="/equipment/1">SUP-001</a>`,
-		"SUP-001",
-		"SUP-доска",
-		"Доступен",
+		`name="kind"`, `name="model_code"`, `name="hourly_rate_rubles"`, `name="quantity"`,
+		`name="csrf_token" value="csrf-token"`, "Модель", "Тариф", "CARBON", "350 ₽/час",
+		`PADDLE-CARBON-1`, "Весло", "Доступен", `href="/equipment/17/edit"`,
 	} {
 		if !strings.Contains(response.Body.String(), want) {
-			t.Errorf("body = %q, want it to contain %q", response.Body.String(), want)
+			t.Errorf("body does not contain %q", want)
 		}
+	}
+	if strings.Contains(response.Body.String(), `name="inventory_number"`) {
+		t.Error("batch form still contains manual inventory number")
 	}
 }
 
-func TestEquipmentBusinessPagesUseSharedApplicationShell(t *testing.T) {
-	tests := []struct {
-		name   string
-		path   string
-		status equipment.Status
-	}{
-		{name: "list", path: "/equipment", status: equipment.StatusAvailable},
-		{name: "detail", path: "/equipment/17", status: equipment.StatusAvailable},
-		{name: "edit", path: "/equipment/17/edit", status: equipment.StatusAvailable},
-		{name: "retirement", path: "/equipment/17/retire", status: equipment.StatusAvailable},
-		{name: "deletion", path: "/equipment/17/delete", status: equipment.StatusRetired},
+func TestCreateEquipmentBatchRedirectsWithCreatedRange(t *testing.T) {
+	var gotInput equipment.BatchCreateInput
+	service := &equipmentServiceStub{create: func(_ context.Context, input equipment.BatchCreateInput) (equipment.Batch, error) {
+		gotInput = input
+		return equipment.Batch{
+			Items:                []equipment.Item{{ID: 17}, {ID: 18}, {ID: 19}},
+			FirstInventoryNumber: "PADDLE-CARBON-1",
+			LastInventoryNumber:  "PADDLE-CARBON-3",
+		}, nil
+	}}
+	form := url.Values{
+		"kind": {"paddle"}, "model_code": {"carbon"},
+		"hourly_rate_rubles": {"350"}, "quantity": {"3"},
 	}
+	request := httptest.NewRequest(http.MethodPost, "/equipment", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want 303", response.Code)
+	}
+	location, err := url.Parse(response.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if location.Path != "/equipment" || location.Query().Get("notice") != equipmentNoticeBatchCreated ||
+		location.Query().Get("first") != "PADDLE-CARBON-1" || location.Query().Get("last") != "PADDLE-CARBON-3" {
+		t.Errorf("Location = %q", location.String())
+	}
+	want := equipment.BatchCreateInput{Kind: equipment.KindPaddle, ModelCode: "carbon", HourlyRateRubles: 350, Quantity: 3}
+	if gotInput != want {
+		t.Errorf("input = %#v, want %#v", gotInput, want)
+	}
+}
 
+func TestCreateEquipmentBatchValidation(t *testing.T) {
+	tests := []struct {
+		name       string
+		form       url.Values
+		serviceErr error
+		wantStatus int
+		wantText   string
+		wantAria   string
+	}{
+		{name: "kind", form: validBatchForm(), serviceErr: equipment.ErrInvalidKind, wantStatus: 422, wantText: "Выберите тип оборудования.", wantAria: `aria-describedby="create-kind-error"`},
+		{name: "model required", form: validBatchForm(), serviceErr: equipment.ErrModelCodeRequired, wantStatus: 422, wantText: "Введите код модели", wantAria: `aria-describedby="create-model-code-error"`},
+		{name: "model invalid", form: validBatchForm(), serviceErr: equipment.ErrInvalidModelCode, wantStatus: 422, wantText: "Используйте только латинские", wantAria: `aria-describedby="create-model-code-error"`},
+		{name: "rate value", form: url.Values{"kind": {"paddle"}, "model_code": {"CARBON"}, "hourly_rate_rubles": {"3.5"}, "quantity": {"1"}}, wantStatus: 422, wantText: "положительное целое число рублей", wantAria: `aria-describedby="create-hourly-rate-error"`},
+		{name: "quantity value", form: url.Values{"kind": {"paddle"}, "model_code": {"CARBON"}, "hourly_rate_rubles": {"350"}, "quantity": {"many"}}, wantStatus: 422, wantText: "целое количество от 1 до 100", wantAria: `aria-describedby="create-quantity-error"`},
+		{name: "quantity range", form: validBatchForm(), serviceErr: equipment.ErrInvalidBatchQuantity, wantStatus: 422, wantText: "от 1 до 100", wantAria: `aria-describedby="create-quantity-error"`},
+		{name: "rate conflict", form: validBatchForm(), serviceErr: equipment.ErrModelRateConflict, wantStatus: 409, wantText: "уже существует с другим часовым тарифом", wantAria: `aria-describedby="create-hourly-rate-error"`},
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			item := equipment.Item{
-				ID:              17,
-				InventoryNumber: "SUP-017",
-				Kind:            equipment.KindSUPBoard,
-				Status:          tt.status,
-			}
-			service := &equipmentServiceStub{
-				list: func(_ context.Context) ([]equipment.Item, error) {
-					return []equipment.Item{item}, nil
-				},
-				get: func(_ context.Context, _ int64) (equipment.Item, error) {
-					return item, nil
-				},
-			}
-			request := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			service := &equipmentServiceStub{create: func(context.Context, equipment.BatchCreateInput) (equipment.Batch, error) {
+				return equipment.Batch{}, tt.serviceErr
+			}}
+			request := httptest.NewRequest(http.MethodPost, "/equipment", strings.NewReader(tt.form.Encode()))
+			request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			response := httptest.NewRecorder()
-
 			newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
-			if response.Code != http.StatusOK {
-				t.Fatalf("status code = %d, want %d", response.Code, http.StatusOK)
+			if response.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d", response.Code, tt.wantStatus)
 			}
-
-			body := response.Body.String()
-			for _, want := range []string{
-				`<link rel="stylesheet" href="/static/app.css">`,
-				`class="skip-link"`,
-				`class="app-shell"`,
-				`class="sidebar"`,
-				`id="main-content"`,
-			} {
-				if !strings.Contains(body, want) {
-					t.Errorf("body = %q, want it to contain %q", body, want)
+			for _, want := range []string{tt.wantText, tt.wantAria, `value="CARBON"`} {
+				if !strings.Contains(response.Body.String(), want) {
+					t.Errorf("body does not contain %q", want)
 				}
-			}
-			if strings.Contains(body, "<style") {
-				t.Errorf("body = %q, want styles loaded only from shared stylesheet", body)
 			}
 		})
 	}
 }
 
-func TestEquipmentPageShowsStatusesWithoutControls(t *testing.T) {
-	service := &equipmentServiceStub{
-		list: func(_ context.Context) ([]equipment.Item, error) {
-			return []equipment.Item{
-				{ID: 1, InventoryNumber: "SUP-001", Status: equipment.StatusAvailable},
-				{ID: 2, InventoryNumber: "PADDLE-001", Status: equipment.StatusMaintenance},
-				{ID: 3, InventoryNumber: "JACKET-001", Status: equipment.StatusIssued},
-				{ID: 4, InventoryNumber: "SUP-002", Status: equipment.StatusRetired},
-			}, nil
-		},
-	}
-	request := httptest.NewRequest(http.MethodGet, "/equipment", nil)
+func TestCreateEquipmentBatchHidesInternalError(t *testing.T) {
+	const secret = "database password leaked"
+	service := &equipmentServiceStub{create: func(context.Context, equipment.BatchCreateInput) (equipment.Batch, error) {
+		return equipment.Batch{}, errors.New(secret)
+	}}
+	request := httptest.NewRequest(http.MethodPost, "/equipment", strings.NewReader(validBatchForm().Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response := httptest.NewRecorder()
-
 	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
-	body := response.Body.String()
-	for _, want := range []string{
-		`<th scope="col">Статус</th>`,
-		"Доступен",
-		"На обслуживании",
-		"Выдан",
-		"Списан",
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("body = %q, want it to contain %q", body, want)
-		}
+	if response.Code != http.StatusInternalServerError || strings.Contains(response.Body.String(), secret) {
+		t.Errorf("status = %d body = %q", response.Code, response.Body.String())
 	}
+}
 
-	for _, unwanted := range []string{
-		`action="/equipment/1/status"`,
-		`action="/equipment/2/status"`,
-		`name="status"`,
-		`onchange=`,
-		`<th scope="col">Действие</th>`,
-		`<th scope="col">Состояние</th>`,
-	} {
-		if strings.Contains(body, unwanted) {
-			t.Errorf("body = %q, want it not to contain %q", body, unwanted)
+func TestEquipmentDetailShowsModelAndRate(t *testing.T) {
+	service := &equipmentServiceStub{get: func(context.Context, int64) (equipment.Item, error) {
+		return equipmentHTTPFixture(equipment.StatusAvailable), nil
+	}}
+	response := httptest.NewRecorder()
+	newTestHandler(t, discardLogger(), service).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/equipment/17", nil))
+	for _, want := range []string{"PADDLE-CARBON-1", "Весло", "CARBON", "350 ₽/час", "Доступен", "17"} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
 		}
 	}
 }
 
-func TestEquipmentPageShowsAvailableActions(t *testing.T) {
+func TestEquipmentDetailErrorsAndMethod(t *testing.T) {
+	for _, tt := range []struct {
+		name       string
+		path       string
+		method     string
+		serviceErr error
+		wantStatus int
+	}{
+		{name: "invalid ID", path: "/equipment/no", method: http.MethodGet, wantStatus: http.StatusNotFound},
+		{name: "not found", path: "/equipment/17", method: http.MethodGet, serviceErr: equipment.ErrEquipmentNotFound, wantStatus: http.StatusNotFound},
+		{name: "internal", path: "/equipment/17", method: http.MethodGet, serviceErr: errors.New("database secret"), wantStatus: http.StatusInternalServerError},
+		{name: "method", path: "/equipment/17", method: http.MethodPost, wantStatus: http.StatusMethodNotAllowed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			service := &equipmentServiceStub{get: func(context.Context, int64) (equipment.Item, error) {
+				return equipment.Item{}, tt.serviceErr
+			}}
+			response := httptest.NewRecorder()
+			newTestHandler(t, discardLogger(), service).ServeHTTP(response, httptest.NewRequest(tt.method, tt.path, nil))
+			if response.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d", response.Code, tt.wantStatus)
+			}
+			if strings.Contains(response.Body.String(), "database secret") {
+				t.Error("internal error leaked")
+			}
+		})
+	}
+}
+
+func TestEquipmentEditValidationAndMalformedForm(t *testing.T) {
+	item := equipmentHTTPFixture(equipment.StatusAvailable)
 	service := &equipmentServiceStub{
-		list: func(_ context.Context) ([]equipment.Item, error) {
-			return []equipment.Item{
-				{ID: 1, InventoryNumber: "SUP-001", Status: equipment.StatusAvailable},
-				{ID: 2, InventoryNumber: "PADDLE-001", Status: equipment.StatusMaintenance},
-				{ID: 3, InventoryNumber: "JACKET-001", Status: equipment.StatusIssued},
-				{ID: 4, InventoryNumber: "SUP-002", Status: equipment.StatusRetired},
-			}, nil
+		get: func(context.Context, int64) (equipment.Item, error) { return item, nil },
+		update: func(context.Context, int64, equipment.UpdateInput) (equipment.Item, error) {
+			return equipment.Item{}, equipment.ErrInvalidStatus
 		},
 	}
-	request := httptest.NewRequest(http.MethodGet, "/equipment", nil)
+	request := httptest.NewRequest(http.MethodPost, "/equipment/17/edit", strings.NewReader("status=broken"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response := httptest.NewRecorder()
-
 	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
+	if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), `aria-describedby="status-error"`) {
+		t.Errorf("status = %d body = %q", response.Code, response.Body.String())
+	}
 
-	body := response.Body.String()
+	malformed := httptest.NewRequest(http.MethodPost, "/equipment/17/edit", strings.NewReader("status=%zz"))
+	malformed.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	malformedResponse := httptest.NewRecorder()
+	newTestHandler(t, discardLogger(), service).ServeHTTP(malformedResponse, malformed)
+	if malformedResponse.Code != http.StatusBadRequest {
+		t.Errorf("malformed status = %d", malformedResponse.Code)
+	}
+}
+
+func TestEquipmentEditShowsSeparateStatusModelAndRateForms(t *testing.T) {
+	item := equipmentHTTPFixture(equipment.StatusAvailable)
+	var gotInput equipment.UpdateInput
+	service := &equipmentServiceStub{
+		get: func(context.Context, int64) (equipment.Item, error) { return item, nil },
+		update: func(_ context.Context, _ int64, input equipment.UpdateInput) (equipment.Item, error) {
+			gotInput = input
+			item.Status = input.Status
+			return item, nil
+		},
+	}
+	getResponse := httptest.NewRecorder()
+	newTestHandler(t, discardLogger(), service).ServeHTTP(getResponse, httptest.NewRequest(http.MethodGet, "/equipment/17/edit", nil))
 	for _, want := range []string{
-		`<th scope="col">Действия</th>`,
-		`role="group"`,
-		`button--edit action-button edit-action`,
-		`href="/equipment/1/edit"`,
-		`href="/equipment/2/edit"`,
-		`retire-action`,
-		`href="/equipment/1/retire"`,
-		`href="/equipment/2/retire"`,
-		`delete-action`,
-		`href="/equipment/3/delete"`,
-		`href="/equipment/4/delete"`,
+		"PADDLE-CARBON-1", "CARBON", "350 ₽/час", `name="status"`,
+		`class="equipment-edit-top"`, "Списание оборудования",
+		`action="/equipment/17/model"`, `name="kind"`, `name="model_code"`,
+		`action="/equipment/17/rate"`, `name="hourly_rate_rubles"`,
+		"Новый тариф будет применён ко всем единицам модели CARBON.",
 	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("body = %q, want it to contain %q", body, want)
+		if !strings.Contains(getResponse.Body.String(), want) {
+			t.Errorf("GET body does not contain %q", want)
+		}
+	}
+	body := getResponse.Body.String()
+	statusPosition := strings.Index(body, `id="status-heading"`)
+	retirePosition := strings.Index(body, `id="retire-equipment-heading"`)
+	ratePosition := strings.Index(body, `id="rate-heading"`)
+	modelPosition := strings.Index(body, `id="model-heading"`)
+	if statusPosition < 0 || retirePosition < statusPosition || ratePosition < retirePosition || modelPosition < ratePosition {
+		t.Errorf("panel order status=%d retire=%d rate=%d model=%d", statusPosition, retirePosition, ratePosition, modelPosition)
+	}
+	for _, unwanted := range []string{`name="inventory_number"`} {
+		if strings.Contains(getResponse.Body.String(), unwanted) {
+			t.Errorf("GET body contains editable field %q", unwanted)
 		}
 	}
 
-	for _, unwanted := range []string{
-		`href="/equipment/3/edit"`,
-		`href="/equipment/4/edit"`,
-		`href="/equipment/1/delete"`,
-		`href="/equipment/2/delete"`,
-		`href="/equipment/3/retire"`,
-		`href="/equipment/4/retire"`,
+	request := httptest.NewRequest(http.MethodPost, "/equipment/17/edit", strings.NewReader("status=maintenance"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	postResponse := httptest.NewRecorder()
+	newTestHandler(t, discardLogger(), service).ServeHTTP(postResponse, request)
+	if postResponse.Code != http.StatusSeeOther || gotInput.Status != equipment.StatusMaintenance {
+		t.Errorf("POST status = %d input = %#v", postResponse.Code, gotInput)
+	}
+}
+
+func TestEquipmentModelChangeRedirectsAndReceivesInput(t *testing.T) {
+	item := equipmentHTTPFixture(equipment.StatusAvailable)
+	var got equipment.ModelChangeInput
+	service := &equipmentServiceStub{
+		get: func(context.Context, int64) (equipment.Item, error) { return item, nil },
+		changeModel: func(_ context.Context, _ int64, input equipment.ModelChangeInput) (equipment.Item, error) {
+			got = input
+			item.InventoryNumber = "VEST-TOURING-1"
+			return item, nil
+		},
+	}
+	form := url.Values{"kind": {"life_jacket"}, "model_code": {"touring"}, "hourly_rate_rubles": {"250"}}
+	request := httptest.NewRequest(http.MethodPost, "/equipment/17/model", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/equipment/17/edit?notice=model_changed" {
+		t.Fatalf("response = %d Location %q", response.Code, response.Header().Get("Location"))
+	}
+	want := equipment.ModelChangeInput{Kind: equipment.KindLifeJacket, ModelCode: "touring", HourlyRateRubles: 250}
+	if got != want {
+		t.Errorf("input = %#v, want %#v", got, want)
+	}
+}
+
+func TestEquipmentModelChangeValidation(t *testing.T) {
+	item := equipmentHTTPFixture(equipment.StatusAvailable)
+	for _, tt := range []struct {
+		name       string
+		form       url.Values
+		serviceErr error
+		wantStatus int
+		wantText   string
+		wantAria   string
+	}{
+		{name: "invalid kind", form: validModelForm(), serviceErr: equipment.ErrInvalidKind, wantStatus: 422, wantText: "Выберите тип оборудования.", wantAria: `aria-describedby="model-kind-error"`},
+		{name: "invalid model", form: validModelForm(), serviceErr: equipment.ErrInvalidModelCode, wantStatus: 422, wantText: "Используйте только латинские", wantAria: `aria-describedby="model-code-error"`},
+		{name: "invalid rate", form: url.Values{"kind": {"paddle"}, "model_code": {"TOURING"}, "hourly_rate_rubles": {"3.5"}}, wantStatus: 422, wantText: "положительное целое число рублей", wantAria: `aria-describedby="model-rate-error"`},
+		{name: "rate conflict", form: validModelForm(), serviceErr: equipment.ErrModelRateConflict, wantStatus: 409, wantText: "У существующей модели другой тариф", wantAria: `aria-describedby="model-rate-error"`},
+		{name: "unchanged", form: validModelForm(), serviceErr: equipment.ErrEquipmentModelUnchanged, wantStatus: 422, wantText: "Выберите другую модель", wantAria: `aria-describedby="model-code-error"`},
 	} {
-		if strings.Contains(body, unwanted) {
-			t.Errorf("body = %q, want it not to contain %q", body, unwanted)
+		t.Run(tt.name, func(t *testing.T) {
+			service := &equipmentServiceStub{
+				get: func(context.Context, int64) (equipment.Item, error) { return item, nil },
+				changeModel: func(context.Context, int64, equipment.ModelChangeInput) (equipment.Item, error) {
+					return equipment.Item{}, tt.serviceErr
+				},
+			}
+			request := httptest.NewRequest(http.MethodPost, "/equipment/17/model", strings.NewReader(tt.form.Encode()))
+			request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+			response := httptest.NewRecorder()
+			newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
+			if response.Code != tt.wantStatus {
+				t.Errorf("status = %d, want %d", response.Code, tt.wantStatus)
+			}
+			for _, want := range []string{tt.wantText, tt.wantAria} {
+				if !strings.Contains(response.Body.String(), want) {
+					t.Errorf("body does not contain %q", want)
+				}
+			}
+		})
+	}
+}
+
+func TestEquipmentModelRateChangeRedirectsAndValidates(t *testing.T) {
+	item := equipmentHTTPFixture(equipment.StatusMaintenance)
+	var gotRate int64
+	service := &equipmentServiceStub{
+		get: func(context.Context, int64) (equipment.Item, error) { return item, nil },
+		changeRate: func(_ context.Context, _ int64, rate int64) (equipment.ModelRateChange, error) {
+			gotRate = rate
+			return equipment.ModelRateChange{Item: item, AffectedItems: 4}, nil
+		},
+	}
+	request := httptest.NewRequest(http.MethodPost, "/equipment/17/rate", strings.NewReader("hourly_rate_rubles=425"))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/equipment/17/edit?affected=4&notice=rate_changed" || gotRate != 425 {
+		t.Fatalf("response = %d Location %q rate %d", response.Code, response.Header().Get("Location"), gotRate)
+	}
+
+	service.changeRate = func(context.Context, int64, int64) (equipment.ModelRateChange, error) {
+		return equipment.ModelRateChange{}, equipment.ErrModelRateUnchanged
+	}
+	errorResponse := httptest.NewRecorder()
+	newTestHandler(t, discardLogger(), service).ServeHTTP(errorResponse,
+		httptest.NewRequest(http.MethodPost, "/equipment/17/rate", strings.NewReader("hourly_rate_rubles=350")))
+	if errorResponse.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(errorResponse.Body.String(), `aria-describedby="rate-error"`) {
+		t.Errorf("status = %d body = %q", errorResponse.Code, errorResponse.Body.String())
+	}
+}
+
+func TestEquipmentModelMutationsHideInternalErrors(t *testing.T) {
+	const secret = "database connection string"
+	item := equipmentHTTPFixture(equipment.StatusAvailable)
+	service := &equipmentServiceStub{
+		get: func(context.Context, int64) (equipment.Item, error) { return item, nil },
+		changeModel: func(context.Context, int64, equipment.ModelChangeInput) (equipment.Item, error) {
+			return equipment.Item{}, errors.New(secret)
+		},
+		changeRate: func(context.Context, int64, int64) (equipment.ModelRateChange, error) {
+			return equipment.ModelRateChange{}, errors.New(secret)
+		},
+	}
+	for path, body := range map[string]string{
+		"/equipment/17/model": validModelForm().Encode(),
+		"/equipment/17/rate":  "hourly_rate_rubles=425",
+	} {
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		response := httptest.NewRecorder()
+		newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
+		if response.Code != http.StatusInternalServerError || strings.Contains(response.Body.String(), secret) {
+			t.Errorf("%s status = %d body = %q", path, response.Code, response.Body.String())
 		}
 	}
 }
 
-func TestEquipmentPageSeparatesRetiredItems(t *testing.T) {
-	service := &equipmentServiceStub{
-		list: func(_ context.Context) ([]equipment.Item, error) {
-			return []equipment.Item{
-				{
-					ID:              4,
-					InventoryNumber: "RETIRED-001",
-					Kind:            equipment.KindPaddle,
-					Status:          equipment.StatusRetired,
-				},
-				{
-					ID:              1,
-					InventoryNumber: "ACTIVE-001",
-					Kind:            equipment.KindSUPBoard,
-					Status:          equipment.StatusAvailable,
-				},
-			}, nil
-		},
+func TestEquipmentEditSuccessMessages(t *testing.T) {
+	item := equipmentHTTPFixture(equipment.StatusAvailable)
+	if got := equipmentEditSuccessMessage(url.Values{"notice": {"model_changed"}}, item); got != "Модель оборудования изменена. Новый инвентарный номер: PADDLE-CARBON-1." {
+		t.Errorf("model message = %q", got)
 	}
-	request := httptest.NewRequest(http.MethodGet, "/equipment", nil)
-	response := httptest.NewRecorder()
+	if got := equipmentEditSuccessMessage(url.Values{"notice": {"rate_changed"}, "affected": {"3"}}, item); got != "Тариф модели CARBON обновлён. Затронуто: 3 единицы." {
+		t.Errorf("rate message = %q", got)
+	}
+}
 
-	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
+func TestEquipmentBatchSuccessMessage(t *testing.T) {
+	query := url.Values{"notice": {equipmentNoticeBatchCreated}, "count": {"3"}, "first": {"PADDLE-CARBON-1"}, "last": {"PADDLE-CARBON-3"}}
+	got := equipmentSuccessMessage(query)
+	if got != "Добавлено 3 единицы оборудования: PADDLE-CARBON-1 — PADDLE-CARBON-3." {
+		t.Errorf("message = %q", got)
+	}
+}
 
-	body := response.Body.String()
-	for _, want := range []string{
-		`class="count-chip count-chip--total">Всего 2 позиции</span>`,
-		`id="equipment-active-heading">Список оборудования</h2>`,
-		`id="equipment-retired-heading">Списанное оборудование</h2>`,
-		`class="panel equipment-list-panel retired-equipment-panel"`,
-		`href="/equipment/1">ACTIVE-001</a>`,
-		`href="/equipment/4">RETIRED-001</a>`,
-	} {
-		if !strings.Contains(body, want) {
-			t.Errorf("body = %q, want it to contain %q", body, want)
+func TestEquipmentPageRejectsInvalidPaginationAndMethod(t *testing.T) {
+	for _, target := range []string{"/equipment?page_size=7", "/equipment?active_page=0", "/equipment?retired_page=no"} {
+		response := httptest.NewRecorder()
+		newTestHandler(t, discardLogger()).ServeHTTP(response, httptest.NewRequest(http.MethodGet, target, nil))
+		if response.Code != http.StatusNotFound {
+			t.Errorf("%s status = %d", target, response.Code)
 		}
 	}
-
-	activePosition := strings.Index(body, "ACTIVE-001")
-	retiredHeadingPosition := strings.Index(body, "Списанное оборудование")
-	retiredPosition := strings.Index(body, "RETIRED-001")
-	if activePosition < 0 || retiredHeadingPosition < 0 || retiredPosition < 0 {
-		t.Fatalf("body does not contain all equipment sections")
-	}
-	if activePosition > retiredHeadingPosition || retiredHeadingPosition > retiredPosition {
-		t.Errorf(
-			"section order = active %d, retired heading %d, retired %d; want active section first",
-			activePosition,
-			retiredHeadingPosition,
-			retiredPosition,
-		)
+	response := httptest.NewRecorder()
+	newTestHandler(t, discardLogger()).ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/equipment", nil))
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Errorf("PUT status = %d", response.Code)
 	}
 }
 
 func TestEquipmentCountLabel(t *testing.T) {
-	tests := []struct {
-		count int
-		want  string
-	}{
-		{count: 0, want: "0 позиций"},
-		{count: 1, want: "1 позиция"},
-		{count: 2, want: "2 позиции"},
-		{count: 4, want: "4 позиции"},
-		{count: 5, want: "5 позиций"},
-		{count: 11, want: "11 позиций"},
-		{count: 14, want: "14 позиций"},
-		{count: 21, want: "21 позиция"},
-		{count: 22, want: "22 позиции"},
-		{count: 25, want: "25 позиций"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.want, func(t *testing.T) {
-			if got := equipmentCountLabel(tt.count); got != tt.want {
-				t.Errorf("equipmentCountLabel(%d) = %q, want %q", tt.count, got, tt.want)
-			}
-		})
-	}
-}
-
-func TestEquipmentDetailPageShowsItem(t *testing.T) {
-	var gotID int64
-	service := &equipmentServiceStub{
-		get: func(_ context.Context, id int64) (equipment.Item, error) {
-			gotID = id
-			return equipment.Item{
-				ID:              id,
-				InventoryNumber: "SUP-017",
-				Kind:            equipment.KindSUPBoard,
-				Status:          equipment.StatusAvailable,
-			}, nil
-		},
-	}
-	request := httptest.NewRequest(http.MethodGet, "/equipment/17", nil)
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
-	if response.Code != http.StatusOK {
-		t.Errorf("status code = %d, want %d", response.Code, http.StatusOK)
-	}
-	if gotID != 17 {
-		t.Errorf("Get() ID = %d, want 17", gotID)
-	}
-	if got := response.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
-		t.Errorf("Content-Type = %q, want %q", got, "text/html; charset=utf-8")
-	}
-
-	for _, want := range []string{
-		"<dl",
-		"<h1>SUP-017</h1>",
-		"Инвентарный номер",
-		"SUP-017",
-		"SUP-доска",
-		"Доступен",
-		"Внутренний ID",
-		">17</dd>",
-		`href="/equipment/17/edit"`,
-		`href="/equipment">Назад к списку</a>`,
-		`role="group"`,
-	} {
-		if !strings.Contains(response.Body.String(), want) {
-			t.Errorf("body = %q, want it to contain %q", response.Body.String(), want)
-		}
-	}
-	if got := strings.Count(
-		response.Body.String(),
-		`<span class="status-chip status-chip--available">`,
-	); got != 1 {
-		t.Errorf("available status chips = %d, want 1", got)
-	}
-	if strings.Contains(response.Body.String(), `href="/equipment/17/retire"`) {
-		t.Errorf("body = %q, want retirement available only from edit page", response.Body.String())
-	}
-}
-
-func TestEquipmentDetailPageShowsOnlyAllowedActions(t *testing.T) {
-	tests := []struct {
-		name           string
-		status         equipment.Status
-		wantEditLink   bool
-		wantDeleteLink bool
-	}{
-		{
-			name:         "available equipment",
-			status:       equipment.StatusAvailable,
-			wantEditLink: true,
-		},
-		{
-			name:         "equipment under maintenance",
-			status:       equipment.StatusMaintenance,
-			wantEditLink: true,
-		},
-		{
-			name:   "issued equipment",
-			status: equipment.StatusIssued,
-		},
-		{
-			name:           "retired equipment",
-			status:         equipment.StatusRetired,
-			wantDeleteLink: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			service := &equipmentServiceStub{
-				get: func(_ context.Context, id int64) (equipment.Item, error) {
-					return equipment.Item{
-						ID:              id,
-						InventoryNumber: "SUP-017",
-						Kind:            equipment.KindSUPBoard,
-						Status:          tt.status,
-					}, nil
-				},
-			}
-			request := httptest.NewRequest(http.MethodGet, "/equipment/17", nil)
-			response := httptest.NewRecorder()
-
-			newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
-			if response.Code != http.StatusOK {
-				t.Errorf("status code = %d, want %d", response.Code, http.StatusOK)
-			}
-			hasEditLink := strings.Contains(
-				response.Body.String(),
-				`href="/equipment/17/edit"`,
-			)
-			if hasEditLink != tt.wantEditLink {
-				t.Errorf("edit link presence = %t, want %t", hasEditLink, tt.wantEditLink)
-			}
-			if strings.Contains(response.Body.String(), `href="/equipment/17/retire"`) {
-				t.Errorf(
-					"body = %q, want retirement available only from edit page",
-					response.Body.String(),
-				)
-			}
-			hasDeleteLink := strings.Contains(
-				response.Body.String(),
-				`href="/equipment/17/delete"`,
-			)
-			if hasDeleteLink != tt.wantDeleteLink {
-				t.Errorf(
-					"delete link presence = %t, want %t",
-					hasDeleteLink,
-					tt.wantDeleteLink,
-				)
-			}
-		})
-	}
-}
-
-func TestEquipmentPageShowsRetirementSuccess(t *testing.T) {
-	service := &equipmentServiceStub{
-		list: func(_ context.Context) ([]equipment.Item, error) {
-			return []equipment.Item{{
-				ID:              17,
-				InventoryNumber: "SUP-017",
-				Kind:            equipment.KindSUPBoard,
-				Status:          equipment.StatusRetired,
-			}}, nil
-		},
-	}
-	request := httptest.NewRequest(
-		http.MethodGet,
-		"/equipment?inventory_number=SUP-017&kind=sup_board&notice=retired",
-		nil,
-	)
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
-	if response.Code != http.StatusOK {
-		t.Errorf("status code = %d, want %d", response.Code, http.StatusOK)
-	}
-	for _, want := range []string{
-		`role="status"`,
-		`aria-live="polite"`,
-		"Оборудование SUP-доска SUP-017 списано.",
-		"Списан",
-	} {
-		if !strings.Contains(response.Body.String(), want) {
-			t.Errorf("body = %q, want it to contain %q", response.Body.String(), want)
-		}
-	}
-	if !strings.Contains(response.Body.String(), "Списан") {
-		t.Errorf("body = %q, want retired equipment status", response.Body.String())
-	}
-}
-
-func TestEquipmentDetailPageErrors(t *testing.T) {
-	const internalErrorText = "database password leaked"
-	tests := []struct {
-		name       string
-		path       string
-		serviceErr error
-		wantStatus int
-		wantText   string
-	}{
-		{
-			name:       "invalid equipment ID",
-			path:       "/equipment/not-a-number",
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name:       "zero equipment ID",
-			path:       "/equipment/0",
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name:       "negative equipment ID",
-			path:       "/equipment/-1",
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name:       "equipment not found",
-			path:       "/equipment/17",
-			serviceErr: equipment.ErrEquipmentNotFound,
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name:       "internal error is hidden",
-			path:       "/equipment/17",
-			serviceErr: errors.New(internalErrorText),
-			wantStatus: http.StatusInternalServerError,
-			wantText:   "Internal Server Error",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			service := &equipmentServiceStub{
-				get: func(_ context.Context, _ int64) (equipment.Item, error) {
-					return equipment.Item{}, tt.serviceErr
-				},
-			}
-			request := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			response := httptest.NewRecorder()
-
-			newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
-			if response.Code != tt.wantStatus {
-				t.Errorf("status code = %d, want %d", response.Code, tt.wantStatus)
-			}
-			if tt.wantText != "" && !strings.Contains(response.Body.String(), tt.wantText) {
-				t.Errorf("body = %q, want it to contain %q", response.Body.String(), tt.wantText)
-			}
-			if strings.Contains(response.Body.String(), internalErrorText) {
-				t.Errorf("body = %q, want internal error hidden", response.Body.String())
-			}
-		})
-	}
-}
-
-func TestEquipmentDetailPageRejectsUnsupportedMethod(t *testing.T) {
-	request := httptest.NewRequest(http.MethodPost, "/equipment/17", nil)
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger()).ServeHTTP(response, request)
-
-	if response.Code != http.StatusMethodNotAllowed {
-		t.Errorf("status code = %d, want %d", response.Code, http.StatusMethodNotAllowed)
-	}
-	if got := response.Header().Get("Allow"); got != http.MethodGet {
-		t.Errorf("Allow = %q, want %q", got, http.MethodGet)
-	}
-}
-
-func TestEquipmentPageShowsUpdateSuccess(t *testing.T) {
-	request := httptest.NewRequest(
-		http.MethodGet,
-		"/equipment?inventory_number=SUP-017-UPDATED&kind=life_jacket&notice=updated",
-		nil,
-	)
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger()).ServeHTTP(response, request)
-
-	for _, want := range []string{
-		`role="status"`,
-		`aria-live="polite"`,
-		"Оборудование Спасательный жилет SUP-017-UPDATED обновлено.",
-	} {
-		if !strings.Contains(response.Body.String(), want) {
-			t.Errorf("body = %q, want it to contain %q", response.Body.String(), want)
+	for count, want := range map[int]string{1: "1 позиция", 2: "2 позиции", 5: "5 позиций", 11: "11 позиций", 21: "21 позиция"} {
+		if got := equipmentCountLabel(count); got != want {
+			t.Errorf("%d: %q, want %q", count, got, want)
 		}
 	}
 }
 
-func TestEquipmentPageShowsDeletionSuccess(t *testing.T) {
-	request := httptest.NewRequest(
-		http.MethodGet,
-		"/equipment?inventory_number=SUP-017&kind=sup_board&notice=deleted",
-		nil,
-	)
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger()).ServeHTTP(response, request)
-
-	for _, want := range []string{
-		`role="status"`,
-		`aria-live="polite"`,
-		"Оборудование SUP-доска SUP-017 удалено.",
-	} {
-		if !strings.Contains(response.Body.String(), want) {
-			t.Errorf("body = %q, want it to contain %q", response.Body.String(), want)
-		}
-	}
+func validBatchForm() url.Values {
+	return url.Values{"kind": {"paddle"}, "model_code": {"CARBON"}, "hourly_rate_rubles": {"350"}, "quantity": {"3"}}
 }
 
-func TestCreateEquipmentRedirectsToList(t *testing.T) {
-	var gotInput equipment.CreateInput
-	service := &equipmentServiceStub{
-		create: func(_ context.Context, input equipment.CreateInput) (equipment.Item, error) {
-			gotInput = input
-			return equipment.Item{ID: 1}, nil
-		},
-	}
-	form := url.Values{
-		"inventory_number": {"SUP-001"},
-		"kind":             {string(equipment.KindSUPBoard)},
-	}
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/equipment",
-		strings.NewReader(form.Encode()),
-	)
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
-	if response.Code != http.StatusSeeOther {
-		t.Errorf("status code = %d, want %d", response.Code, http.StatusSeeOther)
-	}
-	if got := response.Header().Get("Location"); got != "/equipment" {
-		t.Errorf("Location = %q, want %q", got, "/equipment")
-	}
-
-	wantInput := equipment.CreateInput{
-		InventoryNumber: "SUP-001",
-		Kind:            equipment.KindSUPBoard,
-	}
-	if gotInput != wantInput {
-		t.Errorf("Create() input = %+v, want %+v", gotInput, wantInput)
-	}
+func validModelForm() url.Values {
+	return url.Values{"kind": {"life_jacket"}, "model_code": {"TOURING"}, "hourly_rate_rubles": {"250"}}
 }
 
-func TestCreateEquipmentShowsValidationErrors(t *testing.T) {
-	tests := []struct {
-		name       string
-		serviceErr error
-		wantStatus int
-		wantText   string
-		wantAria   string
-	}{
-		{
-			name:       "empty inventory number",
-			serviceErr: equipment.ErrInventoryNumberRequired,
-			wantStatus: http.StatusUnprocessableEntity,
-			wantText:   "Введите инвентарный номер.",
-			wantAria:   `aria-invalid="true" aria-describedby="create-inventory-number-error"`,
-		},
-		{
-			name:       "invalid kind",
-			serviceErr: equipment.ErrInvalidKind,
-			wantStatus: http.StatusUnprocessableEntity,
-			wantText:   "Выберите тип оборудования.",
-			wantAria:   `aria-invalid="true" aria-describedby="create-kind-error"`,
-		},
-		{
-			name:       "duplicate inventory number",
-			serviceErr: equipment.ErrInventoryNumberExists,
-			wantStatus: http.StatusConflict,
-			wantText:   "Оборудование с таким инвентарным номером уже существует.",
-			wantAria:   `aria-invalid="true" aria-describedby="create-inventory-number-error"`,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			service := &equipmentServiceStub{
-				create: func(_ context.Context, _ equipment.CreateInput) (equipment.Item, error) {
-					return equipment.Item{}, tt.serviceErr
-				},
-			}
-			form := url.Values{
-				"inventory_number": {"SUP-001"},
-				"kind":             {string(equipment.KindSUPBoard)},
-			}
-			request := httptest.NewRequest(
-				http.MethodPost,
-				"/equipment",
-				strings.NewReader(form.Encode()),
-			)
-			request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			response := httptest.NewRecorder()
-
-			newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
-			if response.Code != tt.wantStatus {
-				t.Errorf("status code = %d, want %d", response.Code, tt.wantStatus)
-			}
-			for _, want := range []string{tt.wantText, `value="SUP-001"`, `selected`} {
-				if !strings.Contains(response.Body.String(), want) {
-					t.Errorf("body = %q, want it to contain %q", response.Body.String(), want)
-				}
-			}
-			if !strings.Contains(response.Body.String(), tt.wantAria) {
-				t.Errorf("body = %q, want it to contain %q", response.Body.String(), tt.wantAria)
-			}
-		})
-	}
+func equipmentHTTPFixture(status equipment.Status) equipment.Item {
+	return equipment.Item{ID: 17, InventoryNumber: "PADDLE-CARBON-1", ModelID: 2, ModelCode: "CARBON", SequenceNumber: 1, Kind: equipment.KindPaddle, HourlyRateKopecks: 35000, Status: status}
 }
 
-func TestCreateEquipmentHidesInternalError(t *testing.T) {
-	const internalErrorText = "database password leaked"
-	service := &equipmentServiceStub{
-		create: func(_ context.Context, _ equipment.CreateInput) (equipment.Item, error) {
-			return equipment.Item{}, errors.New(internalErrorText)
-		},
-	}
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/equipment",
-		strings.NewReader("inventory_number=SUP-001&kind=sup_board"),
-	)
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
-	if response.Code != http.StatusInternalServerError {
-		t.Errorf(
-			"status code = %d, want %d",
-			response.Code,
-			http.StatusInternalServerError,
-		)
-	}
-	if strings.Contains(response.Body.String(), internalErrorText) {
-		t.Errorf("body = %q, want internal error hidden", response.Body.String())
-	}
-}
-
-func TestCreateEquipmentRejectsMalformedForm(t *testing.T) {
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/equipment",
-		strings.NewReader("inventory_number=%zz"),
-	)
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger()).ServeHTTP(response, request)
-
-	if response.Code != http.StatusBadRequest {
-		t.Errorf("status code = %d, want %d", response.Code, http.StatusBadRequest)
-	}
-}
-
-func TestEquipmentEditPageShowsCurrentValues(t *testing.T) {
-	var gotID int64
-	service := &equipmentServiceStub{
-		get: func(_ context.Context, id int64) (equipment.Item, error) {
-			gotID = id
-			return equipment.Item{
-				ID:              id,
-				InventoryNumber: "SUP-017",
-				Kind:            equipment.KindSUPBoard,
-				Status:          equipment.StatusAvailable,
-			}, nil
-		},
-	}
-	request := httptest.NewRequest(http.MethodGet, "/equipment/17/edit", nil)
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
-	if response.Code != http.StatusOK {
-		t.Errorf("status code = %d, want %d", response.Code, http.StatusOK)
-	}
-	if gotID != 17 {
-		t.Errorf("Get() ID = %d, want 17", gotID)
-	}
-	for _, want := range []string{
-		`action="/equipment/17/edit"`,
-		`value="SUP-017"`,
-		`value="sup_board" selected`,
-		`value="available" selected`,
-		`value="maintenance"`,
-		`for="inventory-number"`,
-		`for="kind"`,
-		`for="status"`,
-		`href="/equipment/17">Отмена</a>`,
-		`href="/equipment/17/retire"`,
-		`class="content-stack content-stack--narrow"`,
-		`class="panel retirement-panel"`,
-		`class="panel-header retirement-panel-header"`,
-	} {
-		if !strings.Contains(response.Body.String(), want) {
-			t.Errorf("body = %q, want it to contain %q", response.Body.String(), want)
-		}
-	}
-}
-
-func TestEquipmentEditableStatusOptionsAlwaysShowBothStatuses(t *testing.T) {
-	for _, current := range []equipment.Status{
-		equipment.StatusAvailable,
-		equipment.StatusMaintenance,
-	} {
-		t.Run(string(current), func(t *testing.T) {
-			options := equipmentEditableStatusOptions(current)
-			if len(options) != 2 {
-				t.Fatalf("options count = %d, want 2", len(options))
-			}
-
-			if options[0].Value != string(equipment.StatusAvailable) {
-				t.Errorf("first status = %q, want %q", options[0].Value, equipment.StatusAvailable)
-			}
-			if options[1].Value != string(equipment.StatusMaintenance) {
-				t.Errorf(
-					"second status = %q, want %q",
-					options[1].Value,
-					equipment.StatusMaintenance,
-				)
-			}
-
-			selected := 0
-			for _, option := range options {
-				if option.Selected {
-					selected++
-					if option.Value != string(current) {
-						t.Errorf("selected status = %q, want %q", option.Value, current)
-					}
-				}
-			}
-			if selected != 1 {
-				t.Errorf("selected options = %d, want 1", selected)
-			}
-		})
-	}
-}
-
-func TestEquipmentEditPageErrors(t *testing.T) {
-	const internalErrorText = "database password leaked"
-	tests := []struct {
-		name       string
-		path       string
-		item       equipment.Item
-		serviceErr error
-		wantStatus int
-		wantText   string
-	}{
-		{
-			name:       "invalid equipment ID",
-			path:       "/equipment/not-a-number/edit",
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name:       "equipment not found",
-			path:       "/equipment/17/edit",
-			serviceErr: equipment.ErrEquipmentNotFound,
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name: "issued equipment is not editable",
-			path: "/equipment/17/edit",
-			item: equipment.Item{
-				ID:     17,
-				Status: equipment.StatusIssued,
-			},
-			wantStatus: http.StatusConflict,
-			wantText:   "Редактирование оборудования в текущем состоянии недоступно.",
-		},
-		{
-			name: "retired equipment is not editable",
-			path: "/equipment/17/edit",
-			item: equipment.Item{
-				ID:     17,
-				Status: equipment.StatusRetired,
-			},
-			wantStatus: http.StatusConflict,
-			wantText:   "Редактирование оборудования в текущем состоянии недоступно.",
-		},
-		{
-			name:       "internal error is hidden",
-			path:       "/equipment/17/edit",
-			serviceErr: errors.New(internalErrorText),
-			wantStatus: http.StatusInternalServerError,
-			wantText:   "Internal Server Error",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			service := &equipmentServiceStub{
-				get: func(_ context.Context, _ int64) (equipment.Item, error) {
-					return tt.item, tt.serviceErr
-				},
-			}
-			request := httptest.NewRequest(http.MethodGet, tt.path, nil)
-			response := httptest.NewRecorder()
-
-			newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
-			if response.Code != tt.wantStatus {
-				t.Errorf("status code = %d, want %d", response.Code, tt.wantStatus)
-			}
-			if tt.wantText != "" && !strings.Contains(response.Body.String(), tt.wantText) {
-				t.Errorf("body = %q, want it to contain %q", response.Body.String(), tt.wantText)
-			}
-			if strings.Contains(response.Body.String(), internalErrorText) {
-				t.Errorf("body = %q, want internal error hidden", response.Body.String())
-			}
-		})
-	}
-}
-
-func TestUpdateEquipmentRedirectsToList(t *testing.T) {
-	var gotID int64
-	var gotInput equipment.UpdateInput
-	service := &equipmentServiceStub{
-		update: func(
-			_ context.Context,
-			id int64,
-			input equipment.UpdateInput,
-		) (equipment.Item, error) {
-			gotID = id
-			gotInput = input
-			return equipment.Item{
-				ID:              id,
-				InventoryNumber: "SUP-017-UPDATED",
-				Kind:            equipment.KindLifeJacket,
-				Status:          equipment.StatusMaintenance,
-			}, nil
-		},
-	}
-	form := url.Values{
-		"inventory_number": {"SUP-017-UPDATED"},
-		"kind":             {string(equipment.KindLifeJacket)},
-		"status":           {string(equipment.StatusMaintenance)},
-	}
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/equipment/17/edit",
-		strings.NewReader(form.Encode()),
-	)
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
-	if response.Code != http.StatusSeeOther {
-		t.Errorf("status code = %d, want %d", response.Code, http.StatusSeeOther)
-	}
-	assertEquipmentNoticeRedirect(
-		t,
-		response,
-		equipmentNoticeUpdated,
-		equipment.KindLifeJacket,
-		"SUP-017-UPDATED",
-	)
-	if gotID != 17 {
-		t.Errorf("Update() ID = %d, want 17", gotID)
-	}
-	wantInput := equipment.UpdateInput{
-		InventoryNumber: "SUP-017-UPDATED",
-		Kind:            equipment.KindLifeJacket,
-		Status:          equipment.StatusMaintenance,
-	}
-	if gotInput != wantInput {
-		t.Errorf("Update() input = %+v, want %+v", gotInput, wantInput)
-	}
-}
-
-func TestUpdateEquipmentErrors(t *testing.T) {
-	const internalErrorText = "database password leaked"
-	tests := []struct {
-		name       string
-		path       string
-		serviceErr error
-		wantStatus int
-		wantText   string
-		wantField  string
-		wantAria   string
-	}{
-		{
-			name:       "invalid equipment ID",
-			path:       "/equipment/not-a-number/edit",
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name:       "equipment not found",
-			path:       "/equipment/17/edit",
-			serviceErr: equipment.ErrEquipmentNotFound,
-			wantStatus: http.StatusNotFound,
-		},
-		{
-			name:       "equipment is not editable",
-			path:       "/equipment/17/edit",
-			serviceErr: equipment.ErrEquipmentUpdateNotAllowed,
-			wantStatus: http.StatusConflict,
-			wantText:   "Редактирование оборудования в текущем состоянии недоступно.",
-		},
-		{
-			name:       "empty inventory number",
-			path:       "/equipment/17/edit",
-			serviceErr: equipment.ErrInventoryNumberRequired,
-			wantStatus: http.StatusUnprocessableEntity,
-			wantText:   "Введите инвентарный номер.",
-			wantField:  `id="inventory-number-error"`,
-			wantAria:   `aria-invalid="true" aria-describedby="inventory-number-error"`,
-		},
-		{
-			name:       "invalid kind",
-			path:       "/equipment/17/edit",
-			serviceErr: equipment.ErrInvalidKind,
-			wantStatus: http.StatusUnprocessableEntity,
-			wantText:   "Выберите тип оборудования.",
-			wantField:  `id="kind-error"`,
-			wantAria:   `aria-invalid="true" aria-describedby="kind-error"`,
-		},
-		{
-			name:       "duplicate inventory number",
-			path:       "/equipment/17/edit",
-			serviceErr: equipment.ErrInventoryNumberExists,
-			wantStatus: http.StatusConflict,
-			wantText:   "Оборудование с таким инвентарным номером уже существует.",
-			wantField:  `id="inventory-number-error"`,
-			wantAria:   `aria-invalid="true" aria-describedby="inventory-number-error"`,
-		},
-		{
-			name:       "invalid status",
-			path:       "/equipment/17/edit",
-			serviceErr: equipment.ErrInvalidStatus,
-			wantStatus: http.StatusUnprocessableEntity,
-			wantText:   "Выберите допустимый статус оборудования.",
-			wantField:  `id="status-error"`,
-			wantAria:   `aria-invalid="true" aria-describedby="status-error"`,
-		},
-		{
-			name:       "retirement requires separate confirmation",
-			path:       "/equipment/17/edit",
-			serviceErr: equipment.ErrStatusTransitionNotAllowed,
-			wantStatus: http.StatusUnprocessableEntity,
-			wantText:   "Этот переход статуса недоступен в форме редактирования.",
-			wantField:  `id="status-error"`,
-			wantAria:   `aria-invalid="true" aria-describedby="status-error"`,
-		},
-		{
-			name:       "internal error is hidden",
-			path:       "/equipment/17/edit",
-			serviceErr: errors.New(internalErrorText),
-			wantStatus: http.StatusInternalServerError,
-			wantText:   "Internal Server Error",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			service := &equipmentServiceStub{
-				update: func(
-					_ context.Context,
-					_ int64,
-					_ equipment.UpdateInput,
-				) (equipment.Item, error) {
-					return equipment.Item{}, tt.serviceErr
-				},
-			}
-			form := url.Values{
-				"inventory_number": {"SUP-017"},
-				"kind":             {string(equipment.KindSUPBoard)},
-				"status":           {string(equipment.StatusAvailable)},
-			}
-			request := httptest.NewRequest(
-				http.MethodPost,
-				tt.path,
-				strings.NewReader(form.Encode()),
-			)
-			request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-			response := httptest.NewRecorder()
-
-			newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
-			if response.Code != tt.wantStatus {
-				t.Errorf("status code = %d, want %d", response.Code, tt.wantStatus)
-			}
-			if tt.wantText != "" && !strings.Contains(response.Body.String(), tt.wantText) {
-				t.Errorf("body = %q, want it to contain %q", response.Body.String(), tt.wantText)
-			}
-			if tt.wantField != "" && !strings.Contains(response.Body.String(), tt.wantField) {
-				t.Errorf("body = %q, want it to contain %q", response.Body.String(), tt.wantField)
-			}
-			if tt.wantAria != "" && !strings.Contains(response.Body.String(), tt.wantAria) {
-				t.Errorf("body = %q, want it to contain %q", response.Body.String(), tt.wantAria)
-			}
-			if strings.Contains(response.Body.String(), internalErrorText) {
-				t.Errorf("body = %q, want internal error hidden", response.Body.String())
-			}
-		})
-	}
-}
-
-func TestUpdateEquipmentRejectsMalformedForm(t *testing.T) {
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/equipment/17/edit",
-		strings.NewReader("inventory_number=%zz"),
-	)
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger()).ServeHTTP(response, request)
-
-	if response.Code != http.StatusBadRequest {
-		t.Errorf("status code = %d, want %d", response.Code, http.StatusBadRequest)
-	}
-}
-
-func TestEquipmentStatusEndpointIsNotAvailable(t *testing.T) {
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/equipment/17/status",
-		strings.NewReader("status=maintenance"),
-	)
-	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger()).ServeHTTP(response, request)
-
-	if response.Code != http.StatusNotFound {
-		t.Errorf("status code = %d, want %d", response.Code, http.StatusNotFound)
-	}
-}
-
-func TestEquipmentPageReturnsInternalErrorWhenListFails(t *testing.T) {
-	service := &equipmentServiceStub{
-		list: func(_ context.Context) ([]equipment.Item, error) {
-			return nil, errors.New("list failed")
-		},
-	}
-	request := httptest.NewRequest(http.MethodGet, "/equipment", nil)
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger(), service).ServeHTTP(response, request)
-
-	if response.Code != http.StatusInternalServerError {
-		t.Errorf(
-			"status code = %d, want %d",
-			response.Code,
-			http.StatusInternalServerError,
-		)
-	}
-}
-
-func TestEquipmentPageRejectsUnsupportedMethod(t *testing.T) {
-	request := httptest.NewRequest(http.MethodDelete, "/equipment", nil)
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger()).ServeHTTP(response, request)
-
-	if response.Code != http.StatusMethodNotAllowed {
-		t.Errorf("status code = %d, want %d", response.Code, http.StatusMethodNotAllowed)
-	}
-	if got := response.Header().Get("Allow"); got != "GET, POST" {
-		t.Errorf("Allow = %q, want %q", got, "GET, POST")
-	}
-}
-
-func TestEquipmentSuccessMessageRejectsInvalidQuery(t *testing.T) {
-	tests := []struct {
-		name  string
-		query url.Values
-	}{
-		{
-			name: "unknown notice",
-			query: url.Values{
-				"notice":           {"unknown"},
-				"kind":             {string(equipment.KindSUPBoard)},
-				"inventory_number": {"SUP-017"},
-			},
-		},
-		{
-			name: "unknown kind",
-			query: url.Values{
-				"notice":           {equipmentNoticeUpdated},
-				"kind":             {"unknown"},
-				"inventory_number": {"SUP-017"},
-			},
-		},
-		{
-			name: "missing inventory number",
-			query: url.Values{
-				"notice": {equipmentNoticeUpdated},
-				"kind":   {string(equipment.KindSUPBoard)},
-			},
-		},
-		{
-			name: "duplicate notice",
-			query: url.Values{
-				"notice":           {equipmentNoticeUpdated, equipmentNoticeDeleted},
-				"kind":             {string(equipment.KindSUPBoard)},
-				"inventory_number": {"SUP-017"},
-			},
-		},
-		{
-			name: "inventory number with outer spaces",
-			query: url.Values{
-				"notice":           {equipmentNoticeUpdated},
-				"kind":             {string(equipment.KindSUPBoard)},
-				"inventory_number": {" SUP-017 "},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := equipmentSuccessMessage(tt.query); got != "" {
-				t.Errorf("equipmentSuccessMessage() = %q, want empty message", got)
-			}
-		})
-	}
-}
-
-func TestEquipmentSuccessMessageEscapesInventoryNumber(t *testing.T) {
-	request := httptest.NewRequest(
-		http.MethodGet,
-		"/equipment?inventory_number=%3Cscript%3E&kind=paddle&notice=updated",
-		nil,
-	)
-	response := httptest.NewRecorder()
-
-	newTestHandler(t, discardLogger()).ServeHTTP(response, request)
-
-	body := response.Body.String()
-	if strings.Contains(body, "<script>") {
-		t.Errorf("body = %q, want inventory number HTML-escaped", body)
-	}
-	if !strings.Contains(body, "&lt;script&gt;") {
-		t.Errorf("body = %q, want escaped inventory number", body)
-	}
-}
-
-func assertEquipmentNoticeRedirect(
-	t *testing.T,
-	response *httptest.ResponseRecorder,
-	wantNotice string,
-	wantKind equipment.Kind,
-	wantInventoryNumber string,
-) {
+func assertEquipmentNoticeRedirect(t *testing.T, response *httptest.ResponseRecorder, notice string, kind equipment.Kind, inventoryNumber string) {
 	t.Helper()
-
-	location := response.Header().Get("Location")
-	redirectURL, err := url.Parse(location)
+	location, err := url.Parse(response.Header().Get("Location"))
 	if err != nil {
-		t.Fatalf("parse Location %q: %v", location, err)
+		t.Fatalf("parse Location: %v", err)
 	}
-	if redirectURL.Path != "/equipment" {
-		t.Errorf("Location path = %q, want %q", redirectURL.Path, "/equipment")
-	}
-
-	query := redirectURL.Query()
-	if len(query) != 3 {
-		t.Errorf("Location query = %v, want exactly three parameters", query)
-	}
-	if got := query.Get("notice"); got != wantNotice {
-		t.Errorf("notice = %q, want %q", got, wantNotice)
-	}
-	if got := query.Get("kind"); got != string(wantKind) {
-		t.Errorf("kind = %q, want %q", got, wantKind)
-	}
-	if got := query.Get("inventory_number"); got != wantInventoryNumber {
-		t.Errorf("inventory_number = %q, want %q", got, wantInventoryNumber)
+	if location.Path != "/equipment" || location.Query().Get("notice") != notice ||
+		location.Query().Get("kind") != string(kind) || location.Query().Get("inventory_number") != inventoryNumber {
+		t.Errorf("Location = %q", location.String())
 	}
 }
 

@@ -4,16 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
+
+	"github.com/Dyuzhovsergey/sup-rental/internal/user"
 )
 
 var (
-	// ErrInventoryNumberRequired означает, что инвентарный номер не указан.
-	ErrInventoryNumberRequired = errors.New("inventory number is required")
-	// ErrInvalidKind означает, что передан неподдерживаемый тип оборудования.
-	ErrInvalidKind = errors.New("invalid equipment kind")
-	// ErrInventoryNumberExists означает, что инвентарный номер уже используется.
-	ErrInventoryNumberExists = errors.New("inventory number already exists")
 	// ErrEquipmentNotFound означает, что оборудование с указанным ID не найдено.
 	ErrEquipmentNotFound = errors.New("equipment not found")
 	// ErrInvalidStatus означает, что передано неподдерживаемое состояние.
@@ -29,37 +24,35 @@ var (
 	// ErrEquipmentHasHistory означает, что предмет связан с историческими
 	// данными и поэтому не может быть удалён.
 	ErrEquipmentHasHistory = errors.New("equipment has history")
+	// ErrInvalidListPage означает некорректный номер или размер страницы.
+	ErrInvalidListPage = errors.New("invalid equipment list page")
+	// ErrInvalidListScope означает неизвестную группу оборудования.
+	ErrInvalidListScope = errors.New("invalid equipment list scope")
 )
 
 // Repository определяет операции хранения, необходимые сервису оборудования.
 type Repository interface {
-	Create(ctx context.Context, item Item) (Item, error)
+	CreateBatch(ctx context.Context, actor user.User, input BatchCreateInput) (Batch, error)
 	List(ctx context.Context) ([]Item, error)
+	ListPage(ctx context.Context, input ListPageInput) (ListPage, error)
 	Get(ctx context.Context, id int64) (Item, error)
-	Update(ctx context.Context, id int64, inventoryNumber string, kind Kind, status Status) (Item, error)
-	UpdateStatus(ctx context.Context, id int64, status Status) (Item, error)
-	Delete(ctx context.Context, id int64) error
+	UpdateStatus(ctx context.Context, actor user.User, id int64, status Status) (Item, error)
+	ChangeModel(ctx context.Context, actor user.User, id int64, input ModelChangeInput) (Item, error)
+	ChangeModelRate(ctx context.Context, actor user.User, id int64, hourlyRateKopecks int64) (ModelRateChange, error)
+	Delete(ctx context.Context, actor user.User, id int64) (Item, error)
 }
+
+// AllowedPageSizes возвращает разрешённые количества строк на странице.
+// Новый slice не позволяет вызывающему коду изменить правила сервиса.
+func AllowedPageSizes() []int { return []int{5, 10, 15} }
 
 // Service реализует сценарии учёта оборудования.
 type Service struct {
 	repository Repository
 }
 
-// CreateInput содержит данные для регистрации нового оборудования.
-type CreateInput struct {
-	// InventoryNumber — введённый администратором инвентарный номер.
-	InventoryNumber string
-	// Kind — выбранный тип оборудования.
-	Kind Kind
-}
-
 // UpdateInput содержит изменяемые данные зарегистрированного оборудования.
 type UpdateInput struct {
-	// InventoryNumber — исправленный инвентарный номер.
-	InventoryNumber string
-	// Kind — исправленный тип оборудования.
-	Kind Kind
 	// Status — выбранное физическое состояние оборудования.
 	Status Status
 }
@@ -69,32 +62,35 @@ func NewService(repository Repository) *Service {
 	return &Service{repository: repository}
 }
 
-// Create проверяет данные и регистрирует новое доступное оборудование.
-//
-// Внешние пробелы инвентарного номера удаляются. Повторный номер возвращает
-// ErrInventoryNumberExists независимо от регистра, если repository
-// обеспечивает согласованный контракт уникальности.
-func (s *Service) Create(ctx context.Context, input CreateInput) (Item, error) {
-	inventoryNumber := strings.TrimSpace(input.InventoryNumber)
-	if inventoryNumber == "" {
-		return Item{}, ErrInventoryNumberRequired
+// CreateBatch проверяет модель, тариф и количество, затем атомарно регистрирует
+// партию отдельных физических единиц оборудования.
+func (s *Service) CreateBatch(
+	ctx context.Context,
+	actor user.User,
+	input BatchCreateInput,
+) (Batch, error) {
+	if err := requireActiveAdmin(actor); err != nil {
+		return Batch{}, err
 	}
-
 	if !input.Kind.Valid() {
-		return Item{}, ErrInvalidKind
+		return Batch{}, ErrInvalidKind
 	}
-
-	item := Item{
-		InventoryNumber: inventoryNumber,
-		Kind:            input.Kind,
-		Status:          StatusAvailable,
-	}
-
-	created, err := s.repository.Create(ctx, item)
+	modelCode, err := NormalizeModelCode(input.ModelCode)
 	if err != nil {
-		return Item{}, fmt.Errorf("create equipment: %w", err)
+		return Batch{}, err
+	}
+	if _, err := HourlyRateKopecks(input.HourlyRateRubles); err != nil {
+		return Batch{}, err
+	}
+	if err := ValidateBatchQuantity(input.Quantity); err != nil {
+		return Batch{}, err
 	}
 
+	input.ModelCode = modelCode
+	created, err := s.repository.CreateBatch(ctx, actor, input)
+	if err != nil {
+		return Batch{}, fmt.Errorf("create equipment batch: %w", err)
+	}
 	return created, nil
 }
 
@@ -108,6 +104,31 @@ func (s *Service) List(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
+// ListPage возвращает одну страницу выбранной группы оборудования.
+func (s *Service) ListPage(ctx context.Context, input ListPageInput) (ListPage, error) {
+	if input.Scope != ListScopeActive && input.Scope != ListScopeRetired {
+		return ListPage{}, ErrInvalidListScope
+	}
+	if input.Page <= 0 || !validPageSize(input.PageSize) {
+		return ListPage{}, ErrInvalidListPage
+	}
+
+	page, err := s.repository.ListPage(ctx, input)
+	if err != nil {
+		return ListPage{}, fmt.Errorf("list equipment page: %w", err)
+	}
+	return page, nil
+}
+
+func validPageSize(size int) bool {
+	for _, allowed := range AllowedPageSizes() {
+		if size == allowed {
+			return true
+		}
+	}
+	return false
+}
+
 // Get возвращает оборудование по внутреннему идентификатору.
 func (s *Service) Get(ctx context.Context, id int64) (Item, error) {
 	item, err := s.repository.Get(ctx, id)
@@ -118,14 +139,16 @@ func (s *Service) Get(ctx context.Context, id int64) (Item, error) {
 	return item, nil
 }
 
-// Update изменяет инвентарный номер, тип и обратимое физическое состояние
-// оборудования.
+// Update изменяет обратимое физическое состояние оборудования.
 //
 // Редактирование разрешено только для доступного оборудования и оборудования
 // на обслуживании. Через форму редактирования можно переключаться только между
-// этими двумя состояниями; списание требует отдельного подтверждения. Внешние
-// пробелы инвентарного номера удаляются.
-func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) (Item, error) {
+// этими двумя состояниями; списание требует отдельного подтверждения. Номер,
+// тип, модель и тариф в этом инкременте не редактируются.
+func (s *Service) Update(ctx context.Context, actor user.User, id int64, input UpdateInput) (Item, error) {
+	if err := requireActiveAdmin(actor); err != nil {
+		return Item{}, err
+	}
 	item, err := s.repository.Get(ctx, id)
 	if err != nil {
 		return Item{}, fmt.Errorf("get equipment for update: %w", err)
@@ -133,15 +156,6 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) (Item
 
 	if !item.Status.CanEditDetails() {
 		return Item{}, ErrEquipmentUpdateNotAllowed
-	}
-
-	inventoryNumber := strings.TrimSpace(input.InventoryNumber)
-	if inventoryNumber == "" {
-		return Item{}, ErrInventoryNumberRequired
-	}
-
-	if !input.Kind.Valid() {
-		return Item{}, ErrInvalidKind
 	}
 
 	if !input.Status.Valid() {
@@ -153,13 +167,11 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) (Item
 		return Item{}, ErrStatusTransitionNotAllowed
 	}
 
-	updated, err := s.repository.Update(
-		ctx,
-		id,
-		inventoryNumber,
-		input.Kind,
-		input.Status,
-	)
+	if input.Status == item.Status {
+		return item, nil
+	}
+
+	updated, err := s.repository.UpdateStatus(ctx, actor, id, input.Status)
 	if err != nil {
 		return Item{}, fmt.Errorf("update equipment: %w", err)
 	}
@@ -167,9 +179,90 @@ func (s *Service) Update(ctx context.Context, id int64, input UpdateInput) (Item
 	return updated, nil
 }
 
+// ChangeModel переносит физическую единицу в существующую или новую модель.
+//
+// Внутренний ID и состояние сохраняются, а инвентарный номер формируется заново
+// из типа, кода и следующего номера целевой модели. Для существующей модели
+// переданный тариф должен совпадать с её общим тарифом.
+func (s *Service) ChangeModel(
+	ctx context.Context,
+	actor user.User,
+	id int64,
+	input ModelChangeInput,
+) (Item, error) {
+	if err := requireActiveAdmin(actor); err != nil {
+		return Item{}, err
+	}
+	if !input.Kind.Valid() {
+		return Item{}, ErrInvalidKind
+	}
+	modelCode, err := NormalizeModelCode(input.ModelCode)
+	if err != nil {
+		return Item{}, err
+	}
+	if _, err := HourlyRateKopecks(input.HourlyRateRubles); err != nil {
+		return Item{}, err
+	}
+
+	item, err := s.repository.Get(ctx, id)
+	if err != nil {
+		return Item{}, fmt.Errorf("get equipment for model change: %w", err)
+	}
+	if !item.Status.CanEditDetails() {
+		return Item{}, ErrEquipmentUpdateNotAllowed
+	}
+	if item.Kind == input.Kind && item.ModelCode == modelCode {
+		return Item{}, ErrEquipmentModelUnchanged
+	}
+
+	input.ModelCode = modelCode
+	updated, err := s.repository.ChangeModel(ctx, actor, id, input)
+	if err != nil {
+		return Item{}, fmt.Errorf("change equipment model: %w", err)
+	}
+	return updated, nil
+}
+
+// ChangeModelRate изменяет общий тариф модели выбранной физической единицы.
+// Изменение отражается на всех единицах этой модели и возвращает их количество.
+func (s *Service) ChangeModelRate(
+	ctx context.Context,
+	actor user.User,
+	id int64,
+	hourlyRateRubles int64,
+) (ModelRateChange, error) {
+	if err := requireActiveAdmin(actor); err != nil {
+		return ModelRateChange{}, err
+	}
+	hourlyRateKopecks, err := HourlyRateKopecks(hourlyRateRubles)
+	if err != nil {
+		return ModelRateChange{}, err
+	}
+
+	item, err := s.repository.Get(ctx, id)
+	if err != nil {
+		return ModelRateChange{}, fmt.Errorf("get equipment for model rate change: %w", err)
+	}
+	if !item.Status.CanEditDetails() {
+		return ModelRateChange{}, ErrEquipmentUpdateNotAllowed
+	}
+	if item.HourlyRateKopecks == hourlyRateKopecks {
+		return ModelRateChange{}, ErrModelRateUnchanged
+	}
+
+	changed, err := s.repository.ChangeModelRate(ctx, actor, id, hourlyRateKopecks)
+	if err != nil {
+		return ModelRateChange{}, fmt.Errorf("change equipment model rate: %w", err)
+	}
+	return changed, nil
+}
+
 // ChangeStatus изменяет физическое состояние оборудования, если ручной
 // переход разрешён для его текущего состояния.
-func (s *Service) ChangeStatus(ctx context.Context, id int64, target Status) (Item, error) {
+func (s *Service) ChangeStatus(ctx context.Context, actor user.User, id int64, target Status) (Item, error) {
+	if err := requireActiveAdmin(actor); err != nil {
+		return Item{}, err
+	}
 	if !target.Valid() {
 		return Item{}, ErrInvalidStatus
 	}
@@ -183,7 +276,7 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, target Status) (It
 		return Item{}, ErrStatusTransitionNotAllowed
 	}
 
-	updated, err := s.repository.UpdateStatus(ctx, id, target)
+	updated, err := s.repository.UpdateStatus(ctx, actor, id, target)
 	if err != nil {
 		return Item{}, fmt.Errorf("update equipment status: %w", err)
 	}
@@ -198,7 +291,10 @@ func (s *Service) ChangeStatus(ctx context.Context, id int64, target Status) (It
 // ErrEquipmentHasHistory, если предмет уже связан с историческими данными.
 // Возвращённый предмет позволяет вызывающему коду сформировать подтверждение
 // удаления без повторного запроса уже удалённой записи.
-func (s *Service) Delete(ctx context.Context, id int64) (Item, error) {
+func (s *Service) Delete(ctx context.Context, actor user.User, id int64) (Item, error) {
+	if err := requireActiveAdmin(actor); err != nil {
+		return Item{}, err
+	}
 	item, err := s.repository.Get(ctx, id)
 	if err != nil {
 		return Item{}, fmt.Errorf("get equipment for deletion: %w", err)
@@ -208,9 +304,17 @@ func (s *Service) Delete(ctx context.Context, id int64) (Item, error) {
 		return Item{}, ErrEquipmentDeleteNotAllowed
 	}
 
-	if err := s.repository.Delete(ctx, id); err != nil {
+	deleted, err := s.repository.Delete(ctx, actor, id)
+	if err != nil {
 		return Item{}, fmt.Errorf("delete equipment: %w", err)
 	}
 
-	return item, nil
+	return deleted, nil
+}
+
+func requireActiveAdmin(actor user.User) error {
+	if actor.ID <= 0 || actor.Role != user.RoleAdmin || !actor.Active {
+		return user.ErrAccessDenied
+	}
+	return nil
 }

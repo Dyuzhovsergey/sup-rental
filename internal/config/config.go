@@ -16,6 +16,7 @@ const (
 	httpShutdownTimeoutEnv   = "HTTP_SHUTDOWN_TIMEOUT"
 	databaseURLEnv           = "DATABASE_URL"
 	dbConnectTimeoutEnv      = "DB_CONNECT_TIMEOUT"
+	sessionCookieSecureEnv   = "SESSION_COOKIE_SECURE"
 )
 
 // Config содержит проверенные параметры запуска приложения.
@@ -26,6 +27,16 @@ type Config struct {
 	HTTPReadHeaderTimeout time.Duration
 	// HTTPShutdownTimeout ограничивает время корректного завершения HTTP-сервера.
 	HTTPShutdownTimeout time.Duration
+	// DatabaseURL содержит connection string для подключения к PostgreSQL.
+	DatabaseURL string
+	// DBConnectTimeout ограничивает время подключения к PostgreSQL.
+	DBConnectTimeout time.Duration
+	// SessionCookieSecure включает передачу session cookie только через HTTPS.
+	SessionCookieSecure bool
+}
+
+// DatabaseConfig содержит проверенные параметры подключения к PostgreSQL.
+type DatabaseConfig struct {
 	// DatabaseURL содержит connection string для подключения к PostgreSQL.
 	DatabaseURL string
 	// DBConnectTimeout ограничивает время подключения к PostgreSQL.
@@ -56,12 +67,12 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
-	databaseURL, err := requiredEnv(databaseURLEnv)
+	databaseConfig, err := LoadDatabase()
 	if err != nil {
 		return Config{}, err
 	}
 
-	dbConnectTimeout, err := positiveDurationEnv(dbConnectTimeoutEnv)
+	sessionCookieSecure, err := booleanEnv(sessionCookieSecureEnv)
 	if err != nil {
 		return Config{}, err
 	}
@@ -70,8 +81,42 @@ func Load() (Config, error) {
 		HTTPAddress:           address,
 		HTTPReadHeaderTimeout: readHeaderTimeout,
 		HTTPShutdownTimeout:   shutdownTimeout,
-		DatabaseURL:           databaseURL,
-		DBConnectTimeout:      dbConnectTimeout,
+		DatabaseURL:           databaseConfig.DatabaseURL,
+		DBConnectTimeout:      databaseConfig.DBConnectTimeout,
+		SessionCookieSecure:   sessionCookieSecure,
+	}, nil
+}
+
+func booleanEnv(name string) (bool, error) {
+	value, err := requiredEnv(name)
+	if err != nil {
+		return false, err
+	}
+
+	parsed, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("%s: parse boolean: %w", name, err)
+	}
+
+	return parsed, nil
+}
+
+// LoadDatabase загружает только параметры PostgreSQL, необходимые server и
+// административному CLI.
+func LoadDatabase() (DatabaseConfig, error) {
+	databaseURL, err := requiredEnv(databaseURLEnv)
+	if err != nil {
+		return DatabaseConfig{}, err
+	}
+
+	dbConnectTimeout, err := positiveDurationEnv(dbConnectTimeoutEnv)
+	if err != nil {
+		return DatabaseConfig{}, err
+	}
+
+	return DatabaseConfig{
+		DatabaseURL:      databaseURL,
+		DBConnectTimeout: dbConnectTimeout,
 	}, nil
 }
 

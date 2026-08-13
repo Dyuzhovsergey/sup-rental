@@ -13,29 +13,14 @@ import (
 const retirementUnavailableMessage = "Списание оборудования в текущем состоянии недоступно."
 
 type equipmentRetirePageData struct {
+	Authentication  *authenticationView
 	Title           string
 	ID              int64
 	InventoryNumber string
 	Kind            string
+	ModelCode       string
+	HourlyRate      string
 	Status          string
-}
-
-func equipmentRetirement(
-	logger *slog.Logger,
-	service equipmentService,
-	pageTemplates *template.Template,
-	w http.ResponseWriter,
-	r *http.Request,
-) {
-	switch r.Method {
-	case http.MethodGet:
-		showEquipmentRetirePage(logger, service, pageTemplates, w, r)
-	case http.MethodPost:
-		retireEquipment(logger, service, w, r)
-	default:
-		w.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}
 }
 
 func showEquipmentRetirePage(
@@ -68,10 +53,13 @@ func showEquipmentRetirePage(
 	}
 
 	data := equipmentRetirePageData{
+		Authentication:  authenticationForPage(r),
 		Title:           "Списание оборудования — SUP Rental",
 		ID:              item.ID,
 		InventoryNumber: item.InventoryNumber,
 		Kind:            equipmentKindLabel(item.Kind),
+		ModelCode:       item.ModelCode,
+		HourlyRate:      equipmentHourlyRateLabel(item.HourlyRateKopecks),
 		Status:          equipmentStatusLabel(item.Status),
 	}
 
@@ -102,7 +90,12 @@ func retireEquipment(
 		return
 	}
 
-	retired, err := service.ChangeStatus(r.Context(), id, equipment.StatusRetired)
+	retired, err := service.ChangeStatus(
+		r.Context(),
+		currentUser(r),
+		id,
+		equipment.StatusRetired,
+	)
 	if err == nil {
 		http.Redirect(
 			w,

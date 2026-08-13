@@ -99,6 +99,8 @@
                                 <dt>Тип</dt>
                                 <dd>{{.Kind}}</dd>
                             </div>
+							<div class="details-row"><dt>Модель</dt><dd>{{.ModelCode}}</dd></div>
+							<div class="details-row"><dt>Тариф</dt><dd>{{.HourlyRate}}</dd></div>
                             <div class="details-row">
                                 <dt>Текущий статус</dt>
                                 <dd>{{template "equipment-status-chip" .Status}}</dd>
@@ -109,6 +111,7 @@
                     <div class="confirmation-actions">
                         {{if .CanDelete}}
                         <form method="post" action="/equipment/{{.ID}}/delete">
+                            <input type="hidden" name="csrf_token" value="{{.Authentication.CSRFToken}}">
                             <button class="button button--danger-filled" type="submit">
                                 <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                     <path d="M4 7h16"></path>

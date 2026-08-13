@@ -40,10 +40,11 @@ services:
       HTTP_ADDRESS: :8080
       HTTP_READ_HEADER_TIMEOUT: ${HTTP_READ_HEADER_TIMEOUT}
       HTTP_SHUTDOWN_TIMEOUT: ${HTTP_SHUTDOWN_TIMEOUT}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE}
       DB_CONNECT_TIMEOUT: ${DB_CONNECT_TIMEOUT}
       DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
     ports:
-      - "${COMPOSE_HTTP_PORT:-8080}:8080"
+      - "127.0.0.1:${COMPOSE_HTTP_PORT:-8080}:8080"
     healthcheck:
       test:
         [
@@ -58,6 +59,24 @@ services:
       timeout: 5s
       retries: 5
       start_period: 5s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  admin:
+    image: sup-rental-app:dev
+    build:
+      context: .
+      target: app
+    entrypoint: ["/app/admin"]
+    profiles: ["tools"]
+    stdin_open: true
+    tty: true
+    environment:
+      DB_CONNECT_TIMEOUT: ${DB_CONNECT_TIMEOUT}
+      DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable"
     depends_on:
       postgres:
         condition: service_healthy

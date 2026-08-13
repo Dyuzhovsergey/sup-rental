@@ -11,10 +11,13 @@ import (
 )
 
 type equipmentDetailPageData struct {
+	Authentication  *authenticationView
 	Title           string
 	ID              int64
 	InventoryNumber string
 	Kind            string
+	ModelCode       string
+	HourlyRate      string
 	Status          string
 	CanEdit         bool
 	CanDelete       bool
@@ -51,13 +54,16 @@ func showEquipmentDetailPage(
 	}
 
 	data := equipmentDetailPageData{
+		Authentication:  authenticationForPage(r),
 		Title:           item.InventoryNumber + " — SUP Rental",
 		ID:              item.ID,
 		InventoryNumber: item.InventoryNumber,
 		Kind:            equipmentKindLabel(item.Kind),
+		ModelCode:       item.ModelCode,
+		HourlyRate:      equipmentHourlyRateLabel(item.HourlyRateKopecks),
 		Status:          equipmentStatusLabel(item.Status),
-		CanEdit:         item.Status.CanEditDetails(),
-		CanDelete:       item.Status == equipment.StatusRetired,
+		CanEdit:         canManageEquipment(r) && item.Status.CanEditDetails(),
+		CanDelete:       canManageEquipment(r) && item.Status == equipment.StatusRetired,
 	}
 
 	var body bytes.Buffer
@@ -73,4 +79,9 @@ func showEquipmentDetailPage(
 	if _, err := w.Write(body.Bytes()); err != nil {
 		logger.Error("write equipment detail response", slog.Any("error", err))
 	}
+}
+
+func canManageEquipment(r *http.Request) bool {
+	authentication := authenticationForPage(r)
+	return authentication != nil && authentication.CanManageEquipment
 }

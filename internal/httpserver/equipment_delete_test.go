@@ -15,10 +15,12 @@ func TestEquipmentDeletionPageShowsWarningAndItem(t *testing.T) {
 	service := &equipmentServiceStub{
 		get: func(_ context.Context, id int64) (equipment.Item, error) {
 			return equipment.Item{
-				ID:              id,
-				InventoryNumber: "SUP-017",
-				Kind:            equipment.KindSUPBoard,
-				Status:          equipment.StatusRetired,
+				ID:                id,
+				InventoryNumber:   "SUP-FUSION-1",
+				Kind:              equipment.KindSUPBoard,
+				ModelCode:         "FUSION",
+				HourlyRateKopecks: 50000,
+				Status:            equipment.StatusRetired,
 			}, nil
 		},
 	}
@@ -32,12 +34,15 @@ func TestEquipmentDeletionPageShowsWarningAndItem(t *testing.T) {
 	}
 	for _, want := range []string{
 		`role="alert"`,
-		"Удалить оборудование SUP-017?",
+		"Удалить оборудование SUP-FUSION-1?",
 		"Удаление нельзя отменить.",
 		"безвозвратно удалено из базы данных",
 		"SUP-доска",
+		"FUSION",
+		"500 ₽/час",
 		"Списан",
 		`action="/equipment/17/delete"`,
+		`name="csrf_token" value="csrf-token"`,
 		"Подтвердить удаление",
 		`href="/equipment/17">Отмена</a>`,
 		`<link rel="stylesheet" href="/static/app.css">`,
@@ -248,7 +253,7 @@ func TestEquipmentDeletionRejectsUnsupportedMethod(t *testing.T) {
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status code = %d, want %d", response.Code, http.StatusMethodNotAllowed)
 	}
-	if got := response.Header().Get("Allow"); got != "GET, POST" {
-		t.Errorf("Allow = %q, want %q", got, "GET, POST")
+	if got := response.Header().Get("Allow"); got != "GET, HEAD, POST" {
+		t.Errorf("Allow = %q, want %q", got, "GET, HEAD, POST")
 	}
 }
