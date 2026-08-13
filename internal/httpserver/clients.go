@@ -16,9 +16,10 @@ import (
 
 type clientService interface {
 	Create(context.Context, user.User, string, string) (client.Client, error)
+	Update(context.Context, user.User, int64, string, string) (client.Client, error)
 	Get(context.Context, int64) (client.Client, error)
 	FindByPhone(context.Context, string) (client.Client, error)
-	ListPage(context.Context, int) (client.Page, error)
+	ListPage(context.Context, int, int) (client.Page, error)
 }
 
 type clientFormData struct {
@@ -29,21 +30,23 @@ type clientFormData struct {
 }
 
 type clientsPageData struct {
-	Authentication *authenticationView
-	Title          string
-	Clients        []client.Client
-	Form           clientFormData
-	SearchPhone    string
-	SearchError    string
-	SearchActive   bool
-	SearchEmpty    bool
-	Success        string
-	TotalLabel     string
-	PageLabel      string
-	PreviousURL    string
-	NextURL        string
-	HasPrevious    bool
-	HasNext        bool
+	Authentication  *authenticationView
+	Title           string
+	Clients         []client.Client
+	Form            clientFormData
+	SearchPhone     string
+	SearchError     string
+	SearchActive    bool
+	SearchEmpty     bool
+	Success         string
+	TotalLabel      string
+	PageSize        int
+	PageSizeOptions []pageSizeOption
+	PageLabel       string
+	PreviousURL     string
+	NextURL         string
+	HasPrevious     bool
+	HasNext         bool
 }
 
 func clientsPage(logger *slog.Logger, service clientService, pageTemplates *template.Template, w http.ResponseWriter, r *http.Request) {
@@ -55,12 +58,12 @@ func clientsPage(logger *slog.Logger, service clientService, pageTemplates *temp
 }
 
 func showClientsPage(logger *slog.Logger, service clientService, pageTemplates *template.Template, w http.ResponseWriter, r *http.Request, status int, form clientFormData) {
-	page, ok := positiveQueryPage(r.URL.Query().Get("page"))
+	page, pageSize, ok := clientPagination(r.URL.Query())
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	result, err := service.ListPage(r.Context(), page)
+	result, err := service.ListPage(r.Context(), page, pageSize)
 	if err != nil {
 		if errors.Is(err, client.ErrInvalidPage) {
 			http.NotFound(w, r)
@@ -74,6 +77,7 @@ func showClientsPage(logger *slog.Logger, service clientService, pageTemplates *
 	data := clientsPageData{
 		Authentication: authenticationForPage(r), Title: "Клиенты — SUP Rental",
 		Clients: result.Clients, Form: form, TotalLabel: clientCountLabel(result.Total),
+		PageSize: pageSize, PageSizeOptions: clientPageSizeOptions(pageSize),
 	}
 	phone := strings.TrimSpace(r.URL.Query().Get("phone"))
 	if phone != "" {
@@ -96,7 +100,7 @@ func showClientsPage(logger *slog.Logger, service clientService, pageTemplates *
 			return
 		}
 	} else {
-		totalPages := pageCount(result.Total, client.PageSize)
+		totalPages := pageCount(result.Total, pageSize)
 		if page > totalPages {
 			http.NotFound(w, r)
 			return
@@ -104,8 +108,8 @@ func showClientsPage(logger *slog.Logger, service clientService, pageTemplates *
 		data.PageLabel = pageLabel(page, totalPages)
 		data.HasPrevious = page > 1
 		data.HasNext = page < totalPages
-		data.PreviousURL = clientPageURL(page - 1)
-		data.NextURL = clientPageURL(page + 1)
+		data.PreviousURL = clientPageURL(page-1, pageSize)
+		data.NextURL = clientPageURL(page+1, pageSize)
 	}
 
 	if createdID, parseErr := positiveOptionalID(r.URL.Query().Get("created")); parseErr == nil && createdID > 0 {
@@ -114,6 +118,16 @@ func showClientsPage(logger *slog.Logger, service clientService, pageTemplates *
 			data.Success = "Клиент " + created.FullName + " создан."
 		} else if !errors.Is(getErr, client.ErrClientNotFound) {
 			logger.Error("load created client notice", slog.Any("error", getErr))
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+	}
+	if updatedID, parseErr := positiveOptionalID(r.URL.Query().Get("updated")); parseErr == nil && updatedID > 0 {
+		updated, getErr := service.Get(r.Context(), updatedID)
+		if getErr == nil {
+			data.Success = "Данные клиента " + updated.FullName + " обновлены."
+		} else if !errors.Is(getErr, client.ErrClientNotFound) {
+			logger.Error("load updated client notice", slog.Any("error", getErr))
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
@@ -179,11 +193,41 @@ func positiveOptionalID(raw string) (int64, error) {
 	return id, nil
 }
 
-func clientPageURL(page int) string {
-	if page <= 1 {
-		return "/clients"
+func clientPagination(query url.Values) (int, int, bool) {
+	page, ok := positiveQueryPage(query.Get("page"))
+	if !ok {
+		return 0, 0, false
 	}
-	query := url.Values{"page": {strconv.Itoa(page)}}
+	pageSize := client.DefaultPageSize
+	if raw := query.Get("page_size"); raw != "" {
+		var err error
+		pageSize, err = strconv.Atoi(raw)
+		if err != nil {
+			return 0, 0, false
+		}
+	}
+	for _, allowed := range client.AllowedPageSizes() {
+		if pageSize == allowed {
+			return page, pageSize, true
+		}
+	}
+	return 0, 0, false
+}
+
+func clientPageSizeOptions(selected int) []pageSizeOption {
+	allowedSizes := client.AllowedPageSizes()
+	options := make([]pageSizeOption, 0, len(allowedSizes))
+	for _, size := range allowedSizes {
+		options = append(options, pageSizeOption{Value: size, Selected: size == selected})
+	}
+	return options
+}
+
+func clientPageURL(page, pageSize int) string {
+	query := url.Values{"page_size": {strconv.Itoa(pageSize)}}
+	if page > 1 {
+		query.Set("page", strconv.Itoa(page))
+	}
 	return "/clients?" + query.Encode()
 }
 

@@ -100,6 +100,15 @@ func NewHandler(
 	mux.Handle("POST /clients", operatorOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		clientsPage(logger, clients, pageTemplates, w, r)
 	}))))
+	mux.Handle("GET /clients/{id}", authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showClientDetailPage(logger, clients, pageTemplates, w, r)
+	})))
+	mux.Handle("GET /clients/{id}/edit", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showClientEditPage(logger, clients, pageTemplates, w, r)
+	})))
+	mux.Handle("POST /clients/{id}/edit", operatorOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		updateClient(logger, clients, pageTemplates, w, r)
+	}))))
 	mux.Handle("GET /equipment", authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		equipmentPage(logger, equipmentService, pageTemplates, w, r)
 	})))

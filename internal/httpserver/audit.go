@@ -255,6 +255,24 @@ func safeAuditSummary(event audit.Event) string {
 			return strings.Join(changes, "; ")
 		}
 	}
+	if event.Action == "client.updated" {
+		var details struct {
+			BeforeFullName string `json:"before_full_name"`
+			AfterFullName  string `json:"after_full_name"`
+			PhoneChanged   bool   `json:"phone_changed"`
+		}
+		if json.Unmarshal(event.Details, &details) != nil {
+			return ""
+		}
+		changes := make([]string, 0, 2)
+		if details.BeforeFullName != details.AfterFullName {
+			changes = append(changes, "ФИО: "+details.BeforeFullName+" → "+details.AfterFullName)
+		}
+		if details.PhoneChanged {
+			changes = append(changes, "Телефон изменён")
+		}
+		return strings.Join(changes, "; ")
+	}
 	if strings.HasPrefix(event.Action, "auth.") {
 		var details struct {
 			RemoteIP string `json:"remote_ip"`
@@ -279,7 +297,7 @@ func auditActionLabel(action string) string {
 		"equipment.model_rate_changed": "Тариф модели оборудования изменён",
 		"equipment.status_changed":     "Состояние оборудования изменено", "equipment.retired": "Оборудование списано",
 		"equipment.deleted": "Оборудование удалено",
-		"client.created":    "Клиент создан",
+		"client.created":    "Клиент создан", "client.updated": "Данные клиента изменены",
 	}
 	if label := labels[action]; label != "" {
 		return label

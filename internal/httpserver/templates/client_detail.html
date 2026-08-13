@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <a class="skip-link" href="#main-content">К содержимому</a>
+    <div class="app-shell">
+        {{template "equipment-sidebar" .}}
+        <main class="main-content" id="main-content" tabindex="-1">
+            <div class="content-container">
+                <nav class="breadcrumb" aria-label="Хлебные крошки">
+                    <a href="/clients">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
+                        Клиенты
+                    </a>
+                    <span aria-hidden="true">/</span>
+                    <span>{{.Client.FullName}}</span>
+                </nav>
+
+                <header class="page-header">
+                    <div>
+                        <p class="page-eyebrow">Карточка клиента</p>
+                        <h1>{{.Client.FullName}}</h1>
+                        <p class="page-description">Контактные данные клиента проката.</p>
+                    </div>
+                </header>
+
+                <div class="content-stack content-stack--narrow">
+                    <section class="panel" aria-labelledby="client-details-heading">
+                        <header class="panel-header">
+                            <div>
+                                <h2 id="client-details-heading">Сведения</h2>
+                                <p class="panel-description">Данные для поиска и оформления будущих аренд</p>
+                            </div>
+                        </header>
+                        <dl class="details-list">
+                            <div class="details-row"><dt>ФИО</dt><dd>{{.Client.FullName}}</dd></div>
+                            <div class="details-row"><dt>Телефон</dt><dd><a href="tel:{{.Client.Phone}}">{{.Client.Phone}}</a></dd></div>
+                            <div class="details-row"><dt>Внутренний ID</dt><dd>{{.Client.ID}}</dd></div>
+                        </dl>
+                        <div class="details-actions">
+                            <div class="page-actions" role="group" aria-label="Действия с клиентом">
+                                {{if .CanEdit}}
+                                <a class="button button--primary" href="/clients/{{.Client.ID}}/edit">
+                                    <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m14.5 5.5 4 4"></path><path d="m4 20 3.8-.8L19 8a2.1 2.1 0 0 0-3-3L4.8 16.2 4 20Z"></path></svg>
+                                    Редактировать
+                                </a>
+                                {{end}}
+                                <a class="button button--secondary" href="/clients">Назад к списку</a>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

@@ -544,6 +544,22 @@ select[aria-invalid="true"] {
     align-items: center;
 }
 
+.client-list-toolbar {
+    padding: 10px 24px;
+    border-bottom: 1px solid var(--color-outline);
+}
+
+.client-name-link {
+    color: var(--color-text);
+    text-decoration: none;
+    border-radius: 4px;
+}
+
+.client-name-link:hover,
+.client-name-link:focus-visible {
+    color: var(--color-primary);
+}
+
 .list-toolbar {
     display: flex;
     gap: 8px;

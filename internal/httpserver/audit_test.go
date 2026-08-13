@@ -123,6 +123,29 @@ func TestAuditPageShowsClientCategoryAndAction(t *testing.T) {
 	}
 }
 
+func TestAuditPageShowsSafeClientUpdateSummary(t *testing.T) {
+	service := &auditServiceStub{list: func(context.Context, user.User, audit.Filter) (audit.Page, error) {
+		return audit.Page{Total: 1, Page: 1, Events: []audit.Event{{
+			Action: "client.updated", TargetLabel: "Анна Петрова", Result: audit.ResultSuccess,
+			Details: []byte(`{"before_full_name":"Анна Иванова","after_full_name":"Анна Петрова","phone_changed":true}`),
+		}}}, nil
+	}}
+	response := httptest.NewRecorder()
+	newAuditTestHandler(t, service, authenticatedFixture()).ServeHTTP(
+		response, authenticatedRequest(http.MethodGet, "/admin/audit?category=clients", ""),
+	)
+	for _, want := range []string{
+		"Данные клиента изменены", "ФИО: Анна Иванова → Анна Петрова", "Телефон изменён",
+	} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+	if strings.Contains(response.Body.String(), "+7999") {
+		t.Error("audit page exposes client phone")
+	}
+}
+
 func TestAuditPaginationPreservesFilters(t *testing.T) {
 	service := &auditServiceStub{list: func(context.Context, user.User, audit.Filter) (audit.Page, error) {
 		return audit.Page{Total: 51, Page: 1, Events: []audit.Event{{

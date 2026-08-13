@@ -87,12 +87,139 @@ func TestClientRepositoryCreateGetAndFindByPhone(t *testing.T) {
 	}
 }
 
+func TestClientRepositoryUpdateAndAudit(t *testing.T) {
+	pool, ctx := openClientRepositoryTestDatabase(t)
+	repository := NewClientRepository(pool)
+	actor := clientTestOperator(t, ctx, pool)
+	phone := fmt.Sprintf("+76%09d", time.Now().UnixNano()%1_000_000_000)
+	created, err := repository.Create(ctx, actor, client.Client{
+		FullName: "Клиент До Изменения", Phone: client.Phone(phone),
+	})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	cleanupClient(t, pool, created.ID, actor.ID)
+
+	updatedPhone := client.Phone(fmt.Sprintf("+75%09d", time.Now().UnixNano()%1_000_000_000))
+	updated, err := repository.Update(ctx, actor, client.Client{
+		ID: created.ID, FullName: "Клиент После Изменения", Phone: updatedPhone,
+	})
+	if err != nil {
+		t.Fatalf("Update() error = %v", err)
+	}
+	if updated.ID != created.ID || updated.FullName != "Клиент После Изменения" || updated.Phone != updatedPhone {
+		t.Errorf("Update() = %+v", updated)
+	}
+
+	stored, err := repository.Get(ctx, created.ID)
+	if err != nil || stored != updated {
+		t.Errorf("Get() = %+v, %v; want %+v", stored, err, updated)
+	}
+
+	var action, actorLogin, targetLabel, details string
+	if err := pool.QueryRow(ctx, `SELECT action, actor_login, target_label, details::text
+		FROM audit_events WHERE action = 'client.updated' AND target_id = $1`, created.ID).Scan(
+		&action, &actorLogin, &targetLabel, &details,
+	); err != nil {
+		t.Fatalf("query update audit event: %v", err)
+	}
+	if action != "client.updated" || actorLogin != actor.Login || targetLabel != updated.FullName {
+		t.Errorf("audit = %q %q %q", action, actorLogin, targetLabel)
+	}
+	for _, want := range []string{
+		`"before_full_name": "Клиент До Изменения"`,
+		`"after_full_name": "Клиент После Изменения"`,
+		`"phone_changed": true`,
+	} {
+		if !strings.Contains(details, want) {
+			t.Errorf("details = %q, want %q", details, want)
+		}
+	}
+	if strings.Contains(details, phone) || strings.Contains(details, string(updatedPhone)) {
+		t.Errorf("audit details expose phone: %q", details)
+	}
+}
+
+func TestClientRepositoryUpdateRejectsDuplicatePhone(t *testing.T) {
+	pool, ctx := openClientRepositoryTestDatabase(t)
+	repository := NewClientRepository(pool)
+	actor := clientTestOperator(t, ctx, pool)
+	firstPhone := fmt.Sprintf("+74%09d", time.Now().UnixNano()%1_000_000_000)
+	secondPhone := fmt.Sprintf("+73%09d", (time.Now().UnixNano()+1)%1_000_000_000)
+	first, err := repository.Create(ctx, actor, client.Client{FullName: "Первый Клиент", Phone: client.Phone(firstPhone)})
+	if err != nil {
+		t.Fatalf("create first client: %v", err)
+	}
+	cleanupClient(t, pool, first.ID, actor.ID)
+	second, err := repository.Create(ctx, actor, client.Client{FullName: "Второй Клиент", Phone: client.Phone(secondPhone)})
+	if err != nil {
+		t.Fatalf("create second client: %v", err)
+	}
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, _ = pool.Exec(ctx, "DELETE FROM audit_events WHERE target_type = 'client' AND target_id = $1", second.ID)
+		_, _ = pool.Exec(ctx, "DELETE FROM clients WHERE id = $1", second.ID)
+	})
+
+	_, err = repository.Update(ctx, actor, client.Client{
+		ID: first.ID, FullName: "Первый Клиент", Phone: second.Phone,
+	})
+	if !errors.Is(err, client.ErrPhoneExists) {
+		t.Fatalf("Update() error = %v, want ErrPhoneExists", err)
+	}
+	stored, getErr := repository.Get(ctx, first.ID)
+	if getErr != nil || stored.Phone != first.Phone {
+		t.Errorf("stored after conflict = %+v, %v", stored, getErr)
+	}
+}
+
+func TestClientRepositoryRollsBackUpdateWhenAuditFails(t *testing.T) {
+	pool, ctx := openClientRepositoryTestDatabase(t)
+	actor := clientTestOperator(t, ctx, pool)
+	repository := NewClientRepository(pool)
+	phone := fmt.Sprintf("+72%09d", time.Now().UnixNano()%1_000_000_000)
+	created, err := repository.Create(ctx, actor, client.Client{FullName: "Исходный Клиент", Phone: client.Phone(phone)})
+	if err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+	cleanupClient(t, pool, created.ID, actor.ID)
+	repository.writeAudit = func(context.Context, pgx.Tx, string, user.User, client.Client, clientAuditDetails) error {
+		return errors.New("audit unavailable")
+	}
+
+	_, err = repository.Update(ctx, actor, client.Client{
+		ID: created.ID, FullName: "Изменённый Клиент", Phone: created.Phone,
+	})
+	if err == nil || !strings.Contains(err.Error(), "audit unavailable") {
+		t.Fatalf("Update() error = %v", err)
+	}
+	stored, getErr := repository.Get(ctx, created.ID)
+	if getErr != nil || stored != created {
+		t.Errorf("stored after rollback = %+v, %v; want %+v", stored, getErr, created)
+	}
+}
+
+func TestClientRepositoryUpdateMissingClient(t *testing.T) {
+	pool, ctx := openClientRepositoryTestDatabase(t)
+	repository := NewClientRepository(pool)
+	actor := clientTestOperator(t, ctx, pool)
+	t.Cleanup(func() { cleanupClientOperator(t, pool, actor.ID) })
+
+	_, err := repository.Update(ctx, actor, client.Client{
+		ID: 9_000_000_000, FullName: "Нет Клиента", Phone: "+79990000000",
+	})
+	if !errors.Is(err, client.ErrClientNotFound) {
+		t.Errorf("Update() error = %v, want ErrClientNotFound", err)
+	}
+}
+
 func TestClientRepositoryRollsBackCreateWhenAuditFails(t *testing.T) {
 	pool, ctx := openClientRepositoryTestDatabase(t)
 	actor := clientTestOperator(t, ctx, pool)
 	t.Cleanup(func() { cleanupClientOperator(t, pool, actor.ID) })
 	repository := NewClientRepository(pool)
-	repository.writeAudit = func(context.Context, pgx.Tx, string, user.User, client.Client) error {
+	repository.writeAudit = func(context.Context, pgx.Tx, string, user.User, client.Client, clientAuditDetails) error {
 		return errors.New("audit unavailable")
 	}
 	phone := fmt.Sprintf("+78%09d", time.Now().UnixNano()%1_000_000_000)

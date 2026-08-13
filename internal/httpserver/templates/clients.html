@@ -57,10 +57,19 @@
                                 <div class="client-search-actions"><button class="button button--primary" type="submit">Найти</button>{{if .SearchActive}}<a class="button" href="/clients">Сбросить</a>{{end}}</div>
                             </form>
                         </div>
+                        {{if not .SearchActive}}
+                        <form class="list-toolbar client-list-toolbar" method="get" action="/clients">
+                            <label for="client-page-size">Строк на странице</label>
+                            <select id="client-page-size" name="page_size">
+                                {{range .PageSizeOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Value}}</option>{{end}}
+                            </select>
+                            <button class="button button--compact" type="submit">Показать</button>
+                        </form>
+                        {{end}}
                         {{if .Clients}}
                         <div class="table-scroll" role="region" aria-labelledby="clients-list-heading" tabindex="0">
                             <table><thead><tr><th scope="col">ФИО</th><th scope="col">Телефон</th><th scope="col">ID</th></tr></thead>
-                            <tbody>{{range .Clients}}<tr><td><strong>{{.FullName}}</strong></td><td><a href="tel:{{.Phone}}">{{.Phone}}</a></td><td>{{.ID}}</td></tr>{{end}}</tbody></table>
+                            <tbody>{{range .Clients}}<tr><td><strong><a class="client-name-link" href="/clients/{{.ID}}">{{.FullName}}</a></strong></td><td><a href="tel:{{.Phone}}">{{.Phone}}</a></td><td>{{.ID}}</td></tr>{{end}}</tbody></table>
                         </div>
                         {{else if .SearchEmpty}}
                         <div class="empty-state"><strong>Клиент не найден</strong><span>Проверьте номер или создайте новую карточку клиента.</span></div>

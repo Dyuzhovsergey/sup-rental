@@ -286,9 +286,10 @@ type auditServiceStub struct {
 
 type clientServiceStub struct {
 	create func(context.Context, user.User, string, string) (client.Client, error)
+	update func(context.Context, user.User, int64, string, string) (client.Client, error)
 	get    func(context.Context, int64) (client.Client, error)
 	find   func(context.Context, string) (client.Client, error)
-	list   func(context.Context, int) (client.Page, error)
+	list   func(context.Context, int, int) (client.Page, error)
 }
 
 func (s *clientServiceStub) Create(ctx context.Context, actor user.User, fullName, phone string) (client.Client, error) {
@@ -296,6 +297,13 @@ func (s *clientServiceStub) Create(ctx context.Context, actor user.User, fullNam
 		return client.Client{}, nil
 	}
 	return s.create(ctx, actor, fullName, phone)
+}
+
+func (s *clientServiceStub) Update(ctx context.Context, actor user.User, id int64, fullName, phone string) (client.Client, error) {
+	if s.update == nil {
+		return client.Client{}, nil
+	}
+	return s.update(ctx, actor, id, fullName, phone)
 }
 
 func (s *clientServiceStub) Get(ctx context.Context, id int64) (client.Client, error) {
@@ -312,11 +320,11 @@ func (s *clientServiceStub) FindByPhone(ctx context.Context, phone string) (clie
 	return s.find(ctx, phone)
 }
 
-func (s *clientServiceStub) ListPage(ctx context.Context, page int) (client.Page, error) {
+func (s *clientServiceStub) ListPage(ctx context.Context, page, pageSize int) (client.Page, error) {
 	if s.list == nil {
 		return client.Page{Page: page}, nil
 	}
-	return s.list(ctx, page)
+	return s.list(ctx, page, pageSize)
 }
 
 func (s *auditServiceStub) List(ctx context.Context, actor user.User, filter audit.Filter) (audit.Page, error) {
