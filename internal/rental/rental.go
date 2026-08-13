@@ -29,6 +29,8 @@ var (
 	ErrInvalidStatus = errors.New("invalid rental status")
 	// ErrStatusTransitionNotAllowed означает, что переход между состояниями запрещён.
 	ErrStatusTransitionNotAllowed = errors.New("rental status transition is not allowed")
+	// ErrRentalItemsRequired означает попытку подтвердить аренду без оборудования.
+	ErrRentalItemsRequired = errors.New("rental must contain at least one item before confirmation")
 )
 
 // Valid сообщает, является ли состояние аренды поддерживаемым.
@@ -66,6 +68,7 @@ type Rental struct {
 	Interval Interval
 	// Status — текущее состояние аренды.
 	Status Status
+	items  []Item
 }
 
 // New создаёт ещё не сохранённую аренду в состоянии draft.
@@ -93,7 +96,62 @@ func (r *Rental) ChangeStatus(target Status) error {
 	if !r.Status.CanTransitionTo(target) {
 		return fmt.Errorf("%w: %s -> %s", ErrStatusTransitionNotAllowed, r.Status, target)
 	}
+	if target == StatusConfirmed && len(r.items) == 0 {
+		return ErrRentalItemsRequired
+	}
 
 	r.Status = target
 	return nil
+}
+
+// AddItem добавляет снимок физической единицы в состав черновика.
+func (r *Rental) AddItem(item Item) error {
+	if r.Status != StatusDraft {
+		return ErrRentalCompositionLocked
+	}
+	if err := item.validate(); err != nil {
+		return err
+	}
+	for _, existing := range r.items {
+		if existing.EquipmentID == item.EquipmentID {
+			return ErrEquipmentAlreadyAdded
+		}
+	}
+
+	updated := make([]Item, len(r.items)+1)
+	copy(updated, r.items)
+	updated[len(r.items)] = item
+	r.items = updated
+	return nil
+}
+
+// RemoveItem удаляет физическую единицу из состава черновика по идентификатору.
+func (r *Rental) RemoveItem(equipmentID int64) error {
+	if r.Status != StatusDraft {
+		return ErrRentalCompositionLocked
+	}
+	if equipmentID <= 0 {
+		return ErrInvalidEquipmentID
+	}
+	for index, item := range r.items {
+		if item.EquipmentID == equipmentID {
+			updated := make([]Item, 0, len(r.items)-1)
+			updated = append(updated, r.items[:index]...)
+			updated = append(updated, r.items[index+1:]...)
+			r.items = updated
+			return nil
+		}
+	}
+
+	return ErrRentalItemNotFound
+}
+
+// Items возвращает независимую копию состава аренды в порядке добавления.
+func (r Rental) Items() []Item {
+	return append([]Item(nil), r.items...)
+}
+
+// ItemCount возвращает количество физических единиц в составе аренды.
+func (r Rental) ItemCount() int {
+	return len(r.items)
 }

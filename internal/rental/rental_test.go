@@ -135,11 +135,39 @@ func TestRentalChangeStatus(t *testing.T) {
 	t.Parallel()
 
 	rental := Rental{Status: StatusDraft}
+	if err := rental.AddItem(validRentalItem(1)); err != nil {
+		t.Fatalf("AddItem() error = %v", err)
+	}
 	if err := rental.ChangeStatus(StatusConfirmed); err != nil {
 		t.Fatalf("ChangeStatus() error = %v", err)
 	}
 	if rental.Status != StatusConfirmed {
 		t.Fatalf("Status = %q, want %q", rental.Status, StatusConfirmed)
+	}
+}
+
+func TestRentalChangeStatusRequiresItemsForConfirmation(t *testing.T) {
+	t.Parallel()
+
+	rental := Rental{Status: StatusDraft}
+	err := rental.ChangeStatus(StatusConfirmed)
+	if !errors.Is(err, ErrRentalItemsRequired) {
+		t.Fatalf("ChangeStatus() error = %v, want %v", err, ErrRentalItemsRequired)
+	}
+	if rental.Status != StatusDraft {
+		t.Fatalf("Status = %q, want unchanged %q", rental.Status, StatusDraft)
+	}
+}
+
+func TestRentalChangeStatusAllowsEmptyDraftCancellation(t *testing.T) {
+	t.Parallel()
+
+	rental := Rental{Status: StatusDraft}
+	if err := rental.ChangeStatus(StatusCancelled); err != nil {
+		t.Fatalf("ChangeStatus() error = %v", err)
+	}
+	if rental.Status != StatusCancelled {
+		t.Fatalf("Status = %q, want %q", rental.Status, StatusCancelled)
 	}
 }
 
