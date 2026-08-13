@@ -18,26 +18,10 @@ type equipmentDeletePageData struct {
 	ID              int64
 	InventoryNumber string
 	Kind            string
+	ModelCode       string
+	HourlyRate      string
 	Status          string
 	CanDelete       bool
-}
-
-func equipmentDeletion(
-	logger *slog.Logger,
-	service equipmentService,
-	pageTemplates *template.Template,
-	w http.ResponseWriter,
-	r *http.Request,
-) {
-	switch r.Method {
-	case http.MethodGet:
-		showEquipmentDeletePage(logger, service, pageTemplates, w, r)
-	case http.MethodPost:
-		deleteEquipment(logger, service, w, r)
-	default:
-		w.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
-		w.WriteHeader(http.StatusMethodNotAllowed)
-	}
 }
 
 func showEquipmentDeletePage(
@@ -70,6 +54,8 @@ func showEquipmentDeletePage(
 		ID:              item.ID,
 		InventoryNumber: item.InventoryNumber,
 		Kind:            equipmentKindLabel(item.Kind),
+		ModelCode:       item.ModelCode,
+		HourlyRate:      equipmentHourlyRateLabel(item.HourlyRateKopecks),
 		Status:          equipmentStatusLabel(item.Status),
 		CanDelete:       item.Status == equipment.StatusRetired,
 	}

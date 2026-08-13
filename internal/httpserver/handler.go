@@ -127,6 +127,12 @@ func NewHandler(
 	mux.Handle("POST /equipment/{id}/edit", adminOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		updateEquipment(logger, equipmentService, pageTemplates, w, r)
 	}))))
+	mux.Handle("POST /equipment/{id}/model", adminOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		changeEquipmentModel(logger, equipmentService, pageTemplates, w, r)
+	}))))
+	mux.Handle("POST /equipment/{id}/rate", adminOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		changeEquipmentModelRate(logger, equipmentService, pageTemplates, w, r)
+	}))))
 
 	protected := http.NewCrossOriginProtection().Handler(
 		optionalSession(logger, sessions, cookieSettings, mux),

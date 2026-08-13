@@ -135,9 +135,9 @@ func TestAdminCannotOpenOperatorHome(t *testing.T) {
 func TestOperatorCannotAccessAdministrativeEquipmentRoutes(t *testing.T) {
 	calls := 0
 	service := &equipmentServiceStub{
-		create: func(context.Context, equipment.CreateInput) (equipment.Item, error) {
+		create: func(context.Context, equipment.BatchCreateInput) (equipment.Batch, error) {
 			calls++
-			return equipment.Item{}, nil
+			return equipment.Batch{}, nil
 		},
 		get: func(context.Context, int64) (equipment.Item, error) {
 			calls++
@@ -146,6 +146,14 @@ func TestOperatorCannotAccessAdministrativeEquipmentRoutes(t *testing.T) {
 		update: func(context.Context, int64, equipment.UpdateInput) (equipment.Item, error) {
 			calls++
 			return equipment.Item{}, nil
+		},
+		changeModel: func(context.Context, int64, equipment.ModelChangeInput) (equipment.Item, error) {
+			calls++
+			return equipment.Item{}, nil
+		},
+		changeRate: func(context.Context, int64, int64) (equipment.ModelRateChange, error) {
+			calls++
+			return equipment.ModelRateChange{}, nil
 		},
 		changeStatus: func(context.Context, int64, equipment.Status) (equipment.Item, error) {
 			calls++
@@ -164,6 +172,8 @@ func TestOperatorCannotAccessAdministrativeEquipmentRoutes(t *testing.T) {
 		{method: http.MethodPost, path: "/equipment"},
 		{method: http.MethodGet, path: "/equipment/17/edit"},
 		{method: http.MethodPost, path: "/equipment/17/edit"},
+		{method: http.MethodPost, path: "/equipment/17/model"},
+		{method: http.MethodPost, path: "/equipment/17/rate"},
 		{method: http.MethodGet, path: "/equipment/17/retire"},
 		{method: http.MethodPost, path: "/equipment/17/retire"},
 		{method: http.MethodGet, path: "/equipment/17/delete"},
@@ -185,13 +195,21 @@ func TestOperatorCannotAccessAdministrativeEquipmentRoutes(t *testing.T) {
 func TestEquipmentMutationsRequireSessionCSRFToken(t *testing.T) {
 	calls := 0
 	service := &equipmentServiceStub{
-		create: func(context.Context, equipment.CreateInput) (equipment.Item, error) {
+		create: func(context.Context, equipment.BatchCreateInput) (equipment.Batch, error) {
 			calls++
-			return equipment.Item{}, nil
+			return equipment.Batch{}, nil
 		},
 		update: func(context.Context, int64, equipment.UpdateInput) (equipment.Item, error) {
 			calls++
 			return equipment.Item{}, nil
+		},
+		changeModel: func(context.Context, int64, equipment.ModelChangeInput) (equipment.Item, error) {
+			calls++
+			return equipment.Item{}, nil
+		},
+		changeRate: func(context.Context, int64, int64) (equipment.ModelRateChange, error) {
+			calls++
+			return equipment.ModelRateChange{}, nil
 		},
 		changeStatus: func(context.Context, int64, equipment.Status) (equipment.Item, error) {
 			calls++
@@ -201,7 +219,7 @@ func TestEquipmentMutationsRequireSessionCSRFToken(t *testing.T) {
 	}
 	handler := newRoleTestHandler(t, user.RoleAdmin, service)
 
-	for _, path := range []string{"/equipment", "/equipment/17/edit", "/equipment/17/retire", "/equipment/17/delete"} {
+	for _, path := range []string{"/equipment", "/equipment/17/edit", "/equipment/17/model", "/equipment/17/rate", "/equipment/17/retire", "/equipment/17/delete"} {
 		for _, body := range []string{"", "csrf_token=wrong-token"} {
 			response := httptest.NewRecorder()
 			handler.ServeHTTP(response, authenticatedRequest(http.MethodPost, path, body))
@@ -217,8 +235,8 @@ func TestEquipmentMutationsRequireSessionCSRFToken(t *testing.T) {
 
 func TestEquipmentMutationReceivesAuthenticatedAdmin(t *testing.T) {
 	service := &equipmentServiceStub{
-		create: func(context.Context, equipment.CreateInput) (equipment.Item, error) {
-			return equipment.Item{}, nil
+		create: func(context.Context, equipment.BatchCreateInput) (equipment.Batch, error) {
+			return equipment.Batch{}, nil
 		},
 	}
 	handler := newRoleTestHandler(t, user.RoleAdmin, service)
@@ -229,7 +247,7 @@ func TestEquipmentMutationReceivesAuthenticatedAdmin(t *testing.T) {
 		authenticatedRequest(
 			http.MethodPost,
 			"/equipment",
-			"csrf_token=csrf-token&inventory_number=SUP-AUDIT-1&kind=sup_board",
+			"csrf_token=csrf-token&kind=sup_board&model_code=AUDIT&hourly_rate_rubles=500&quantity=1",
 		),
 	)
 

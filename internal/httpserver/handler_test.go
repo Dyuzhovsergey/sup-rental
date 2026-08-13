@@ -440,23 +440,25 @@ func (r *responseRecorder) WriteHeader(statusCode int) {
 }
 
 type equipmentServiceStub struct {
-	create        func(context.Context, equipment.CreateInput) (equipment.Item, error)
+	create        func(context.Context, equipment.BatchCreateInput) (equipment.Batch, error)
 	list          func(context.Context) ([]equipment.Item, error)
 	get           func(context.Context, int64) (equipment.Item, error)
 	update        func(context.Context, int64, equipment.UpdateInput) (equipment.Item, error)
+	changeModel   func(context.Context, int64, equipment.ModelChangeInput) (equipment.Item, error)
+	changeRate    func(context.Context, int64, int64) (equipment.ModelRateChange, error)
 	changeStatus  func(context.Context, int64, equipment.Status) (equipment.Item, error)
 	delete        func(context.Context, int64) (equipment.Item, error)
 	mutationActor user.User
 }
 
-func (s *equipmentServiceStub) Create(
+func (s *equipmentServiceStub) CreateBatch(
 	ctx context.Context,
 	actor user.User,
-	input equipment.CreateInput,
-) (equipment.Item, error) {
+	input equipment.BatchCreateInput,
+) (equipment.Batch, error) {
 	s.mutationActor = actor
 	if s.create == nil {
-		return equipment.Item{}, nil
+		return equipment.Batch{}, nil
 	}
 
 	return s.create(ctx, input)
@@ -523,6 +525,32 @@ func (s *equipmentServiceStub) Update(
 	}
 
 	return s.update(ctx, id, input)
+}
+
+func (s *equipmentServiceStub) ChangeModel(
+	ctx context.Context,
+	actor user.User,
+	id int64,
+	input equipment.ModelChangeInput,
+) (equipment.Item, error) {
+	s.mutationActor = actor
+	if s.changeModel == nil {
+		return equipment.Item{}, nil
+	}
+	return s.changeModel(ctx, id, input)
+}
+
+func (s *equipmentServiceStub) ChangeModelRate(
+	ctx context.Context,
+	actor user.User,
+	id int64,
+	hourlyRateRubles int64,
+) (equipment.ModelRateChange, error) {
+	s.mutationActor = actor
+	if s.changeRate == nil {
+		return equipment.ModelRateChange{}, nil
+	}
+	return s.changeRate(ctx, id, hourlyRateRubles)
 }
 
 func (s *equipmentServiceStub) ChangeStatus(

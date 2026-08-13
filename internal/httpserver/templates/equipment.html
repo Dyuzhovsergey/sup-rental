@@ -20,8 +20,7 @@
                         <h1>Оборудование</h1>
                         <p class="page-description">
                             {{if .CanManageEquipment}}
-                            Добавляйте оборудование и управляйте его данными
-                            на протяжении всего срока эксплуатации.
+                            Управляйте оборудованием на всех этапах эксплуатации.
                             {{else}}
                             Просматривайте актуальный состав и состояние инвентаря.
                             Изменение оборудования доступно администратору.
@@ -41,7 +40,7 @@
                             <div>
                                 <h2 id="create-equipment-heading">Добавить оборудование</h2>
                                 <p class="panel-description">
-                                    Новая единица инвентаря
+                                    Новая партия физических единиц
                                 </p>
                             </div>
                         </header>
@@ -49,27 +48,6 @@
                         <div class="panel-body">
                             <form class="equipment-create-form" method="post" action="/equipment">
                                 <input type="hidden" name="csrf_token" value="{{.Authentication.CSRFToken}}">
-                                <div class="field">
-                                    <label class="field-label" for="inventory-number">
-                                        Инвентарный номер
-                                        <span class="required" aria-hidden="true">*</span>
-                                        <span class="visually-hidden">(обязательное поле)</span>
-                                    </label>
-                                    <input
-                                        id="inventory-number"
-                                        name="inventory_number"
-                                        value="{{.Form.InventoryNumber}}"
-                                        autocomplete="off"
-                                        spellcheck="false"
-                                        placeholder="Например, SUP-004"
-                                        required
-                                        {{if .InventoryNumberError}}aria-invalid="true" aria-describedby="create-inventory-number-error"{{end}}
-                                    >
-                                    {{if .InventoryNumberError}}
-                                    <p id="create-inventory-number-error" class="field-error" role="alert">{{.InventoryNumberError}}</p>
-                                    {{end}}
-                                </div>
-
                                 <div class="field">
                                     <label class="field-label" for="kind">
                                         Тип оборудования
@@ -84,14 +62,45 @@
                                     >
                                         <option value="">Выберите тип</option>
                                         {{range .Kinds}}
-                                        <option value="{{.Value}}"{{if eq $.Form.Kind .Value}} selected{{end}}>
-                                            {{.Label}}
-                                        </option>
+                                        <option value="{{.Value}}"{{if eq $.Form.Kind .Value}} selected{{end}}>{{.Label}}</option>
                                         {{end}}
                                     </select>
                                     {{if .KindError}}
                                     <p id="create-kind-error" class="field-error" role="alert">{{.KindError}}</p>
                                     {{end}}
+                                </div>
+
+                                <div class="field">
+                                    <label class="field-label" for="model-code">
+                                        Модель
+                                        <span class="required" aria-hidden="true">*</span>
+                                        <span class="visually-hidden">(обязательное поле)</span>
+                                    </label>
+                                    <input
+                                        id="model-code"
+                                        name="model_code"
+                                        value="{{.Form.ModelCode}}"
+                                        autocomplete="off"
+                                        spellcheck="false"
+                                        placeholder="Например, CARBON"
+                                        required
+                                        {{if .ModelCodeError}}aria-invalid="true" aria-describedby="create-model-code-error"{{end}}
+                                    >
+                                    {{if .ModelCodeError}}
+                                    <p id="create-model-code-error" class="field-error" role="alert">{{.ModelCodeError}}</p>
+                                    {{end}}
+                                </div>
+
+                                <div class="field">
+                                    <label class="field-label" for="hourly-rate-rubles">Цена за час, ₽ <span class="required" aria-hidden="true">*</span></label>
+                                    <input id="hourly-rate-rubles" name="hourly_rate_rubles" type="number" min="1" step="1" value="{{.Form.HourlyRateRubles}}" placeholder="500" required {{if .HourlyRateError}}aria-invalid="true" aria-describedby="create-hourly-rate-error"{{end}}>
+                                    {{if .HourlyRateError}}<p id="create-hourly-rate-error" class="field-error" role="alert">{{.HourlyRateError}}</p>{{end}}
+                                </div>
+
+                                <div class="field">
+                                    <label class="field-label" for="quantity">Количество <span class="required" aria-hidden="true">*</span></label>
+                                    <input id="quantity" name="quantity" type="number" min="1" max="100" step="1" value="{{.Form.Quantity}}" placeholder="1" required {{if .QuantityError}}aria-invalid="true" aria-describedby="create-quantity-error"{{end}}>
+                                    {{if .QuantityError}}<p id="create-quantity-error" class="field-error" role="alert">{{.QuantityError}}</p>{{end}}
                                 </div>
 
                                 <button
@@ -102,7 +111,7 @@
                                         <path d="M12 5v14"></path>
                                         <path d="M5 12h14"></path>
                                     </svg>
-                                    Добавить
+                                    Добавить оборудование
                                 </button>
                             </form>
                         </div>
@@ -110,13 +119,6 @@
                     {{end}}
 
                     <div class="equipment-list-column">
-                        <form class="list-toolbar" method="get" action="/equipment">
-                            <label for="equipment-page-size">Строк на странице</label>
-                            <select id="equipment-page-size" name="page_size">
-                                {{range .PageSizeOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Value}}</option>{{end}}
-                            </select>
-                            <button class="button button--compact" type="submit">Показать</button>
-                        </form>
                         <section
                             class="panel equipment-list-panel"
                             aria-labelledby="equipment-active-heading"
@@ -130,6 +132,14 @@
                                 </div>
                                 <span class="count-chip">{{.ActiveCountLabel}}</span>
                             </header>
+
+                            <form class="list-toolbar equipment-list-toolbar" method="get" action="/equipment">
+                                <label for="equipment-page-size">Строк на странице</label>
+                                <select id="equipment-page-size" name="page_size">
+                                    {{range .PageSizeOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Value}}</option>{{end}}
+                                </select>
+                                <button class="button button--compact" type="submit">Показать</button>
+                            </form>
 
                             {{if .Success}}
                             <div class="equipment-list-notice">
@@ -160,6 +170,8 @@
                                             <th scope="col">ID</th>
                                             <th scope="col">Инвентарный номер</th>
                                             <th scope="col">Тип</th>
+                                            <th scope="col">Модель</th>
+                                            <th scope="col">Тариф</th>
                                             <th scope="col">Статус</th>
                                             {{if $.CanManageEquipment}}<th scope="col">Действия</th>{{end}}
                                         </tr>
@@ -172,6 +184,8 @@
                                                 <a class="inventory-link" href="/equipment/{{.ID}}">{{.InventoryNumber}}</a>
                                             </td>
                                             <td>{{.Kind}}</td>
+                                            <td>{{.ModelCode}}</td>
+                                            <td>{{.HourlyRate}}</td>
                                             <td>{{template "equipment-status-chip" .Status}}</td>
                                             {{if $.CanManageEquipment}}
                                             <td class="table-actions">
@@ -271,6 +285,8 @@
                                             <th scope="col">ID</th>
                                             <th scope="col">Инвентарный номер</th>
                                             <th scope="col">Тип</th>
+                                            <th scope="col">Модель</th>
+                                            <th scope="col">Тариф</th>
                                             <th scope="col">Статус</th>
                                             {{if $.CanManageEquipment}}<th scope="col">Действия</th>{{end}}
                                         </tr>
@@ -283,6 +299,8 @@
                                                 <a class="inventory-link" href="/equipment/{{.ID}}">{{.InventoryNumber}}</a>
                                             </td>
                                             <td>{{.Kind}}</td>
+                                            <td>{{.ModelCode}}</td>
+                                            <td>{{.HourlyRate}}</td>
                                             <td>{{template "equipment-status-chip" .Status}}</td>
                                             {{if $.CanManageEquipment}}
                                             <td class="table-actions">

@@ -16,6 +16,8 @@ type equipmentDetailPageData struct {
 	ID              int64
 	InventoryNumber string
 	Kind            string
+	ModelCode       string
+	HourlyRate      string
 	Status          string
 	CanEdit         bool
 	CanDelete       bool
@@ -57,6 +59,8 @@ func showEquipmentDetailPage(
 		ID:              item.ID,
 		InventoryNumber: item.InventoryNumber,
 		Kind:            equipmentKindLabel(item.Kind),
+		ModelCode:       item.ModelCode,
+		HourlyRate:      equipmentHourlyRateLabel(item.HourlyRateKopecks),
 		Status:          equipmentStatusLabel(item.Status),
 		CanEdit:         canManageEquipment(r) && item.Status.CanEditDetails(),
 		CanDelete:       canManageEquipment(r) && item.Status == equipment.StatusRetired,

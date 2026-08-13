@@ -188,27 +188,66 @@ func auditEventViews(events []audit.Event) []auditEventView {
 func safeAuditSummary(event audit.Event) string {
 	if strings.HasPrefix(event.Action, "equipment.") {
 		var details struct {
+			Batch *struct {
+				Kind                 string `json:"kind"`
+				ModelCode            string `json:"model_code"`
+				HourlyRateKopecks    int64  `json:"hourly_rate_kopecks"`
+				Quantity             int    `json:"quantity"`
+				FirstInventoryNumber string `json:"first_inventory_number"`
+				LastInventoryNumber  string `json:"last_inventory_number"`
+			} `json:"batch"`
 			Before *struct {
 				InventoryNumber string `json:"inventory_number"`
 				Kind            string `json:"kind"`
+				ModelCode       string `json:"model_code"`
+				HourlyRate      int64  `json:"hourly_rate_kopecks"`
 				Status          string `json:"status"`
 			} `json:"before"`
 			After *struct {
 				InventoryNumber string `json:"inventory_number"`
 				Kind            string `json:"kind"`
+				ModelCode       string `json:"model_code"`
+				HourlyRate      int64  `json:"hourly_rate_kopecks"`
 				Status          string `json:"status"`
 			} `json:"after"`
+			ModelRate *struct {
+				Kind          string `json:"kind"`
+				ModelCode     string `json:"model_code"`
+				BeforeKopecks int64  `json:"before_kopecks"`
+				AfterKopecks  int64  `json:"after_kopecks"`
+				AffectedItems int    `json:"affected_items"`
+			} `json:"model_rate"`
 		}
 		if json.Unmarshal(event.Details, &details) != nil {
 			return ""
 		}
+		if details.Batch != nil {
+			return "Тип: " + auditEquipmentKind(details.Batch.Kind) +
+				"; модель: " + details.Batch.ModelCode +
+				"; тариф: " + equipmentHourlyRateLabel(details.Batch.HourlyRateKopecks) +
+				"; количество: " + strconv.Itoa(details.Batch.Quantity) +
+				"; номера: " + details.Batch.FirstInventoryNumber + " — " + details.Batch.LastInventoryNumber
+		}
+		if details.ModelRate != nil {
+			return "Тип: " + auditEquipmentKind(details.ModelRate.Kind) +
+				"; модель: " + details.ModelRate.ModelCode +
+				"; тариф: " + equipmentHourlyRateLabel(details.ModelRate.BeforeKopecks) +
+				" → " + equipmentHourlyRateLabel(details.ModelRate.AfterKopecks) +
+				"; затронуто: " + equipmentUnitsLabel(details.ModelRate.AffectedItems)
+		}
 		if details.Before != nil && details.After != nil {
-			changes := make([]string, 0, 3)
+			changes := make([]string, 0, 5)
 			if details.Before.InventoryNumber != details.After.InventoryNumber {
 				changes = append(changes, "Номер: "+details.Before.InventoryNumber+" → "+details.After.InventoryNumber)
 			}
 			if details.Before.Kind != details.After.Kind {
 				changes = append(changes, "Тип: "+auditEquipmentKind(details.Before.Kind)+" → "+auditEquipmentKind(details.After.Kind))
+			}
+			if details.Before.ModelCode != details.After.ModelCode {
+				changes = append(changes, "Модель: "+details.Before.ModelCode+" → "+details.After.ModelCode)
+			}
+			if details.Before.HourlyRate != details.After.HourlyRate {
+				changes = append(changes, "Тариф: "+equipmentHourlyRateLabel(details.Before.HourlyRate)+" → "+equipmentHourlyRateLabel(details.After.HourlyRate))
 			}
 			if details.Before.Status != details.After.Status {
 				changes = append(changes, "Статус: "+auditEquipmentStatus(details.Before.Status)+" → "+auditEquipmentStatus(details.After.Status))
@@ -235,7 +274,10 @@ func auditActionLabel(action string) string {
 		"operator.created": "Оператор создан", "operator.disabled": "Оператор отключён",
 		"operator.activated": "Оператор активирован", "operator.password_changed": "Пароль оператора изменён",
 		"equipment.created": "Оборудование добавлено", "equipment.updated": "Оборудование изменено",
-		"equipment.status_changed": "Состояние оборудования изменено", "equipment.retired": "Оборудование списано",
+		"equipment.batch_created":      "Партия оборудования добавлена",
+		"equipment.model_changed":      "Модель оборудования изменена",
+		"equipment.model_rate_changed": "Тариф модели оборудования изменён",
+		"equipment.status_changed":     "Состояние оборудования изменено", "equipment.retired": "Оборудование списано",
 		"equipment.deleted": "Оборудование удалено",
 		"client.created":    "Клиент создан",
 	}

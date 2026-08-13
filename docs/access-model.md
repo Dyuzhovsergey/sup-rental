@@ -306,10 +306,11 @@ CSRF token:
 PostgreSQL-транзакцией. Если обязательное событие сохранить не удалось,
 бизнес-изменение откатывается.
 
-Для оборудования используются действия `equipment.created`,
-`equipment.updated`, `equipment.status_changed`, `equipment.retired` и
-`equipment.deleted`. Изменение хранит snapshots `before` и `after`; создание —
-`after`; удаление — `before`. Исполнителем этих действий является `admin`, так
+Для массового создания оборудования используется `equipment.batch_created` с
+типом, кодом модели, тарифом, количеством и диапазоном номеров партии. Для
+отдельных предметов используются `equipment.status_changed`,
+`equipment.retired` и `equipment.deleted`. Изменение хранит snapshots `before`
+и `after`; удаление — `before`. Исполнителем этих действий является `admin`, так
 как `operator` имеет только read-only доступ к инвентарю.
 
 Создание клиента активным оператором сохраняется как `client.created` с типом

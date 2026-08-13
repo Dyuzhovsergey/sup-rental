@@ -59,6 +59,52 @@ func TestAuditPageHidesUnknownDetails(t *testing.T) {
 	}
 }
 
+func TestAuditPageShowsEquipmentBatchSummary(t *testing.T) {
+	service := &auditServiceStub{list: func(context.Context, user.User, audit.Filter) (audit.Page, error) {
+		return audit.Page{Total: 1, Page: 1, Events: []audit.Event{{
+			Action: "equipment.batch_created", TargetLabel: "PADDLE-CARBON-1 — PADDLE-CARBON-3", Result: audit.ResultSuccess,
+			Details: []byte(`{"batch":{"kind":"paddle","model_code":"CARBON","hourly_rate_kopecks":35000,"quantity":3,"first_inventory_number":"PADDLE-CARBON-1","last_inventory_number":"PADDLE-CARBON-3"}}`),
+		}}}, nil
+	}}
+	response := httptest.NewRecorder()
+	newAuditTestHandler(t, service, authenticatedFixture()).ServeHTTP(response, authenticatedRequest(http.MethodGet, "/admin/audit", ""))
+	for _, want := range []string{"Партия оборудования добавлена", "модель: CARBON", "тариф: 350 ₽/час", "количество: 3", "PADDLE-CARBON-1 — PADDLE-CARBON-3"} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestAuditPageShowsEquipmentModelAndRateChanges(t *testing.T) {
+	login := "admin"
+	service := &auditServiceStub{list: func(context.Context, user.User, audit.Filter) (audit.Page, error) {
+		return audit.Page{Page: 1, Total: 2, Events: []audit.Event{
+			{
+				Action: "equipment.model_changed", ActorLogin: &login,
+				TargetLabel: "VEST-TOURING-3", Result: audit.ResultSuccess,
+				Details: []byte(`{"before":{"inventory_number":"PADDLE-CARBON-1","kind":"paddle","model_code":"CARBON","hourly_rate_kopecks":35000,"status":"available"},"after":{"inventory_number":"VEST-TOURING-3","kind":"life_jacket","model_code":"TOURING","hourly_rate_kopecks":25000,"status":"available"}}`),
+			},
+			{
+				Action: "equipment.model_rate_changed", ActorLogin: &login,
+				TargetLabel: "VEST-TOURING", Result: audit.ResultSuccess,
+				Details: []byte(`{"model_rate":{"kind":"life_jacket","model_code":"TOURING","before_kopecks":25000,"after_kopecks":30000,"affected_items":3}}`),
+			},
+		}}, nil
+	}}
+	handler := newAuditTestHandler(t, service, authenticatedFixture())
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, authenticatedRequest(http.MethodGet, "/admin/audit", ""))
+	for _, want := range []string{
+		"Модель оборудования изменена", "PADDLE-CARBON-1 → VEST-TOURING-3",
+		"Модель: CARBON → TOURING", "Тариф модели оборудования изменён",
+		"250 ₽/час → 300 ₽/час", "затронуто: 3 единицы",
+	} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
 func TestAuditPageShowsClientCategoryAndAction(t *testing.T) {
 	service := &auditServiceStub{list: func(_ context.Context, _ user.User, filter audit.Filter) (audit.Page, error) {
 		if filter.Category != audit.CategoryClients {
