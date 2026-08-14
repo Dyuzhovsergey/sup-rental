@@ -74,6 +74,67 @@ func TestNewRejectsInvalidInput(t *testing.T) {
 	}
 }
 
+func TestRestore(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, time.August, 14, 10, 0, 0, 0, time.UTC)
+	interval := mustInterval(t, start, start.Add(time.Hour))
+	items := []Item{validRentalItem(1)}
+
+	restored, err := Restore(7, 42, interval, StatusConfirmed, items)
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	items[0].InventoryNumber = "CHANGED"
+	if restored.ID != 7 || restored.ClientID != 42 || restored.Interval != interval ||
+		restored.Status != StatusConfirmed || restored.ItemCount() != 1 ||
+		restored.Items()[0].InventoryNumber != "SUP-CARBON-1" {
+		t.Fatalf("Restore() = %#v, items = %#v", restored, restored.Items())
+	}
+}
+
+func TestRestoreRejectsInvalidData(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, time.August, 14, 10, 0, 0, 0, time.UTC)
+	interval := mustInterval(t, start, start.Add(time.Hour))
+	validItems := []Item{validRentalItem(1)}
+	duplicateItems := []Item{validRentalItem(1), validRentalItem(1)}
+
+	tests := []struct {
+		name     string
+		id       int64
+		clientID int64
+		interval Interval
+		status   Status
+		items    []Item
+		wantErr  error
+	}{
+		{name: "invalid rental ID", clientID: 42, interval: interval, status: StatusDraft, wantErr: ErrInvalidRentalID},
+		{name: "invalid client ID", id: 7, interval: interval, status: StatusDraft, wantErr: ErrInvalidClientID},
+		{name: "invalid interval", id: 7, clientID: 42, status: StatusDraft, wantErr: ErrStartTimeRequired},
+		{name: "invalid status", id: 7, clientID: 42, interval: interval, status: Status("unknown"), wantErr: ErrInvalidStatus},
+		{name: "confirmed without items", id: 7, clientID: 42, interval: interval, status: StatusConfirmed, wantErr: ErrRentalItemsRequired},
+		{name: "active without items", id: 7, clientID: 42, interval: interval, status: StatusActive, wantErr: ErrRentalItemsRequired},
+		{name: "completed without items", id: 7, clientID: 42, interval: interval, status: StatusCompleted, wantErr: ErrRentalItemsRequired},
+		{name: "duplicate equipment", id: 7, clientID: 42, interval: interval, status: StatusDraft, items: duplicateItems, wantErr: ErrEquipmentAlreadyAdded},
+		{name: "invalid item", id: 7, clientID: 42, interval: interval, status: StatusDraft, items: []Item{{}}, wantErr: ErrInvalidEquipmentID},
+		{name: "valid cancelled without items", id: 7, clientID: 42, interval: interval, status: StatusCancelled},
+		{name: "valid draft with items", id: 7, clientID: 42, interval: interval, status: StatusDraft, items: validItems},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := Restore(tt.id, tt.clientID, tt.interval, tt.status, tt.items)
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("Restore() error = %v, want %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestStatusValid(t *testing.T) {
 	t.Parallel()
 

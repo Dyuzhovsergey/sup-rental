@@ -23,6 +23,8 @@ const (
 )
 
 var (
+	// ErrInvalidRentalID означает, что сохранённая аренда не имеет положительного ID.
+	ErrInvalidRentalID = errors.New("rental ID must be positive")
 	// ErrInvalidClientID означает, что аренда не связана с существующим клиентом.
 	ErrInvalidClientID = errors.New("rental client ID must be positive")
 	// ErrInvalidStatus означает, что передано неизвестное состояние аренды.
@@ -31,6 +33,12 @@ var (
 	ErrStatusTransitionNotAllowed = errors.New("rental status transition is not allowed")
 	// ErrRentalItemsRequired означает попытку подтвердить аренду без оборудования.
 	ErrRentalItemsRequired = errors.New("rental must contain at least one item before confirmation")
+	// ErrRentalNotFound означает, что аренда не найдена в постоянном хранилище.
+	ErrRentalNotFound = errors.New("rental not found")
+	// ErrRentalNotEditable означает попытку сохранить изменения не-черновика.
+	ErrRentalNotEditable = errors.New("only draft rental can be edited")
+	// ErrRentalAlreadyPersisted означает попытку повторно создать аренду с ID.
+	ErrRentalAlreadyPersisted = errors.New("rental is already persisted")
 )
 
 // Valid сообщает, является ли состояние аренды поддерживаемым.
@@ -84,6 +92,54 @@ func New(clientID int64, interval Interval) (Rental, error) {
 		ClientID: clientID,
 		Interval: interval,
 		Status:   StatusDraft,
+	}, nil
+}
+
+// Restore проверяет данные из постоянного хранилища и восстанавливает аренду.
+// Переданный состав копируется, поэтому последующие изменения исходного slice
+// не влияют на возвращённый объект.
+func Restore(
+	id int64,
+	clientID int64,
+	interval Interval,
+	status Status,
+	items []Item,
+) (Rental, error) {
+	if id <= 0 {
+		return Rental{}, ErrInvalidRentalID
+	}
+	if clientID <= 0 {
+		return Rental{}, ErrInvalidClientID
+	}
+	if err := interval.validate(); err != nil {
+		return Rental{}, err
+	}
+	if !status.Valid() {
+		return Rental{}, ErrInvalidStatus
+	}
+	if status != StatusDraft && status != StatusCancelled && len(items) == 0 {
+		return Rental{}, ErrRentalItemsRequired
+	}
+
+	restoredItems := make([]Item, 0, len(items))
+	seenEquipment := make(map[int64]struct{}, len(items))
+	for _, item := range items {
+		if err := item.validate(); err != nil {
+			return Rental{}, err
+		}
+		if _, exists := seenEquipment[item.EquipmentID]; exists {
+			return Rental{}, ErrEquipmentAlreadyAdded
+		}
+		seenEquipment[item.EquipmentID] = struct{}{}
+		restoredItems = append(restoredItems, item)
+	}
+
+	return Rental{
+		ID:       id,
+		ClientID: clientID,
+		Interval: interval,
+		Status:   status,
+		items:    restoredItems,
 	}, nil
 }
 
