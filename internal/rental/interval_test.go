@@ -10,7 +10,7 @@ func TestNewInterval(t *testing.T) {
 	t.Parallel()
 
 	location := time.FixedZone("Europe/Moscow", 3*60*60)
-	validStart := time.Date(2026, time.August, 14, 10, 0, 0, 0, location)
+	validStart := time.Date(2026, time.August, 14, 10, 8, 0, 0, location)
 
 	tests := []struct {
 		name      string
@@ -30,6 +30,18 @@ func TestNewInterval(t *testing.T) {
 			start:     validStart,
 			end:       validStart.Add(90 * time.Minute),
 			wantSlots: 3,
+		},
+		{
+			name:      "maximum duration",
+			start:     validStart,
+			end:       validStart.Add(MaxDuration),
+			wantSlots: int(MaxDuration / SlotDuration),
+		},
+		{
+			name:      "one day from arbitrary minute",
+			start:     validStart,
+			end:       validStart.Add(24 * time.Hour),
+			wantSlots: 48,
 		},
 		{
 			name:    "start is required",
@@ -60,16 +72,22 @@ func TestNewInterval(t *testing.T) {
 			wantErr: ErrIntervalTooShort,
 		},
 		{
-			name:    "start is not aligned",
-			start:   validStart.Add(15 * time.Minute),
-			end:     validStart.Add(60 * time.Minute),
-			wantErr: ErrIntervalNotAligned,
+			name:    "start contains seconds",
+			start:   validStart.Add(time.Second),
+			end:     validStart.Add(time.Second + time.Hour),
+			wantErr: ErrStartNotMinuteAligned,
 		},
 		{
-			name:    "end is not aligned",
+			name:    "duration is not aligned",
 			start:   validStart,
 			end:     validStart.Add(45 * time.Minute),
-			wantErr: ErrIntervalNotAligned,
+			wantErr: ErrDurationNotAligned,
+		},
+		{
+			name:    "duration is too long",
+			start:   validStart,
+			end:     validStart.Add(MaxDuration + SlotDuration),
+			wantErr: ErrIntervalTooLong,
 		},
 	}
 

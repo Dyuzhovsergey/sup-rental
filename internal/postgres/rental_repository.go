@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/client"
@@ -164,6 +165,137 @@ func (r *RentalRepository) Get(ctx context.Context, id int64) (rental.Rental, er
 		return rental.Rental{}, fmt.Errorf("restore rental: %w", err)
 	}
 	return restored, nil
+}
+
+// ListPage возвращает страницу аренд от новых записей к старым вместе с
+// текущим ФИО клиента и предварительной стоимостью по сохранённым снимкам.
+func (r *RentalRepository) ListPage(
+	ctx context.Context,
+	page, pageSize int,
+) (rental.Page, error) {
+	var total int
+	if err := r.pool.QueryRow(ctx, "SELECT count(*) FROM rentals").Scan(&total); err != nil {
+		return rental.Page{}, fmt.Errorf("count rentals: %w", err)
+	}
+
+	const query = `
+		SELECT r.id, r.client_id, c.full_name,
+		       r.planned_start_at, r.planned_end_at, r.status,
+		       count(ri.equipment_id),
+		       COALESCE(sum(ri.hourly_rate_kopecks), 0)
+		FROM rentals AS r
+		JOIN clients AS c ON c.id = r.client_id
+		LEFT JOIN rental_items AS ri ON ri.rental_id = r.id
+		GROUP BY r.id, c.full_name
+		ORDER BY r.id DESC
+		LIMIT $1 OFFSET $2
+	`
+	rows, err := r.pool.Query(ctx, query, pageSize, (page-1)*pageSize)
+	if err != nil {
+		return rental.Page{}, fmt.Errorf("query rental page: %w", err)
+	}
+	defer rows.Close()
+
+	summaries := make([]rental.Summary, 0, pageSize)
+	for rows.Next() {
+		var (
+			summary       rental.Summary
+			start         time.Time
+			end           time.Time
+			hourlyRateSum int64
+		)
+		if err := rows.Scan(
+			&summary.ID,
+			&summary.ClientID,
+			&summary.ClientName,
+			&start,
+			&end,
+			&summary.Status,
+			&summary.ItemCount,
+			&hourlyRateSum,
+		); err != nil {
+			return rental.Page{}, fmt.Errorf("scan rental page: %w", err)
+		}
+		if !summary.Status.Valid() {
+			return rental.Page{}, fmt.Errorf("scan rental page: %w", rental.ErrInvalidStatus)
+		}
+		interval, err := rental.NewInterval(start, end)
+		if err != nil {
+			return rental.Page{}, fmt.Errorf("restore rental page interval: %w", err)
+		}
+		summary.Interval = interval
+		halfHourlyRate := hourlyRateSum / 2
+		if halfHourlyRate > 0 && int64(interval.SlotCount()) > math.MaxInt64/halfHourlyRate {
+			return rental.Page{}, fmt.Errorf("calculate rental page total: %w", rental.ErrPriceOverflow)
+		}
+		summary.PlannedTotalKopecks = halfHourlyRate * int64(interval.SlotCount())
+		summaries = append(summaries, summary)
+	}
+	if err := rows.Err(); err != nil {
+		return rental.Page{}, fmt.Errorf("iterate rental page: %w", err)
+	}
+
+	return rental.Page{
+		Rentals:  summaries,
+		Total:    total,
+		Page:     page,
+		PageSize: pageSize,
+	}, nil
+}
+
+// AvailableEquipment возвращает физические единицы в состоянии available,
+// которые не пересекаются с confirmed или active арендой на весь переданный
+// полуоткрытый интервал. Черновики оборудование не резервируют.
+func (r *RentalRepository) AvailableEquipment(
+	ctx context.Context,
+	interval rental.Interval,
+) ([]equipment.Item, error) {
+	const query = `
+		SELECT e.id, e.model_id, e.sequence_number,
+		       m.kind, m.model_code, m.hourly_rate_kopecks, e.status
+		FROM equipment AS e
+		JOIN equipment_models AS m ON m.id = e.model_id
+		WHERE e.status = 'available'
+		  AND NOT EXISTS (
+		      SELECT 1
+		      FROM rental_items AS ri
+		      JOIN rentals AS r ON r.id = ri.rental_id
+		      WHERE ri.equipment_id = e.id
+		        AND r.status IN ('confirmed', 'active')
+		        AND r.planned_start_at < $2
+		        AND $1 < r.planned_end_at
+		  )
+		ORDER BY m.kind, m.model_code, e.id
+	`
+	rows, err := r.pool.Query(ctx, query, interval.Start(), interval.End())
+	if err != nil {
+		return nil, fmt.Errorf("query available rental equipment: %w", err)
+	}
+	defer rows.Close()
+
+	items := make([]equipment.Item, 0)
+	for rows.Next() {
+		var item equipment.Item
+		if err := rows.Scan(
+			&item.ID,
+			&item.ModelID,
+			&item.SequenceNumber,
+			&item.Kind,
+			&item.ModelCode,
+			&item.HourlyRateKopecks,
+			&item.Status,
+		); err != nil {
+			return nil, fmt.Errorf("scan available rental equipment: %w", err)
+		}
+		if err := populateInventoryNumber(&item); err != nil {
+			return nil, fmt.Errorf("build available rental equipment number: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate available rental equipment: %w", err)
+	}
+	return items, nil
 }
 
 // UpdateDraft атомарно заменяет клиента, интервал и полный состав черновика.

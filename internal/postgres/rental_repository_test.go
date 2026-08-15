@@ -210,7 +210,7 @@ func TestRentalRepositoryRejectsNonDraftUpdate(t *testing.T) {
 func TestRentalsTablesEnforceConstraints(t *testing.T) {
 	pool, ctx := rentalTestPool(t)
 	fixture := newRentalRepositoryFixture(t, ctx, pool)
-	start := time.Date(2026, time.September, 6, 10, 0, 0, 0, time.UTC)
+	start := time.Date(2026, time.September, 6, 10, 8, 0, 0, time.UTC)
 
 	rentalCases := []struct {
 		name   string
@@ -220,8 +220,9 @@ func TestRentalsTablesEnforceConstraints(t *testing.T) {
 	}{
 		{name: "invalid status", start: start, end: start.Add(time.Hour), status: "unknown"},
 		{name: "short interval", start: start, end: start.Add(15 * time.Minute), status: "draft"},
-		{name: "unaligned start", start: start.Add(5 * time.Minute), end: start.Add(time.Hour), status: "draft"},
-		{name: "unaligned end", start: start, end: start.Add(65 * time.Minute), status: "draft"},
+		{name: "start contains seconds", start: start.Add(time.Second), end: start.Add(time.Hour + time.Second), status: "draft"},
+		{name: "unaligned duration", start: start, end: start.Add(45 * time.Minute), status: "draft"},
+		{name: "duration exceeds maximum", start: start, end: start.Add(rental.MaxDuration + rental.SlotDuration), status: "draft"},
 	}
 	for _, tt := range rentalCases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -280,6 +281,112 @@ func TestRentalItemPreventsEquipmentDeletion(t *testing.T) {
 	}
 	_, err := pool.Exec(ctx, "DELETE FROM equipment WHERE id = $1", fixture.items[0].EquipmentID)
 	assertPostgresCode(t, err, "23503")
+}
+
+func TestRentalRepositoryAvailabilityIgnoresDraftAndBlocksOverlappingConfirmed(t *testing.T) {
+	pool, ctx := rentalTestPool(t)
+	fixture := newRentalRepositoryFixture(t, ctx, pool)
+	repository := NewRentalRepository(pool)
+	start := time.Date(2026, time.September, 8, 10, 0, 0, 0, time.UTC)
+	interval, err := rental.NewInterval(start, start.Add(time.Hour))
+	if err != nil {
+		t.Fatalf("NewInterval() error = %v", err)
+	}
+
+	if _, err := repository.Create(
+		ctx,
+		newRentalDraft(t, fixture.firstClientID, start, start.Add(time.Hour), fixture.items[:1]),
+	); err != nil {
+		t.Fatalf("Create() draft error = %v", err)
+	}
+	available, err := repository.AvailableEquipment(ctx, interval)
+	if err != nil {
+		t.Fatalf("AvailableEquipment() with draft error = %v", err)
+	}
+	if got := countRentalFixtureEquipment(available, fixture.modelID); got != 3 {
+		t.Fatalf("available fixture equipment with draft = %d, want 3", got)
+	}
+
+	confirmed, err := repository.Create(
+		ctx,
+		newRentalDraft(t, fixture.secondClientID, start.Add(-30*time.Minute), start.Add(30*time.Minute), fixture.items[1:2]),
+	)
+	if err != nil {
+		t.Fatalf("Create() confirmed fixture error = %v", err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE rentals SET status = 'confirmed' WHERE id = $1", confirmed.ID); err != nil {
+		t.Fatalf("confirm fixture: %v", err)
+	}
+
+	available, err = repository.AvailableEquipment(ctx, interval)
+	if err != nil {
+		t.Fatalf("AvailableEquipment() error = %v", err)
+	}
+	if got := countRentalFixtureEquipment(available, fixture.modelID); got != 2 {
+		t.Fatalf("available fixture equipment with confirmed overlap = %d, want 2", got)
+	}
+	for _, item := range available {
+		if item.ID == fixture.items[1].EquipmentID {
+			t.Errorf("overlapping confirmed equipment %d remained available", item.ID)
+		}
+	}
+}
+
+func countRentalFixtureEquipment(items []equipment.Item, modelID int64) int {
+	count := 0
+	for _, item := range items {
+		if item.ModelID == modelID {
+			count++
+		}
+	}
+	return count
+}
+
+func TestRentalRepositoryListPageReturnsNewestSummaries(t *testing.T) {
+	pool, ctx := rentalTestPool(t)
+	fixture := newRentalRepositoryFixture(t, ctx, pool)
+	repository := NewRentalRepository(pool)
+	start := time.Date(2026, time.September, 9, 10, 0, 0, 0, time.UTC)
+
+	first, err := repository.Create(
+		ctx,
+		newRentalDraft(t, fixture.firstClientID, start, start.Add(time.Hour), fixture.items[:1]),
+	)
+	if err != nil {
+		t.Fatalf("Create() first error = %v", err)
+	}
+	second, err := repository.Create(
+		ctx,
+		newRentalDraft(t, fixture.secondClientID, start.Add(time.Hour), start.Add(150*time.Minute), fixture.items[:2]),
+	)
+	if err != nil {
+		t.Fatalf("Create() second error = %v", err)
+	}
+
+	page, err := repository.ListPage(ctx, 1, 5)
+	if err != nil {
+		t.Fatalf("ListPage() error = %v", err)
+	}
+	var firstSummary, secondSummary *rental.Summary
+	for index := range page.Rentals {
+		summary := &page.Rentals[index]
+		switch summary.ID {
+		case first.ID:
+			firstSummary = summary
+		case second.ID:
+			secondSummary = summary
+		}
+	}
+	if firstSummary == nil || secondSummary == nil {
+		t.Fatalf("page does not contain fixture rentals: %+v", page.Rentals)
+	}
+	if secondSummary.ID <= firstSummary.ID || secondSummary.ItemCount != 2 ||
+		secondSummary.PlannedTotalKopecks != 150_000 {
+		t.Errorf("second summary = %+v", *secondSummary)
+	}
+	if firstSummary.ClientName != "Rental Test Client 1" || firstSummary.PlannedTotalKopecks != 50_000 {
+		t.Errorf("first summary = %+v", *firstSummary)
+	}
 }
 
 type rentalRepositoryFixture struct {

@@ -5,8 +5,15 @@ import (
 	"time"
 )
 
-// SlotDuration задаёт минимальный временной шаг планируемой аренды.
-const SlotDuration = 30 * time.Minute
+const (
+	// SlotDuration задаёт минимальный шаг продолжительности аренды.
+	SlotDuration = 30 * time.Minute
+	// MaxDurationDays задаёт максимальное число полных суток в форме аренды.
+	MaxDurationDays = 31
+	// MaxDuration ограничивает одну планируемую аренду 31 сутками 23 часами
+	// 30 минутами.
+	MaxDuration = MaxDurationDays*24*time.Hour + 23*time.Hour + 30*time.Minute
+)
 
 var (
 	// ErrStartTimeRequired означает, что время начала аренды не указано.
@@ -17,9 +24,13 @@ var (
 	ErrEndNotAfterStart = errors.New("rental end time must be after start time")
 	// ErrIntervalTooShort означает, что аренда длится менее одного временного шага.
 	ErrIntervalTooShort = errors.New("rental interval must be at least 30 minutes")
-	// ErrIntervalNotAligned означает, что граница интервала не совпадает с
-	// началом или серединой часа.
-	ErrIntervalNotAligned = errors.New("rental interval must align to 30-minute boundaries")
+	// ErrIntervalTooLong означает, что аренда длится более 31 суток 23 часов
+	// 30 минут.
+	ErrIntervalTooLong = errors.New("rental interval exceeds maximum duration")
+	// ErrStartNotMinuteAligned означает, что начало содержит секунды или доли секунды.
+	ErrStartNotMinuteAligned = errors.New("rental start time must align to a whole minute")
+	// ErrDurationNotAligned означает, что продолжительность не кратна 30 минутам.
+	ErrDurationNotAligned = errors.New("rental duration must align to 30-minute slots")
 )
 
 // Interval представляет планируемый полуоткрытый интервал аренды [start, end).
@@ -29,8 +40,9 @@ type Interval struct {
 	end   time.Time
 }
 
-// NewInterval создаёт интервал с границами, кратными 30 минутам.
-// Минимальная длительность интервала составляет один 30-минутный слот.
+// NewInterval создаёт интервал с началом, заданным с точностью до минуты.
+// Продолжительность должна составлять от 30 минут до 31 суток 23 часов
+// 30 минут и быть кратной 30 минутам.
 func NewInterval(start, end time.Time) (Interval, error) {
 	if err := validateInterval(start, end); err != nil {
 		return Interval{}, err
@@ -83,13 +95,15 @@ func validateInterval(start, end time.Time) error {
 	if end.Sub(start) < SlotDuration {
 		return ErrIntervalTooShort
 	}
-	if !isSlotBoundary(start) || !isSlotBoundary(end) {
-		return ErrIntervalNotAligned
+	if end.Sub(start) > MaxDuration {
+		return ErrIntervalTooLong
+	}
+	if !start.Equal(start.Truncate(time.Minute)) {
+		return ErrStartNotMinuteAligned
+	}
+	if end.Sub(start)%SlotDuration != 0 {
+		return ErrDurationNotAligned
 	}
 
 	return nil
-}
-
-func isSlotBoundary(value time.Time) bool {
-	return value.Equal(value.Truncate(SlotDuration))
 }
