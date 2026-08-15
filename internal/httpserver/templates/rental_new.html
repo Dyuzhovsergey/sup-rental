@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <a class="skip-link" href="#main-content">К содержимому</a>
+    <div class="app-shell">
+        {{template "equipment-sidebar" .}}
+        <main class="main-content" id="main-content" tabindex="-1">
+            <div class="content-container">
+                <nav class="breadcrumb" aria-label="Хлебные крошки">
+                    <a href="/rentals">Аренды</a><span aria-hidden="true">/</span><span>Новая аренда</span>
+                </nav>
+                <header class="page-header">
+                    <div>
+                        <p class="page-eyebrow">Новая аренда</p>
+                        <h1>Создание аренды</h1>
+                        <p class="page-description">Заполните данные по шагам и проверьте итог перед созданием аренды.</p>
+                    </div>
+                </header>
+
+                <section class="panel rental-wizard" aria-labelledby="wizard-title">
+                    <h2 class="visually-hidden" id="wizard-title">Мастер создания аренды</h2>
+                    <ol class="wizard-steps" aria-label="Этапы создания аренды">
+                        <li class="wizard-step{{if eq .StepNumber 1}} is-active{{else if gt .StepNumber 1}} is-complete{{end}}"{{if eq .StepNumber 1}} aria-current="step"{{end}}><span>1</span>Клиент</li>
+                        <li class="wizard-step{{if eq .StepNumber 2}} is-active{{else if gt .StepNumber 2}} is-complete{{end}}"{{if eq .StepNumber 2}} aria-current="step"{{end}}><span>2</span>Срок аренды</li>
+                        <li class="wizard-step{{if eq .StepNumber 3}} is-active{{else if gt .StepNumber 3}} is-complete{{end}}"{{if eq .StepNumber 3}} aria-current="step"{{end}}><span>3</span>Оборудование</li>
+                        <li class="wizard-step{{if eq .StepNumber 4}} is-active{{end}}"{{if eq .StepNumber 4}} aria-current="step"{{end}}><span>4</span>Итог</li>
+                    </ol>
+
+                    {{if eq .Step "client"}}
+                    <div class="panel-body rental-wizard-body">
+                        <h2>Шаг 1. Клиент</h2>
+                        <p class="panel-description">Введите телефон. Если клиента ещё нет, укажите ФИО — карточка будет сохранена отдельно.</p>
+                        <form class="form-stack rental-step-form" method="post" action="/rentals/new/client">
+                            <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                            <div class="field">
+                                <label class="field-label" for="rental-phone">Телефон <span class="required">*</span></label>
+                                <input id="rental-phone" name="phone" type="tel" autocomplete="tel" value="{{.Phone}}"{{if .PhoneError}} aria-invalid="true" aria-describedby="rental-phone-error"{{end}} placeholder="+7 999 123-45-67" required>
+                                {{if .PhoneError}}<p class="field-error" id="rental-phone-error" role="alert">{{.PhoneError}}</p>{{else}}<p class="field-hint">Система сначала ищет существующего клиента по нормализованному номеру.</p>{{end}}
+                            </div>
+                            <div class="field">
+                                <label class="field-label" for="rental-full-name">ФИО нового клиента</label>
+                                <input id="rental-full-name" name="full_name" autocomplete="name" value="{{.FullName}}"{{if .FullNameError}} aria-invalid="true" aria-describedby="rental-name-error"{{end}} placeholder="Например, Анна Петрова">
+                                {{if .FullNameError}}<p class="field-error" id="rental-name-error" role="alert">{{.FullNameError}}</p>{{else}}<p class="field-hint">Если телефон уже зарегистрирован, используются данные найденной карточки.</p>{{end}}
+                            </div>
+                            <div class="form-actions rental-wizard-actions">
+                                <a class="button" href="/rentals">Отмена</a>
+                                <button class="button button--primary" type="submit">Продолжить</button>
+                            </div>
+                        </form>
+                    </div>
+                    {{else if eq .Step "period"}}
+                    <div class="panel-body rental-wizard-body">
+                        <h2>Шаг 2. Срок аренды</h2>
+                        <p class="panel-description">Укажите точное время начала по Москве и продолжительность с шагом 30 минут.</p>
+                        <div class="rental-client-summary" aria-label="Выбранный клиент">
+                            <div><span>Клиент</span><strong>{{.Client.FullName}}</strong></div>
+                            <div><span>Телефон</span><strong>{{.Client.Phone}}</strong></div>
+                        </div>
+                        <form class="form-stack rental-step-form" method="get" action="/rentals/new/equipment" data-rental-period-form>
+                            <input type="hidden" name="client_id" value="{{.Client.ID}}">
+                            <div class="form-grid rental-period-grid">
+                                <div class="field">
+                                    <label class="field-label" for="rental-start">Начало <span class="required">*</span></label>
+                                    <input id="rental-start" name="start" type="datetime-local" step="60" value="{{.Start}}"{{if .StartError}} aria-invalid="true" aria-describedby="rental-start-error"{{end}} data-rental-start required>
+                                    {{if .StartError}}<p class="field-error" id="rental-start-error" role="alert">{{.StartError}}</p>{{end}}
+                                </div>
+                                <fieldset class="duration-fields"{{if .DurationError}} aria-describedby="rental-duration-error"{{end}}>
+                                    <legend class="field-label">Продолжительность <span class="required">*</span></legend>
+                                    <div class="duration-selects">
+                                        <div class="field">
+                                            <label class="field-label" id="rental-duration-days-label" for="rental-duration-days">Сутки</label>
+                                            <div class="limited-select" data-limited-select data-label-id="rental-duration-days-label">
+                                                <select id="rental-duration-days" name="duration_days"{{if .DurationError}} aria-invalid="true"{{end}} data-rental-duration-days>
+                                                    {{range .DayOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field-label" id="rental-duration-hours-label" for="rental-duration-hours">Часы</label>
+                                            <div class="limited-select" data-limited-select data-label-id="rental-duration-hours-label">
+                                                <select id="rental-duration-hours" name="duration_hours"{{if .DurationError}} aria-invalid="true"{{end}} data-rental-duration-hours>
+                                                    {{range .HourOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div class="field">
+                                            <label class="field-label" for="rental-duration-minutes">Минуты</label>
+                                            <select id="rental-duration-minutes" name="duration_minutes"{{if .DurationError}} aria-invalid="true"{{end}} data-rental-duration-minutes>
+                                                {{range .MinuteOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>{{end}}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    {{if .DurationError}}<p class="field-error" id="rental-duration-error" role="alert">{{.DurationError}}</p>{{else}}<p class="field-hint">Минимальная продолжительность — 30 минут.</p>{{end}}
+                                </fieldset>
+                                <div class="rental-period-summary">
+                                    <div class="rental-end-preview" aria-live="polite">
+                                        <span>Итого</span>
+                                        <output for="rental-duration-days rental-duration-hours rental-duration-minutes" data-rental-duration-total>0 минут</output>
+                                    </div>
+                                    <div class="rental-end-preview" aria-live="polite">
+                                        <span>Плановое окончание</span>
+                                        <output for="rental-start rental-duration-days rental-duration-hours rental-duration-minutes" data-rental-end>{{if .EndLabel}}{{.EndLabel}}{{else}}Укажите начало и продолжительность{{end}}</output>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-actions rental-wizard-actions">
+                                <a class="button" href="/rentals/new">Назад</a>
+                                <button class="button button--primary" type="submit">Показать оборудование</button>
+                            </div>
+                        </form>
+                    </div>
+                    {{else if eq .Step "equipment"}}
+                    <form method="get" action="/rentals/new/review" data-rental-equipment-form data-slot-count="{{.SlotCount}}">
+                        <input type="hidden" name="client_id" value="{{.Client.ID}}">
+                        <input type="hidden" name="start" value="{{.Start}}">
+                        <input type="hidden" name="duration_days" value="{{.DurationDays}}">
+                        <input type="hidden" name="duration_hours" value="{{.DurationHours}}">
+                        <input type="hidden" name="duration_minutes" value="{{.DurationMinutes}}">
+                        <div class="panel-body rental-wizard-body">
+                            <h2>Шаг 3. Оборудование</h2>
+                            <p class="panel-description">Выберите количество. Конкретные физические единицы назначит сервер.</p>
+                            <div class="rental-client-summary rental-client-summary--three">
+                                <div><span>Клиент</span><strong>{{.Client.FullName}}</strong></div>
+                                <div><span>Период</span><strong>{{.Period}}</strong></div>
+                                <div><span>Длительность</span><strong>{{.Duration}}</strong></div>
+                            </div>
+                            {{if .SelectionError}}<div class="alert alert--danger rental-selection-alert" role="alert">{{.SelectionError}}</div>{{end}}
+                            {{if .Models}}
+                            <div class="rental-model-list">
+                                {{range .Models}}
+                                <div class="rental-model-row">
+                                    <input type="hidden" name="model_id" value="{{.ModelID}}">
+                                    <div><span class="rental-model-kind">{{.Kind}}</span><strong>{{.ModelCode}}</strong></div>
+                                    <div><span>Тариф</span><strong>{{.HourlyRate}}</strong></div>
+                                    <div><span>Доступно на период</span><strong>{{.AvailableCount}}</strong></div>
+                                    <div class="field rental-quantity-field">
+                                        <label class="field-label" for="rental-model-{{.ModelID}}">Количество</label>
+                                        <input id="rental-model-{{.ModelID}}" name="quantity" type="number" min="0" max="{{.AvailableCount}}" inputmode="numeric" value="{{.Quantity}}" data-rental-quantity data-equipment-kind="{{.KindValue}}" data-hourly-rate-kopecks="{{.HourlyRateKopecks}}">
+                                    </div>
+                                </div>
+                                {{end}}
+                            </div>
+                            {{else}}
+                            <div class="empty-state"><h3>Нет доступного оборудования</h3><p>Можно сохранить пустой черновик или выбрать другой период.</p></div>
+                            {{end}}
+                            <div class="rental-total-card rental-equipment-summary" aria-live="polite">
+                                <div><span>SUP-доски</span><strong data-rental-kind-count="sup_board">{{.SUPBoardCount}}</strong></div>
+                                <div><span>Вёсла</span><strong data-rental-kind-count="paddle">{{.PaddleCount}}</strong></div>
+                                <div><span>Жилеты</span><strong data-rental-kind-count="life_jacket">{{.LifeJacketCount}}</strong></div>
+                                <div><span>Всего единиц</span><strong data-rental-item-count>{{.ItemCount}}</strong></div>
+                                <div><span>Предварительная стоимость</span><strong data-rental-total>{{.PlannedTotal}}</strong></div>
+                            </div>
+                        </div>
+                        <div class="rental-wizard-footer">
+                            <a class="button" href="/rentals/new/period?client_id={{.Client.ID}}&amp;start={{urlquery .Start}}&amp;duration_days={{urlquery .DurationDays}}&amp;duration_hours={{urlquery .DurationHours}}&amp;duration_minutes={{urlquery .DurationMinutes}}">Назад</a>
+                            <button class="button button--primary" type="submit">Перейти к итогу</button>
+                        </div>
+                    </form>
+                    {{else}}
+                    <form method="post" action="/rentals">
+                        <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                        <input type="hidden" name="client_id" value="{{.Client.ID}}">
+                        <input type="hidden" name="start" value="{{.Start}}">
+                        <input type="hidden" name="duration_days" value="{{.DurationDays}}">
+                        <input type="hidden" name="duration_hours" value="{{.DurationHours}}">
+                        <input type="hidden" name="duration_minutes" value="{{.DurationMinutes}}">
+                        {{range .SelectedModels}}
+                        <input type="hidden" name="model_id" value="{{.ModelID}}">
+                        <input type="hidden" name="quantity" value="{{.Quantity}}">
+                        {{end}}
+                        <div class="panel-body rental-wizard-body">
+                            <h2>Шаг 4. Итог</h2>
+                            <p class="panel-description">Проверьте клиента, период и состав перед созданием аренды.</p>
+                            <div class="rental-client-summary rental-client-summary--three">
+                                <div><span>Клиент</span><strong>{{.Client.FullName}}</strong></div>
+                                <div><span>Период</span><strong>{{.Period}}</strong></div>
+                                <div><span>Продолжительность</span><strong>{{.Duration}}</strong></div>
+                            </div>
+                            <section class="rental-review-section" aria-labelledby="rental-review-composition">
+                                <h3 id="rental-review-composition">Состав аренды</h3>
+                                {{if .SelectedModels}}
+                                <div class="rental-review-models">
+                                    {{range .SelectedModels}}
+                                    <div class="rental-review-model">
+                                        <div><span>{{.Kind}}</span><strong>{{.ModelCode}}</strong></div>
+                                        <div><span>Количество</span><strong>{{.Quantity}}</strong></div>
+                                        <div><span>Тариф</span><strong>{{.HourlyRate}}</strong></div>
+                                        <div><span>Стоимость</span><strong>{{.Subtotal}}</strong></div>
+                                    </div>
+                                    {{end}}
+                                </div>
+                                {{else}}
+                                <div class="empty-state"><h3>Оборудование не выбрано</h3><p>Вернитесь на предыдущий шаг, если хотите добавить оборудование.</p></div>
+                                {{end}}
+                            </section>
+                            <div class="rental-review-summary">
+                                <div><span>SUP-доски</span><strong>{{.SUPBoardCount}}</strong></div>
+                                <div><span>Вёсла</span><strong>{{.PaddleCount}}</strong></div>
+                                <div><span>Жилеты</span><strong>{{.LifeJacketCount}}</strong></div>
+                                <div><span>Всего единиц</span><strong>{{.ItemCount}}</strong></div>
+                                <div class="rental-review-summary__total"><span>Продолжительность</span><strong>{{.Duration}}</strong></div>
+                                <div class="rental-review-summary__total"><span>Предварительная стоимость</span><strong>{{.PlannedTotal}}</strong></div>
+                            </div>
+                        </div>
+                        <div class="rental-wizard-footer">
+                            <a class="button" href="{{.EquipmentBackURL}}">Назад к оборудованию</a>
+                            <button class="button button--primary" type="submit">Создать аренду</button>
+                        </div>
+                    </form>
+                    {{end}}
+                </section>
+            </div>
+        </main>
+    </div>
+    {{if or (eq .Step "period") (eq .Step "equipment")}}<script src="/static/rental.js"></script>{{end}}
+</body>
+</html>

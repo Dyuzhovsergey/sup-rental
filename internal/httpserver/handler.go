@@ -17,13 +17,17 @@ var templateFiles embed.FS
 //go:embed static/app.css
 var appStyles []byte
 
+//go:embed static/rental.js
+var rentalScript []byte
+
 // NewHandler создаёт HTTP-обработчик со всеми маршрутами приложения.
 //
 // Logger используется для записи ошибок HTTP-слоя, а equipmentService
 // предоставляет сценарии учёта оборудования. Auth service, session resolver и
 // cookie settings обеспечивают login/logout, а operator service — admin-only
-// управление учётными записями операторов. Все зависимости должны быть созданы
-// точкой входа приложения. NewHandler возвращает ошибку, если
+// управление учётными записями операторов. Client и rental services реализуют
+// пользовательские сценарии клиентов и аренд. Все зависимости должны быть
+// созданы точкой входа приложения. NewHandler возвращает ошибку, если
 // встроенные HTML-шаблоны невозможно разобрать.
 func NewHandler(
 	logger *slog.Logger,
@@ -33,6 +37,7 @@ func NewHandler(
 	operators operatorService,
 	auditLog auditService,
 	clients clientService,
+	rentals rentalService,
 	cookieSettings CookieSettings,
 ) (http.Handler, error) {
 	pageTemplates, err := template.ParseFS(templateFiles, "templates/*.html")
@@ -57,6 +62,9 @@ func NewHandler(
 	})
 	mux.HandleFunc("GET /static/app.css", func(w http.ResponseWriter, r *http.Request) {
 		stylesheet(logger, w, r)
+	})
+	mux.HandleFunc("GET /static/rental.js", func(w http.ResponseWriter, r *http.Request) {
+		javascript(logger, w, r)
 	})
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
 		showLoginPage(logger, pageTemplates, w, r)
@@ -109,6 +117,30 @@ func NewHandler(
 	mux.Handle("POST /clients/{id}/edit", operatorOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		updateClient(logger, clients, pageTemplates, w, r)
 	}))))
+	mux.Handle("GET /rentals", authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showRentalsPage(logger, rentals, pageTemplates, w, r)
+	})))
+	mux.Handle("GET /rentals/new", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showRentalClientStep(logger, pageTemplates, w, r)
+	})))
+	mux.Handle("POST /rentals/new/client", operatorOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		selectRentalClient(logger, clients, pageTemplates, w, r)
+	}))))
+	mux.Handle("GET /rentals/new/period", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showRentalPeriodStep(logger, clients, pageTemplates, w, r)
+	})))
+	mux.Handle("GET /rentals/new/equipment", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showRentalEquipmentStep(logger, rentals, clients, pageTemplates, w, r)
+	})))
+	mux.Handle("GET /rentals/new/review", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showRentalReviewStep(logger, rentals, clients, pageTemplates, w, r)
+	})))
+	mux.Handle("POST /rentals", operatorOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		createRentalDraft(logger, rentals, clients, pageTemplates, w, r)
+	}))))
+	mux.Handle("GET /rentals/{id}", authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showRentalDetailPage(logger, rentals, clients, pageTemplates, w, r)
+	})))
 	mux.Handle("GET /equipment", authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		equipmentPage(logger, equipmentService, pageTemplates, w, r)
 	})))
@@ -166,6 +198,15 @@ func stylesheet(logger *slog.Logger, w http.ResponseWriter, r *http.Request) {
 			"write application stylesheet",
 			slog.Any("error", err),
 		)
+	}
+}
+
+func javascript(logger *slog.Logger, w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.WriteHeader(http.StatusOK)
+	if _, err := w.Write(rentalScript); err != nil {
+		logger.Error("write rental script", slog.Any("error", err))
 	}
 }
 

@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}}</title><link rel="stylesheet" href="/static/app.css"></head>
+<body>
+<a class="skip-link" href="#main-content">К содержимому</a>
+<div class="app-shell">{{template "equipment-sidebar" .}}
+<main class="main-content" id="main-content" tabindex="-1"><div class="content-container">
+    <nav class="breadcrumb" aria-label="Хлебные крошки"><a href="/rentals">Аренды</a><span aria-hidden="true">/</span><span>№{{.RentalID}}</span></nav>
+    <header class="page-header"><div><p class="page-eyebrow">Карточка аренды</p><h1>Аренда №{{.RentalID}}</h1><p class="page-description">Плановый период, клиент и предварительный состав.</p></div>{{template "rental-status-chip" .Status}}</header>
+    <div class="content-stack">
+        <section class="panel" aria-labelledby="rental-details-heading"><div class="panel-header"><div><h2 id="rental-details-heading">Сведения</h2><p class="panel-description">Основные данные сохранённого черновика.</p></div></div><dl class="details-list"><div class="details-row"><dt>Клиент</dt><dd><a class="client-name-link" href="/clients/{{.Client.ID}}">{{.Client.FullName}}</a></dd></div><div class="details-row"><dt>Телефон</dt><dd>{{.Client.Phone}}</dd></div><div class="details-row"><dt>Плановый период</dt><dd>{{.Period}}</dd></div><div class="details-row"><dt>Длительность</dt><dd>{{.Duration}}</dd></div><div class="details-row"><dt>Статус</dt><dd>{{template "rental-status-chip" .Status}}</dd></div><div class="details-row"><dt>Предварительная стоимость</dt><dd>{{.PlannedTotal}}</dd></div></dl></section>
+        <section class="panel" aria-labelledby="rental-items-heading"><div class="panel-header"><div><h2 id="rental-items-heading">Состав аренды</h2><p class="panel-description">Снимки физических единиц и тарифов на момент создания черновика.</p></div><span class="count-chip">{{.ItemCount}}</span></div>{{if .Items}}<div class="table-scroll"><table><thead><tr><th>Инвентарный номер</th><th>Тип</th><th>Модель</th><th>Тариф</th></tr></thead><tbody>{{range .Items}}<tr><td><strong>{{.InventoryNumber}}</strong></td><td>{{.Kind}}</td><td>{{.ModelCode}}</td><td>{{.HourlyRate}}</td></tr>{{end}}</tbody></table></div>{{else}}<div class="empty-state"><h3>Состав пока пуст</h3><p>Оборудование можно будет добавить при редактировании черновика.</p></div>{{end}}</section>
+        <div class="page-actions"><a class="button" href="/rentals">Назад к списку</a></div>
+    </div>
+</div></main></div>
+</body></html>

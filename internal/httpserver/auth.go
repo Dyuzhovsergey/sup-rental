@@ -51,6 +51,7 @@ type authenticationView struct {
 	HomeActive         bool
 	EquipmentActive    bool
 	ClientsActive      bool
+	RentalsActive      bool
 	OperatorsActive    bool
 	AuditActive        bool
 	CanManageEquipment bool
@@ -70,7 +71,7 @@ func optionalSession(
 	next http.Handler,
 ) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/health" || r.URL.Path == "/static/app.css" {
+		if r.URL.Path == "/health" || strings.HasPrefix(r.URL.Path, "/static/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -272,6 +273,7 @@ func authenticationForPage(r *http.Request) *authenticationView {
 		HomeActive:         r.URL.Path == "/operator",
 		EquipmentActive:    strings.HasPrefix(r.URL.Path, "/equipment"),
 		ClientsActive:      strings.HasPrefix(r.URL.Path, "/clients"),
+		RentalsActive:      strings.HasPrefix(r.URL.Path, "/rentals"),
 		OperatorsActive:    strings.HasPrefix(r.URL.Path, "/admin/operators"),
 		AuditActive:        strings.HasPrefix(r.URL.Path, "/admin/audit"),
 		CanManageEquipment: isAdmin,

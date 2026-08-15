@@ -15,6 +15,7 @@ import (
 	appauth "github.com/Dyuzhovsergey/sup-rental/internal/auth"
 	"github.com/Dyuzhovsergey/sup-rental/internal/client"
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
+	"github.com/Dyuzhovsergey/sup-rental/internal/rental"
 	"github.com/Dyuzhovsergey/sup-rental/internal/session"
 	"github.com/Dyuzhovsergey/sup-rental/internal/user"
 )
@@ -145,11 +146,38 @@ func TestStylesheet(t *testing.T) {
 		".button--compact",
 		".button--edit",
 		".retirement-panel",
+		".limited-select__list",
+		".limited-select__toggle",
+		"max-height: 208px",
+		".rental-review-summary",
 		":focus-visible",
 		"prefers-reduced-motion",
 	} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestRentalScript(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/static/rental.js", nil)
+	response := httptest.NewRecorder()
+
+	newUnauthenticatedTestHandler(t, discardLogger()).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+	if got := response.Header().Get("Content-Type"); got != "text/javascript; charset=utf-8" {
+		t.Errorf("Content-Type = %q", got)
+	}
+	for _, want := range []string{
+		"data-rental-period-form", "data-rental-end", "data-rental-equipment-form",
+		"data-rental-total", "data-rental-kind-count", "data-limited-select",
+		"limited-select__option", `trigger.type = "number"`, "integerInRange", "Intl.NumberFormat",
+	} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("script does not contain %q", want)
 		}
 	}
 }
@@ -266,6 +294,7 @@ func newHandlerWithDependencies(
 		&operatorServiceStub{},
 		&auditServiceStub{},
 		&clientServiceStub{},
+		&rentalServiceStub{},
 		CookieSettings{},
 	)
 	if err != nil {
@@ -290,6 +319,41 @@ type clientServiceStub struct {
 	get    func(context.Context, int64) (client.Client, error)
 	find   func(context.Context, string) (client.Client, error)
 	list   func(context.Context, int, int) (client.Page, error)
+}
+
+type rentalServiceStub struct {
+	available func(context.Context, rental.Interval) ([]rental.AvailableModel, error)
+	create    func(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
+	get       func(context.Context, int64) (rental.Rental, error)
+	list      func(context.Context, int, int) (rental.Page, error)
+}
+
+func (s *rentalServiceStub) AvailableModels(ctx context.Context, interval rental.Interval) ([]rental.AvailableModel, error) {
+	if s.available == nil {
+		return nil, nil
+	}
+	return s.available(ctx, interval)
+}
+
+func (s *rentalServiceStub) CreateDraft(ctx context.Context, actor user.User, clientID int64, interval rental.Interval, selections []rental.ModelSelection) (rental.Rental, error) {
+	if s.create == nil {
+		return rental.Restore(1, clientID, interval, rental.StatusDraft, nil)
+	}
+	return s.create(ctx, actor, clientID, interval, selections)
+}
+
+func (s *rentalServiceStub) Get(ctx context.Context, id int64) (rental.Rental, error) {
+	if s.get == nil {
+		return rental.Rental{}, rental.ErrRentalNotFound
+	}
+	return s.get(ctx, id)
+}
+
+func (s *rentalServiceStub) ListPage(ctx context.Context, page, pageSize int) (rental.Page, error) {
+	if s.list == nil {
+		return rental.Page{Page: page, PageSize: pageSize}, nil
+	}
+	return s.list(ctx, page, pageSize)
 }
 
 func (s *clientServiceStub) Create(ctx context.Context, actor user.User, fullName, phone string) (client.Client, error) {

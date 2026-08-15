@@ -182,7 +182,7 @@ func newAuditTestHandler(t *testing.T, service auditService, authenticated sessi
 	}}
 	handler, err := NewHandler(
 		slog.New(slog.NewTextHandler(io.Discard, nil)), &equipmentServiceStub{},
-		&authServiceStub{}, resolver, &operatorServiceStub{}, service, &clientServiceStub{}, CookieSettings{},
+		&authServiceStub{}, resolver, &operatorServiceStub{}, service, &clientServiceStub{}, &rentalServiceStub{}, CookieSettings{},
 	)
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
