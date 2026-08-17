@@ -14,6 +14,8 @@ import (
 const (
 	// DefaultPageSize задаёт количество аренд на странице списка по умолчанию.
 	DefaultPageSize = 5
+	// MaxBulkSelection задаёт максимальное число аренд в одной массовой операции.
+	MaxBulkSelection = 15
 )
 
 var (
@@ -28,6 +30,9 @@ var (
 	// ErrEquipmentUnavailable означает, что зарезервированную физическую
 	// единицу нельзя выдать в её текущем состоянии.
 	ErrEquipmentUnavailable = errors.New("rental equipment is unavailable for issue")
+	// ErrInvalidBulkSelection означает пустой, слишком большой или содержащий
+	// некорректные либо повторяющиеся ID набор аренд.
+	ErrInvalidBulkSelection = errors.New("invalid bulk rental selection")
 )
 
 var allowedPageSizes = [...]int{5, 10, 15}
@@ -43,7 +48,9 @@ type Repository interface {
 		selections []ModelSelection,
 	) (Rental, error)
 	Issue(ctx context.Context, actor user.User, id int64, issuedAt time.Time) (Rental, error)
+	IssueMany(ctx context.Context, actor user.User, ids []int64, issuedAt time.Time) ([]Rental, error)
 	Cancel(ctx context.Context, actor user.User, id int64) (Rental, error)
+	CancelMany(ctx context.Context, actor user.User, ids []int64) ([]Rental, error)
 	Get(ctx context.Context, id int64) (Rental, error)
 	ListPage(ctx context.Context, statuses []Status, page, pageSize int) (Page, error)
 	AvailableEquipment(ctx context.Context, interval Interval) ([]equipment.Item, error)
@@ -174,6 +181,24 @@ func (s *Service) Issue(ctx context.Context, actor user.User, id int64) (Rental,
 	return issued, nil
 }
 
+// IssueMany атомарно выдаёт выбранные подтверждённые аренды от имени активного
+// оператора. Все аренды используют один момент фактической выдачи.
+func (s *Service) IssueMany(ctx context.Context, actor user.User, ids []int64) ([]Rental, error) {
+	if actor.ID <= 0 || actor.Role != user.RoleOperator || !actor.Active {
+		return nil, user.ErrAccessDenied
+	}
+	validated, err := validateBulkSelection(ids)
+	if err != nil {
+		return nil, err
+	}
+
+	issued, err := s.repository.IssueMany(ctx, actor, validated, s.now().UTC())
+	if err != nil {
+		return nil, fmt.Errorf("issue rental selection: %w", err)
+	}
+	return issued, nil
+}
+
 // Cancel отменяет подтверждённую аренду от имени активного оператора.
 // Repository сохраняет состояние и обязательный audit event одной транзакцией.
 func (s *Service) Cancel(ctx context.Context, actor user.User, id int64) (Rental, error) {
@@ -187,6 +212,24 @@ func (s *Service) Cancel(ctx context.Context, actor user.User, id int64) (Rental
 	cancelled, err := s.repository.Cancel(ctx, actor, id)
 	if err != nil {
 		return Rental{}, fmt.Errorf("cancel rental: %w", err)
+	}
+	return cancelled, nil
+}
+
+// CancelMany атомарно отменяет выбранные подтверждённые аренды от имени
+// активного оператора.
+func (s *Service) CancelMany(ctx context.Context, actor user.User, ids []int64) ([]Rental, error) {
+	if actor.ID <= 0 || actor.Role != user.RoleOperator || !actor.Active {
+		return nil, user.ErrAccessDenied
+	}
+	validated, err := validateBulkSelection(ids)
+	if err != nil {
+		return nil, err
+	}
+
+	cancelled, err := s.repository.CancelMany(ctx, actor, validated)
+	if err != nil {
+		return nil, fmt.Errorf("cancel rental selection: %w", err)
 	}
 	return cancelled, nil
 }
@@ -230,6 +273,24 @@ func validStatusFilter(statuses []Status) bool {
 		seen[status] = struct{}{}
 	}
 	return true
+}
+
+func validateBulkSelection(ids []int64) ([]int64, error) {
+	if len(ids) == 0 || len(ids) > MaxBulkSelection {
+		return nil, ErrInvalidBulkSelection
+	}
+	validated := append([]int64(nil), ids...)
+	seen := make(map[int64]struct{}, len(validated))
+	for _, id := range validated {
+		if id <= 0 {
+			return nil, ErrInvalidBulkSelection
+		}
+		if _, exists := seen[id]; exists {
+			return nil, ErrInvalidBulkSelection
+		}
+		seen[id] = struct{}{}
+	}
+	return validated, nil
 }
 
 // AllowedPageSizes возвращает копию списка допустимых размеров страницы.

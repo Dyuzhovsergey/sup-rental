@@ -3,6 +3,7 @@ package httpserver
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -400,6 +401,10 @@ func TestRentalMutationsRequireOperatorAndCSRF(t *testing.T) {
 		rentalRequest(http.MethodPost, "/rentals/24/issue", url.Values{"csrf_token": {"csrf-token"}}),
 		rentalRequest(http.MethodGet, "/rentals/24/cancel", nil),
 		rentalRequest(http.MethodPost, "/rentals/24/cancel", url.Values{"csrf_token": {"csrf-token"}}),
+		rentalRequest(http.MethodGet, "/rentals/bulk/issue?rental_id=24", nil),
+		rentalRequest(http.MethodPost, "/rentals/bulk/issue", url.Values{"csrf_token": {"csrf-token"}, "rental_id": {"24"}}),
+		rentalRequest(http.MethodGet, "/rentals/bulk/cancel?rental_id=24", nil),
+		rentalRequest(http.MethodPost, "/rentals/bulk/cancel", url.Values{"csrf_token": {"csrf-token"}, "rental_id": {"24"}}),
 	} {
 		response := httptest.NewRecorder()
 		admin.ServeHTTP(response, request)
@@ -410,7 +415,7 @@ func TestRentalMutationsRequireOperatorAndCSRF(t *testing.T) {
 
 	operator := newRentalTestHandler(t, user.RoleOperator, &rentalServiceStub{}, rentalClientsStub())
 	for _, token := range []string{"", "wrong"} {
-		for _, path := range []string{"/rentals", "/rentals/24/cancel"} {
+		for _, path := range []string{"/rentals", "/rentals/24/cancel", "/rentals/bulk/issue", "/rentals/bulk/cancel"} {
 			response := httptest.NewRecorder()
 			operator.ServeHTTP(response, rentalRequest(http.MethodPost, path, url.Values{"csrf_token": {token}}))
 			if response.Code != http.StatusForbidden {
@@ -456,7 +461,9 @@ func TestRentalsListSeparatesStatusesAndShowsConfirmedActions(t *testing.T) {
 	for _, want := range []string{
 		"Подтверждённый клиент", "Активный клиент", "Отменённый клиент",
 		`href="/rentals/24/issue"`, `href="/rentals/24/cancel"`, "Выдать оборудование",
-		`confirmed_page=2&amp;page_size=5`,
+		`confirmed_page=2&amp;page_size=5`, `data-rental-bulk-form`,
+		`name="rental_id" value="24"`, `formaction="/rentals/bulk/issue"`,
+		`formaction="/rentals/bulk/cancel"`, "Выбрать все на странице",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("list does not contain %q", want)
@@ -465,6 +472,135 @@ func TestRentalsListSeparatesStatusesAndShowsConfirmedActions(t *testing.T) {
 	for _, unwanted := range []string{`href="/rentals/25/issue"`, `href="/rentals/26/cancel"`} {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("list contains unexpected action %q", unwanted)
+		}
+	}
+
+	adminResponse := httptest.NewRecorder()
+	newRentalTestHandler(t, user.RoleAdmin, rentals, rentalClientsStub()).ServeHTTP(
+		adminResponse, rentalRequest(http.MethodGet, "/rentals", nil),
+	)
+	if adminResponse.Code != http.StatusOK {
+		t.Fatalf("admin list status = %d", adminResponse.Code)
+	}
+	for _, unwanted := range []string{"data-rental-bulk-form", `name="rental_id"`, "Выдать выбранные", "Отменить выбранные"} {
+		if strings.Contains(adminResponse.Body.String(), unwanted) {
+			t.Errorf("admin list contains %q", unwanted)
+		}
+	}
+}
+
+func TestRentalBulkConfirmationAndRedirects(t *testing.T) {
+	interval := rentalHTTPInterval(t)
+	confirmedForID := func(id int64) rental.Rental {
+		value, err := rental.Restore(id, 18, interval, rental.StatusConfirmed, nil, []rental.Item{{
+			EquipmentID: id + 100, InventoryNumber: fmt.Sprintf("SUP-TOURING-%d", id), Kind: equipment.KindSUPBoard,
+			ModelCode: "TOURING", HourlyRateKopecks: 100_000,
+		}})
+		if err != nil {
+			t.Fatalf("Restore(%d) error = %v", id, err)
+		}
+		return value
+	}
+	var issuedIDs, cancelledIDs []int64
+	rentals := &rentalServiceStub{
+		get: func(_ context.Context, id int64) (rental.Rental, error) { return confirmedForID(id), nil },
+		issueMany: func(_ context.Context, actor user.User, ids []int64) ([]rental.Rental, error) {
+			if actor.Role != user.RoleOperator {
+				t.Errorf("IssueMany() actor = %+v", actor)
+			}
+			issuedIDs = append([]int64(nil), ids...)
+			return []rental.Rental{{ID: ids[0]}, {ID: ids[1]}}, nil
+		},
+		cancelMany: func(_ context.Context, actor user.User, ids []int64) ([]rental.Rental, error) {
+			if actor.Role != user.RoleOperator {
+				t.Errorf("CancelMany() actor = %+v", actor)
+			}
+			cancelledIDs = append([]int64(nil), ids...)
+			return []rental.Rental{{ID: ids[0]}, {ID: ids[1]}}, nil
+		},
+	}
+	handler := newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub())
+
+	for _, path := range []string{
+		"/rentals/bulk/issue?rental_id=24&rental_id=25",
+		"/rentals/bulk/cancel?rental_id=24&rental_id=25",
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, rentalRequest(http.MethodGet, path, nil))
+		if response.Code != http.StatusOK {
+			t.Fatalf("GET %s status = %d body %q", path, response.Code, response.Body.String())
+		}
+		for _, want := range []string{"Выбранные аренды", "№24", "№25", "Анна Петрова", `name="csrf_token" value="csrf-token"`} {
+			if !strings.Contains(response.Body.String(), want) {
+				t.Errorf("GET %s body does not contain %q", path, want)
+			}
+		}
+	}
+
+	form := url.Values{"csrf_token": {"csrf-token"}, "rental_id": {"24", "25"}}
+	issueResponse := httptest.NewRecorder()
+	handler.ServeHTTP(issueResponse, rentalRequest(http.MethodPost, "/rentals/bulk/issue", form))
+	if issueResponse.Code != http.StatusSeeOther || issueResponse.Header().Get("Location") != "/rentals?bulk_issued=2" {
+		t.Fatalf("bulk issue = %d Location %q", issueResponse.Code, issueResponse.Header().Get("Location"))
+	}
+	cancelResponse := httptest.NewRecorder()
+	handler.ServeHTTP(cancelResponse, rentalRequest(http.MethodPost, "/rentals/bulk/cancel", form))
+	if cancelResponse.Code != http.StatusSeeOther || cancelResponse.Header().Get("Location") != "/rentals?bulk_cancelled=2" {
+		t.Fatalf("bulk cancel = %d Location %q", cancelResponse.Code, cancelResponse.Header().Get("Location"))
+	}
+	if fmt.Sprint(issuedIDs) != "[24 25]" || fmt.Sprint(cancelledIDs) != "[24 25]" {
+		t.Fatalf("issued = %v cancelled = %v", issuedIDs, cancelledIDs)
+	}
+}
+
+func TestRentalBulkErrorsAreMappedSafely(t *testing.T) {
+	handler := newRentalTestHandler(t, user.RoleOperator, &rentalServiceStub{}, rentalClientsStub())
+	invalid := httptest.NewRecorder()
+	handler.ServeHTTP(invalid, rentalRequest(http.MethodGet, "/rentals/bulk/issue", nil))
+	if invalid.Code != http.StatusUnprocessableEntity || !strings.Contains(invalid.Body.String(), "Выберите от 1 до 15") {
+		t.Fatalf("invalid selection = %d body %q", invalid.Code, invalid.Body.String())
+	}
+
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantText   string
+	}{
+		{name: "invalid", err: rental.ErrInvalidBulkSelection, wantStatus: http.StatusUnprocessableEntity, wantText: "Выберите от 1 до 15"},
+		{name: "missing", err: rental.ErrRentalNotFound, wantStatus: http.StatusNotFound, wantText: "404 page not found"},
+		{name: "stale", err: rental.ErrStatusTransitionNotAllowed, wantStatus: http.StatusConflict, wantText: "Вернитесь к списку"},
+		{name: "equipment", err: rental.ErrEquipmentUnavailable, wantStatus: http.StatusConflict, wantText: "Вернитесь к списку"},
+		{name: "internal", err: errors.New("database secret detail"), wantStatus: http.StatusInternalServerError, wantText: "Internal Server Error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rentals := &rentalServiceStub{issueMany: func(context.Context, user.User, []int64) ([]rental.Rental, error) {
+				return nil, tt.err
+			}}
+			response := httptest.NewRecorder()
+			newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub()).ServeHTTP(
+				response,
+				rentalRequest(http.MethodPost, "/rentals/bulk/issue", url.Values{"csrf_token": {"csrf-token"}, "rental_id": {"24"}}),
+			)
+			if response.Code != tt.wantStatus || !strings.Contains(response.Body.String(), tt.wantText) || strings.Contains(response.Body.String(), "database secret detail") {
+				t.Fatalf("response = %d body %q", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestRentalsListShowsBulkSuccessNotices(t *testing.T) {
+	for query, want := range map[string]string{
+		"bulk_issued=2":    "Выданы 2 аренды.",
+		"bulk_cancelled=5": "Отменено 5 аренд.",
+	} {
+		response := httptest.NewRecorder()
+		newRentalTestHandler(t, user.RoleOperator, &rentalServiceStub{}, rentalClientsStub()).ServeHTTP(
+			response, rentalRequest(http.MethodGet, "/rentals?"+query, nil),
+		)
+		if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), want) {
+			t.Fatalf("GET %s = %d body %q", query, response.Code, response.Body.String())
 		}
 	}
 }

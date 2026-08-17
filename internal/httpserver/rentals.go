@@ -25,7 +25,9 @@ type rentalService interface {
 	AvailableModels(context.Context, rental.Interval) ([]rental.AvailableModel, error)
 	CreateConfirmed(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
 	Issue(context.Context, user.User, int64) (rental.Rental, error)
+	IssueMany(context.Context, user.User, []int64) ([]rental.Rental, error)
 	Cancel(context.Context, user.User, int64) (rental.Rental, error)
+	CancelMany(context.Context, user.User, []int64) ([]rental.Rental, error)
 	Get(context.Context, int64) (rental.Rental, error)
 	ListPage(context.Context, []rental.Status, int, int) (rental.Page, error)
 }
@@ -123,6 +125,7 @@ type rentalSectionView struct {
 	EmptyText   string
 	ShowActions bool
 	CanManage   bool
+	BulkActions bool
 }
 
 type rentalPageNumbers struct {
@@ -608,7 +611,7 @@ func showRentalsPage(
 			Rentals: rentalSummaryViews(confirmed.Rentals), TotalLabel: rentalCountLabel(confirmed.Total),
 			Pagination: rentalSectionPagination("confirmed_page", pages.Confirmed, confirmed.Total, pages, pageSize),
 			EmptyTitle: "Подтверждённых аренд нет", EmptyText: "Новые аренды появятся здесь до выдачи.",
-			ShowActions: true, CanManage: canManage,
+			ShowActions: true, CanManage: canManage, BulkActions: canManage,
 		},
 		Active: rentalSectionView{
 			ID:      "active-rentals-heading",
@@ -656,7 +659,23 @@ func showRentalsPage(
 			return
 		}
 	}
+	if count, parseErr := positiveOptionalID(r.URL.Query().Get("bulk_issued")); parseErr == nil && count > 0 {
+		data.Success = rentalBulkSuccessLabel(int(count), "Выдана", "Выданы", "Выдано")
+	}
+	if count, parseErr := positiveOptionalID(r.URL.Query().Get("bulk_cancelled")); parseErr == nil && count > 0 {
+		data.Success = rentalBulkSuccessLabel(int(count), "Отменена", "Отменены", "Отменено")
+	}
 	renderPage(logger, pageTemplates, w, http.StatusOK, "rentals.html", data, "render rentals page", "write rentals response")
+}
+
+func rentalBulkSuccessLabel(count int, one, few, many string) string {
+	word := many
+	if count%10 == 1 && count%100 != 11 {
+		word = one
+	} else if count%10 >= 2 && count%10 <= 4 && (count%100 < 12 || count%100 > 14) {
+		word = few
+	}
+	return fmt.Sprintf("%s %d %s.", word, count, russianRentalWord(count))
 }
 
 func writeRentalListError(logger *slog.Logger, w http.ResponseWriter, r *http.Request, err error, message string) bool {

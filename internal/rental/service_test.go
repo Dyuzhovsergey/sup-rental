@@ -170,6 +170,67 @@ func TestServiceCancelUsesActorAndValidatesAccess(t *testing.T) {
 	}
 }
 
+func TestServiceBulkActionsValidateSelectionAndDelegate(t *testing.T) {
+	actor := user.User{ID: 7, Login: "operator", Role: user.RoleOperator, Active: true}
+	issuedAt := time.Date(2026, 8, 17, 12, 34, 56, 0, time.FixedZone("МСК", 3*60*60))
+	var issuedIDs, cancelledIDs []int64
+	var gotIssuedAt time.Time
+	repository := &serviceRepositoryStub{
+		issueMany: func(_ context.Context, gotActor user.User, ids []int64, at time.Time) ([]Rental, error) {
+			if gotActor != actor {
+				t.Errorf("IssueMany() actor = %+v", gotActor)
+			}
+			issuedIDs = append([]int64(nil), ids...)
+			gotIssuedAt = at
+			return []Rental{{ID: ids[0], Status: StatusActive}}, nil
+		},
+		cancelMany: func(_ context.Context, gotActor user.User, ids []int64) ([]Rental, error) {
+			if gotActor != actor {
+				t.Errorf("CancelMany() actor = %+v", gotActor)
+			}
+			cancelledIDs = append([]int64(nil), ids...)
+			return []Rental{{ID: ids[0], Status: StatusCancelled}}, nil
+		},
+	}
+	service := NewService(repository)
+	service.now = func() time.Time { return issuedAt }
+
+	if _, err := service.IssueMany(context.Background(), actor, []int64{24, 25}); err != nil {
+		t.Fatalf("IssueMany() error = %v", err)
+	}
+	if _, err := service.CancelMany(context.Background(), actor, []int64{26, 27}); err != nil {
+		t.Fatalf("CancelMany() error = %v", err)
+	}
+	if len(issuedIDs) != 2 || issuedIDs[0] != 24 || issuedIDs[1] != 25 ||
+		!gotIssuedAt.Equal(issuedAt.UTC()) || gotIssuedAt.Location() != time.UTC {
+		t.Fatalf("IssueMany() ids = %v issuedAt = %v", issuedIDs, gotIssuedAt)
+	}
+	if len(cancelledIDs) != 2 || cancelledIDs[0] != 26 || cancelledIDs[1] != 27 {
+		t.Fatalf("CancelMany() ids = %v", cancelledIDs)
+	}
+
+	tooMany := make([]int64, MaxBulkSelection+1)
+	for index := range tooMany {
+		tooMany[index] = int64(index + 1)
+	}
+	invalidSelections := [][]int64{nil, {}, {0}, {-1}, {24, 24}, tooMany}
+	for _, ids := range invalidSelections {
+		if _, err := service.IssueMany(context.Background(), actor, ids); !errors.Is(err, ErrInvalidBulkSelection) {
+			t.Errorf("IssueMany(%v) error = %v", ids, err)
+		}
+		if _, err := service.CancelMany(context.Background(), actor, ids); !errors.Is(err, ErrInvalidBulkSelection) {
+			t.Errorf("CancelMany(%v) error = %v", ids, err)
+		}
+	}
+	admin := user.User{ID: 1, Role: user.RoleAdmin, Active: true}
+	if _, err := service.IssueMany(context.Background(), admin, []int64{24}); !errors.Is(err, user.ErrAccessDenied) {
+		t.Errorf("IssueMany(admin) error = %v", err)
+	}
+	if _, err := service.CancelMany(context.Background(), admin, []int64{24}); !errors.Is(err, user.ErrAccessDenied) {
+		t.Errorf("CancelMany(admin) error = %v", err)
+	}
+}
+
 func TestServicePropagatesRepositoryErrors(t *testing.T) {
 	repositoryError := errors.New("repository unavailable")
 	service := NewService(&serviceRepositoryStub{
@@ -179,8 +240,14 @@ func TestServicePropagatesRepositoryErrors(t *testing.T) {
 		},
 		issue:  func(context.Context, user.User, int64, time.Time) (Rental, error) { return Rental{}, repositoryError },
 		cancel: func(context.Context, user.User, int64) (Rental, error) { return Rental{}, repositoryError },
-		get:    func(context.Context, int64) (Rental, error) { return Rental{}, repositoryError },
-		list:   func(context.Context, []Status, int, int) (Page, error) { return Page{}, repositoryError },
+		issueMany: func(context.Context, user.User, []int64, time.Time) ([]Rental, error) {
+			return nil, repositoryError
+		},
+		cancelMany: func(context.Context, user.User, []int64) ([]Rental, error) {
+			return nil, repositoryError
+		},
+		get:  func(context.Context, int64) (Rental, error) { return Rental{}, repositoryError },
+		list: func(context.Context, []Status, int, int) (Page, error) { return Page{}, repositoryError },
 	})
 	if _, err := service.AvailableModels(context.Background(), serviceInterval(t)); !errors.Is(err, repositoryError) {
 		t.Errorf("AvailableModels() error = %v", err)
@@ -193,6 +260,12 @@ func TestServicePropagatesRepositoryErrors(t *testing.T) {
 	}
 	if _, err := service.Cancel(context.Background(), user.User{ID: 7, Role: user.RoleOperator, Active: true}, 1); !errors.Is(err, repositoryError) {
 		t.Errorf("Cancel() error = %v", err)
+	}
+	if _, err := service.IssueMany(context.Background(), user.User{ID: 7, Role: user.RoleOperator, Active: true}, []int64{1}); !errors.Is(err, repositoryError) {
+		t.Errorf("IssueMany() error = %v", err)
+	}
+	if _, err := service.CancelMany(context.Background(), user.User{ID: 7, Role: user.RoleOperator, Active: true}, []int64{1}); !errors.Is(err, repositoryError) {
+		t.Errorf("CancelMany() error = %v", err)
 	}
 	if _, err := service.Get(context.Background(), 1); !errors.Is(err, repositoryError) {
 		t.Errorf("Get() error = %v", err)
@@ -217,12 +290,21 @@ func TestServiceListPageValidation(t *testing.T) {
 }
 
 type serviceRepositoryStub struct {
-	create    func(context.Context, user.User, int64, Interval, []ModelSelection) (Rental, error)
-	issue     func(context.Context, user.User, int64, time.Time) (Rental, error)
-	cancel    func(context.Context, user.User, int64) (Rental, error)
-	get       func(context.Context, int64) (Rental, error)
-	list      func(context.Context, []Status, int, int) (Page, error)
-	available func(context.Context, Interval) ([]equipment.Item, error)
+	create     func(context.Context, user.User, int64, Interval, []ModelSelection) (Rental, error)
+	issue      func(context.Context, user.User, int64, time.Time) (Rental, error)
+	issueMany  func(context.Context, user.User, []int64, time.Time) ([]Rental, error)
+	cancel     func(context.Context, user.User, int64) (Rental, error)
+	cancelMany func(context.Context, user.User, []int64) ([]Rental, error)
+	get        func(context.Context, int64) (Rental, error)
+	list       func(context.Context, []Status, int, int) (Page, error)
+	available  func(context.Context, Interval) ([]equipment.Item, error)
+}
+
+func (s *serviceRepositoryStub) CancelMany(ctx context.Context, actor user.User, ids []int64) ([]Rental, error) {
+	if s.cancelMany == nil {
+		return nil, ErrRentalNotFound
+	}
+	return s.cancelMany(ctx, actor, ids)
 }
 
 func (s *serviceRepositoryStub) Cancel(ctx context.Context, actor user.User, id int64) (Rental, error) {
@@ -237,6 +319,13 @@ func (s *serviceRepositoryStub) Issue(ctx context.Context, actor user.User, id i
 		return Rental{}, ErrRentalNotFound
 	}
 	return s.issue(ctx, actor, id, issuedAt)
+}
+
+func (s *serviceRepositoryStub) IssueMany(ctx context.Context, actor user.User, ids []int64, issuedAt time.Time) ([]Rental, error) {
+	if s.issueMany == nil {
+		return nil, ErrRentalNotFound
+	}
+	return s.issueMany(ctx, actor, ids, issuedAt)
 }
 
 func (s *serviceRepositoryStub) CreateConfirmed(ctx context.Context, actor user.User, clientID int64, interval Interval, selections []ModelSelection) (Rental, error) {

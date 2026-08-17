@@ -260,6 +260,32 @@
         updateEnd();
     }
 
+    document.querySelectorAll("[data-rental-bulk-form]").forEach((bulkForm) => {
+        const selectAll = bulkForm.querySelector("[data-rental-select-all]");
+        const rentals = Array.from(bulkForm.querySelectorAll("[data-rental-select]"));
+        const count = bulkForm.querySelector("[data-rental-selected-count]");
+        const submits = bulkForm.querySelectorAll("[data-rental-bulk-submit]");
+
+        const updateSelection = () => {
+            const selected = rentals.filter((input) => input.checked).length;
+            count.textContent = "Выбрано: " + selected;
+            submits.forEach((button) => {
+                button.disabled = selected === 0;
+            });
+            selectAll.checked = selected === rentals.length && rentals.length > 0;
+            selectAll.indeterminate = selected > 0 && selected < rentals.length;
+        };
+
+        selectAll.addEventListener("change", () => {
+            rentals.forEach((input) => {
+                input.checked = selectAll.checked;
+            });
+            updateSelection();
+        });
+        rentals.forEach((input) => input.addEventListener("change", updateSelection));
+        updateSelection();
+    });
+
     const form = document.querySelector("[data-rental-equipment-form]");
     if (!form) {
         return;

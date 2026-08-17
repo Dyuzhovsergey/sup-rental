@@ -117,6 +117,158 @@ func TestRentalRepositoryIssuesRentalWithEquipmentAndAudit(t *testing.T) {
 	}
 }
 
+func TestRentalRepositoryIssuesSelectedRentalsAtomically(t *testing.T) {
+	pool, ctx := rentalTestPool(t)
+	fixture := newRentalRepositoryFixture(t, ctx, pool, 2)
+	repository := NewRentalRepository(pool)
+	interval := rentalTestInterval(t, time.Date(2026, 9, 5, 10, 8, 0, 0, time.UTC))
+	selection := []rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}}
+	first, err := repository.CreateConfirmed(ctx, fixture.actor, fixture.firstClientID, interval, selection)
+	if err != nil {
+		t.Fatalf("first CreateConfirmed() error = %v", err)
+	}
+	second, err := repository.CreateConfirmed(ctx, fixture.actor, fixture.secondClientID, interval, selection)
+	if err != nil {
+		t.Fatalf("second CreateConfirmed() error = %v", err)
+	}
+	issuedAt := time.Date(2026, 9, 5, 9, 55, 0, 0, time.UTC)
+	issued, err := repository.IssueMany(ctx, fixture.actor, []int64{second.ID, first.ID}, issuedAt)
+	if err != nil {
+		t.Fatalf("IssueMany() error = %v", err)
+	}
+	if len(issued) != 2 || issued[0].ID != first.ID || issued[1].ID != second.ID {
+		t.Fatalf("IssueMany() = %+v", issued)
+	}
+	for _, value := range issued {
+		gotIssuedAt, ok := value.IssuedAt()
+		if value.Status != rental.StatusActive || !ok || !gotIssuedAt.Equal(issuedAt) {
+			t.Errorf("issued rental = %+v issuedAt = %v, %v", value, gotIssuedAt, ok)
+		}
+	}
+	var activeRentals, issuedEquipment, auditEvents int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM rentals WHERE id = ANY($1) AND status = 'active'", []int64{first.ID, second.ID}).Scan(&activeRentals); err != nil {
+		t.Fatalf("count active rentals: %v", err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM equipment WHERE id = ANY($1) AND status = 'issued'", fixture.equipmentIDs).Scan(&issuedEquipment); err != nil {
+		t.Fatalf("count issued equipment: %v", err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM audit_events WHERE action = 'rental.issued' AND target_id = ANY($1)", []int64{first.ID, second.ID}).Scan(&auditEvents); err != nil {
+		t.Fatalf("count issued audit events: %v", err)
+	}
+	if activeRentals != 2 || issuedEquipment != 2 || auditEvents != 2 {
+		t.Fatalf("active = %d issued equipment = %d audits = %d", activeRentals, issuedEquipment, auditEvents)
+	}
+}
+
+func TestRentalRepositoryCancelsSelectedRentalsAtomically(t *testing.T) {
+	pool, ctx := rentalTestPool(t)
+	fixture := newRentalRepositoryFixture(t, ctx, pool, 2)
+	repository := NewRentalRepository(pool)
+	interval := rentalTestInterval(t, time.Date(2026, 9, 5, 12, 8, 0, 0, time.UTC))
+	selection := []rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}}
+	first, err := repository.CreateConfirmed(ctx, fixture.actor, fixture.firstClientID, interval, selection)
+	if err != nil {
+		t.Fatalf("first CreateConfirmed() error = %v", err)
+	}
+	second, err := repository.CreateConfirmed(ctx, fixture.actor, fixture.secondClientID, interval, selection)
+	if err != nil {
+		t.Fatalf("second CreateConfirmed() error = %v", err)
+	}
+	cancelled, err := repository.CancelMany(ctx, fixture.actor, []int64{second.ID, first.ID})
+	if err != nil {
+		t.Fatalf("CancelMany() error = %v", err)
+	}
+	if len(cancelled) != 2 || cancelled[0].ID != first.ID || cancelled[1].ID != second.ID {
+		t.Fatalf("CancelMany() = %+v", cancelled)
+	}
+	var cancelledRentals, availableEquipment, auditEvents int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM rentals WHERE id = ANY($1) AND status = 'cancelled'", []int64{first.ID, second.ID}).Scan(&cancelledRentals); err != nil {
+		t.Fatalf("count cancelled rentals: %v", err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM equipment WHERE id = ANY($1) AND status = 'available'", fixture.equipmentIDs).Scan(&availableEquipment); err != nil {
+		t.Fatalf("count available equipment: %v", err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM audit_events WHERE action = 'rental.cancelled' AND target_id = ANY($1)", []int64{first.ID, second.ID}).Scan(&auditEvents); err != nil {
+		t.Fatalf("count cancelled audit events: %v", err)
+	}
+	if cancelledRentals != 2 || availableEquipment != 2 || auditEvents != 2 {
+		t.Fatalf("cancelled = %d available equipment = %d audits = %d", cancelledRentals, availableEquipment, auditEvents)
+	}
+}
+
+func TestRentalRepositoryBulkActionsRejectConflictsAndRollBack(t *testing.T) {
+	pool, ctx := rentalTestPool(t)
+	fixture := newRentalRepositoryFixture(t, ctx, pool, 1)
+	repository := NewRentalRepository(pool)
+	selection := []rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}}
+	first, err := repository.CreateConfirmed(ctx, fixture.actor, fixture.firstClientID,
+		rentalTestInterval(t, time.Date(2026, 9, 5, 14, 8, 0, 0, time.UTC)), selection)
+	if err != nil {
+		t.Fatalf("first CreateConfirmed() error = %v", err)
+	}
+	second, err := repository.CreateConfirmed(ctx, fixture.actor, fixture.secondClientID,
+		rentalTestInterval(t, time.Date(2026, 9, 5, 16, 8, 0, 0, time.UTC)), selection)
+	if err != nil {
+		t.Fatalf("second CreateConfirmed() error = %v", err)
+	}
+	if _, err := repository.IssueMany(ctx, fixture.actor, []int64{first.ID, second.ID}, time.Now().UTC()); !errors.Is(err, rental.ErrEquipmentUnavailable) {
+		t.Fatalf("IssueMany() duplicate equipment error = %v", err)
+	}
+	var confirmedRentals int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM rentals WHERE id = ANY($1) AND status = 'confirmed'", []int64{first.ID, second.ID}).Scan(&confirmedRentals); err != nil {
+		t.Fatalf("count confirmed rentals: %v", err)
+	}
+	if confirmedRentals != 2 {
+		t.Fatalf("confirmed rentals after conflict = %d", confirmedRentals)
+	}
+
+	rollbackFixture := newRentalRepositoryFixture(t, ctx, pool, 2)
+	rollbackRepository := NewRentalRepository(pool)
+	interval := rentalTestInterval(t, time.Date(2026, 9, 5, 18, 8, 0, 0, time.UTC))
+	rollbackSelection := []rental.ModelSelection{{ModelID: rollbackFixture.modelID, Quantity: 1}}
+	rollbackFirst, err := rollbackRepository.CreateConfirmed(ctx, rollbackFixture.actor, rollbackFixture.firstClientID, interval, rollbackSelection)
+	if err != nil {
+		t.Fatalf("rollback first CreateConfirmed() error = %v", err)
+	}
+	rollbackSecond, err := rollbackRepository.CreateConfirmed(ctx, rollbackFixture.actor, rollbackFixture.secondClientID, interval, rollbackSelection)
+	if err != nil {
+		t.Fatalf("rollback second CreateConfirmed() error = %v", err)
+	}
+	auditCalls := 0
+	rollbackRepository.writeAudit = func(context.Context, pgx.Tx, string, user.User, rental.Rental, rentalAuditDetails) error {
+		auditCalls++
+		if auditCalls == 2 {
+			return errors.New("audit unavailable")
+		}
+		return nil
+	}
+	if _, err := rollbackRepository.CancelMany(ctx, rollbackFixture.actor, []int64{rollbackFirst.ID, rollbackSecond.ID}); err == nil || !strings.Contains(err.Error(), "audit unavailable") {
+		t.Fatalf("CancelMany() audit error = %v", err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM rentals WHERE id = ANY($1) AND status = 'confirmed'", []int64{rollbackFirst.ID, rollbackSecond.ID}).Scan(&confirmedRentals); err != nil {
+		t.Fatalf("count rolled back rentals: %v", err)
+	}
+	if confirmedRentals != 2 {
+		t.Fatalf("confirmed rentals after audit rollback = %d", confirmedRentals)
+	}
+}
+
+func TestValidatedBulkRentalIDs(t *testing.T) {
+	tooMany := make([]int64, rental.MaxBulkSelection+1)
+	for index := range tooMany {
+		tooMany[index] = int64(index + 1)
+	}
+	for _, ids := range [][]int64{nil, {}, {0}, {-1}, {1, 1}, tooMany} {
+		if _, err := validatedBulkRentalIDs(ids); !errors.Is(err, rental.ErrInvalidBulkSelection) {
+			t.Errorf("validatedBulkRentalIDs(%v) error = %v", ids, err)
+		}
+	}
+	got, err := validatedBulkRentalIDs([]int64{3, 1, 2})
+	if err != nil || fmt.Sprint(got) != "[1 2 3]" {
+		t.Fatalf("validatedBulkRentalIDs() = %v, %v", got, err)
+	}
+}
+
 func TestRentalRepositoryCancelsRentalAndReleasesReservation(t *testing.T) {
 	pool, ctx := rentalTestPool(t)
 	fixture := newRentalRepositoryFixture(t, ctx, pool, 1)

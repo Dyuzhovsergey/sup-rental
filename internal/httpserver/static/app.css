@@ -549,6 +549,52 @@ select[aria-invalid="true"] {
     border-bottom: 1px solid var(--color-outline);
 }
 
+.rental-bulk-toolbar {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    min-height: 56px;
+    padding: 10px 16px;
+    background: var(--color-surface-variant);
+    border-bottom: 1px solid var(--color-outline);
+}
+
+.rental-bulk-select-all {
+    display: inline-flex;
+    gap: 8px;
+    align-items: center;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 650;
+}
+
+.rental-bulk-select-all input,
+.rental-select-column input {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    accent-color: var(--color-primary);
+    cursor: pointer;
+}
+
+.rental-bulk-count {
+    color: var(--color-muted);
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+}
+
+.rental-bulk-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-left: auto;
+}
+
+.rental-select-column {
+    width: 44px;
+    text-align: center;
+}
+
 .client-name-link {
     color: var(--color-text);
     text-decoration: none;
@@ -730,6 +776,14 @@ select[aria-invalid="true"] {
     background: var(--color-surface-variant);
     cursor: default;
     opacity: 0.7;
+}
+
+.button:disabled {
+    color: var(--color-muted);
+    background: var(--color-surface-variant);
+    border-color: var(--color-outline);
+    cursor: not-allowed;
+    opacity: 0.65;
 }
 
 .form-actions,
