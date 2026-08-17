@@ -23,13 +23,257 @@ const (
 	rentalItemForeignKeyConstraint   = "rental_items_equipment_id_fkey"
 	rentalItemUniqueEquipmentKey     = "rental_items_rental_equipment_key"
 	actionRentalConfirmed            = "rental.confirmed"
+	actionRentalIssued               = "rental.issued"
+	actionRentalCancelled            = "rental.cancelled"
 )
 
 type rentalAuditDetails struct {
-	ClientID       int64     `json:"client_id"`
-	PlannedStart   time.Time `json:"planned_start"`
-	PlannedEnd     time.Time `json:"planned_end"`
-	EquipmentCount int       `json:"equipment_count"`
+	ClientID       int64      `json:"client_id"`
+	PlannedStart   time.Time  `json:"planned_start"`
+	PlannedEnd     time.Time  `json:"planned_end"`
+	EquipmentCount int        `json:"equipment_count"`
+	IssuedAt       *time.Time `json:"issued_at,omitempty"`
+}
+
+// Issue атомарно переводит подтверждённую аренду в active, отмечает весь её
+// состав как issued и сохраняет обязательный audit event.
+func (r *RentalRepository) Issue(
+	ctx context.Context,
+	actor user.User,
+	id int64,
+	issuedAt time.Time,
+) (rental.Rental, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return rental.Rental{}, fmt.Errorf("begin issue rental transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	const rentalQuery = `
+		SELECT client_id, planned_start_at, planned_end_at, status, issued_at
+		FROM rentals
+		WHERE id = $1
+		FOR UPDATE
+	`
+	var (
+		clientID       int64
+		plannedStart   time.Time
+		plannedEnd     time.Time
+		status         rental.Status
+		storedIssuedAt *time.Time
+	)
+	if err := tx.QueryRow(ctx, rentalQuery, id).Scan(
+		&clientID, &plannedStart, &plannedEnd, &status, &storedIssuedAt,
+	); errors.Is(err, pgx.ErrNoRows) {
+		return rental.Rental{}, rental.ErrRentalNotFound
+	} else if err != nil {
+		return rental.Rental{}, fmt.Errorf("lock rental for issue: %w", err)
+	}
+	if status != rental.StatusConfirmed {
+		return rental.Rental{}, fmt.Errorf(
+			"%w: %s -> %s", rental.ErrStatusTransitionNotAllowed, status, rental.StatusActive,
+		)
+	}
+
+	type lockedItem struct {
+		position int
+		item     rental.Item
+		status   equipment.Status
+	}
+	const itemsQuery = `
+		SELECT ri.position, ri.equipment_id, ri.inventory_number,
+		       ri.kind, ri.model_code, ri.hourly_rate_kopecks, e.status
+		FROM rental_items AS ri
+		JOIN equipment AS e ON e.id = ri.equipment_id
+		WHERE ri.rental_id = $1
+		ORDER BY e.id
+		FOR UPDATE OF e
+	`
+	rows, err := tx.Query(ctx, itemsQuery, id)
+	if err != nil {
+		return rental.Rental{}, fmt.Errorf("lock rental equipment for issue: %w", err)
+	}
+	locked := make([]lockedItem, 0)
+	for rows.Next() {
+		var value lockedItem
+		if err := rows.Scan(
+			&value.position,
+			&value.item.EquipmentID,
+			&value.item.InventoryNumber,
+			&value.item.Kind,
+			&value.item.ModelCode,
+			&value.item.HourlyRateKopecks,
+			&value.status,
+		); err != nil {
+			rows.Close()
+			return rental.Rental{}, fmt.Errorf("scan rental equipment for issue: %w", err)
+		}
+		if value.status != equipment.StatusAvailable {
+			rows.Close()
+			return rental.Rental{}, rental.ErrEquipmentUnavailable
+		}
+		locked = append(locked, value)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return rental.Rental{}, fmt.Errorf("iterate rental equipment for issue: %w", err)
+	}
+	rows.Close()
+	sort.Slice(locked, func(i, j int) bool { return locked[i].position < locked[j].position })
+	items := make([]rental.Item, 0, len(locked))
+	for _, value := range locked {
+		items = append(items, value.item)
+	}
+
+	interval, err := rental.NewInterval(plannedStart, plannedEnd)
+	if err != nil {
+		return rental.Rental{}, fmt.Errorf("restore rental interval for issue: %w", err)
+	}
+	value, err := rental.Restore(id, clientID, interval, status, storedIssuedAt, items)
+	if err != nil {
+		return rental.Rental{}, fmt.Errorf("restore rental for issue: %w", err)
+	}
+	if err := value.Issue(issuedAt); err != nil {
+		return rental.Rental{}, err
+	}
+
+	const updateRentalQuery = `
+		UPDATE rentals
+		SET status = 'active', issued_at = $2
+		WHERE id = $1
+	`
+	if _, err := tx.Exec(ctx, updateRentalQuery, id, issuedAt); err != nil {
+		return rental.Rental{}, fmt.Errorf("mark rental issued: %w", err)
+	}
+	const updateEquipmentQuery = `
+		UPDATE equipment AS e
+		SET status = 'issued'
+		FROM rental_items AS ri
+		WHERE ri.rental_id = $1
+		  AND ri.equipment_id = e.id
+		  AND e.status = 'available'
+	`
+	result, err := tx.Exec(ctx, updateEquipmentQuery, id)
+	if err != nil {
+		return rental.Rental{}, fmt.Errorf("mark rental equipment issued: %w", err)
+	}
+	if result.RowsAffected() != int64(len(items)) {
+		return rental.Rental{}, rental.ErrEquipmentUnavailable
+	}
+
+	if err := r.writeAudit(
+		ctx, tx, actionRentalIssued, actor, value,
+		rentalAuditDetails{
+			ClientID: clientID, PlannedStart: plannedStart, PlannedEnd: plannedEnd,
+			EquipmentCount: len(items), IssuedAt: &issuedAt,
+		},
+	); err != nil {
+		return rental.Rental{}, fmt.Errorf("write issued rental audit event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return rental.Rental{}, fmt.Errorf("commit issue rental transaction: %w", err)
+	}
+	return value, nil
+}
+
+// Cancel атомарно отменяет подтверждённую аренду и сохраняет обязательный
+// audit event. Состав остаётся в истории, а его резервирование прекращается.
+func (r *RentalRepository) Cancel(
+	ctx context.Context,
+	actor user.User,
+	id int64,
+) (rental.Rental, error) {
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return rental.Rental{}, fmt.Errorf("begin cancel rental transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	const rentalQuery = `
+		SELECT client_id, planned_start_at, planned_end_at, status, issued_at
+		FROM rentals
+		WHERE id = $1
+		FOR UPDATE
+	`
+	var (
+		clientID     int64
+		plannedStart time.Time
+		plannedEnd   time.Time
+		status       rental.Status
+		issuedAt     *time.Time
+	)
+	if err := tx.QueryRow(ctx, rentalQuery, id).Scan(
+		&clientID, &plannedStart, &plannedEnd, &status, &issuedAt,
+	); errors.Is(err, pgx.ErrNoRows) {
+		return rental.Rental{}, rental.ErrRentalNotFound
+	} else if err != nil {
+		return rental.Rental{}, fmt.Errorf("lock rental for cancellation: %w", err)
+	}
+	if status != rental.StatusConfirmed {
+		return rental.Rental{}, fmt.Errorf(
+			"%w: %s -> %s", rental.ErrStatusTransitionNotAllowed, status, rental.StatusCancelled,
+		)
+	}
+
+	const itemsQuery = `
+		SELECT equipment_id, inventory_number, kind, model_code, hourly_rate_kopecks
+		FROM rental_items
+		WHERE rental_id = $1
+		ORDER BY position
+	`
+	rows, err := tx.Query(ctx, itemsQuery, id)
+	if err != nil {
+		return rental.Rental{}, fmt.Errorf("query rental items for cancellation: %w", err)
+	}
+	items := make([]rental.Item, 0)
+	for rows.Next() {
+		var item rental.Item
+		if err := rows.Scan(
+			&item.EquipmentID,
+			&item.InventoryNumber,
+			&item.Kind,
+			&item.ModelCode,
+			&item.HourlyRateKopecks,
+		); err != nil {
+			rows.Close()
+			return rental.Rental{}, fmt.Errorf("scan rental item for cancellation: %w", err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return rental.Rental{}, fmt.Errorf("iterate rental items for cancellation: %w", err)
+	}
+	rows.Close()
+
+	interval, err := rental.NewInterval(plannedStart, plannedEnd)
+	if err != nil {
+		return rental.Rental{}, fmt.Errorf("restore rental interval for cancellation: %w", err)
+	}
+	value, err := rental.Restore(id, clientID, interval, status, issuedAt, items)
+	if err != nil {
+		return rental.Rental{}, fmt.Errorf("restore rental for cancellation: %w", err)
+	}
+	if err := value.Cancel(); err != nil {
+		return rental.Rental{}, err
+	}
+
+	if _, err := tx.Exec(ctx, "UPDATE rentals SET status = 'cancelled' WHERE id = $1", id); err != nil {
+		return rental.Rental{}, fmt.Errorf("mark rental cancelled: %w", err)
+	}
+	if err := r.writeAudit(
+		ctx, tx, actionRentalCancelled, actor, value,
+		rentalAuditDetails{
+			ClientID: clientID, PlannedStart: plannedStart, PlannedEnd: plannedEnd,
+			EquipmentCount: len(items),
+		},
+	); err != nil {
+		return rental.Rental{}, fmt.Errorf("write cancelled rental audit event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return rental.Rental{}, fmt.Errorf("commit cancel rental transaction: %w", err)
+	}
+	return value, nil
 }
 
 type rentalAuditWriter func(
@@ -100,7 +344,7 @@ func (r *RentalRepository) CreateConfirmed(
 		return rental.Rental{}, err
 	}
 	created, err := rental.Restore(
-		id, value.ClientID, value.Interval, value.Status, value.Items(),
+		id, value.ClientID, value.Interval, value.Status, nil, value.Items(),
 	)
 	if err != nil {
 		return rental.Rental{}, fmt.Errorf("restore confirmed rental: %w", err)
@@ -132,6 +376,7 @@ func (r *RentalRepository) Get(ctx context.Context, id int64) (rental.Rental, er
 
 	const query = `
 		SELECT r.id, r.client_id, r.planned_start_at, r.planned_end_at, r.status,
+		       r.issued_at,
 		       ri.equipment_id,
 		       COALESCE(ri.inventory_number, ''),
 		       COALESCE(ri.kind, ''),
@@ -154,6 +399,7 @@ func (r *RentalRepository) Get(ctx context.Context, id int64) (rental.Rental, er
 		start    time.Time
 		end      time.Time
 		status   rental.Status
+		issuedAt *time.Time
 		items    []rental.Item
 	)
 	for rows.Next() {
@@ -171,6 +417,7 @@ func (r *RentalRepository) Get(ctx context.Context, id int64) (rental.Rental, er
 			&start,
 			&end,
 			&status,
+			&issuedAt,
 			&equipmentID,
 			&inventoryNumber,
 			&kind,
@@ -201,7 +448,7 @@ func (r *RentalRepository) Get(ctx context.Context, id int64) (rental.Rental, er
 	if err != nil {
 		return rental.Rental{}, fmt.Errorf("restore rental interval: %w", err)
 	}
-	restored, err := rental.Restore(id, clientID, interval, status, items)
+	restored, err := rental.Restore(id, clientID, interval, status, issuedAt, items)
 	if err != nil {
 		return rental.Rental{}, fmt.Errorf("restore rental: %w", err)
 	}
@@ -212,10 +459,19 @@ func (r *RentalRepository) Get(ctx context.Context, id int64) (rental.Rental, er
 // текущим ФИО клиента и предварительной стоимостью по сохранённым снимкам.
 func (r *RentalRepository) ListPage(
 	ctx context.Context,
+	statuses []rental.Status,
 	page, pageSize int,
 ) (rental.Page, error) {
+	statusValues := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		statusValues = append(statusValues, string(status))
+	}
 	var total int
-	if err := r.pool.QueryRow(ctx, "SELECT count(*) FROM rentals").Scan(&total); err != nil {
+	if err := r.pool.QueryRow(
+		ctx,
+		"SELECT count(*) FROM rentals WHERE status = ANY($1::text[])",
+		statusValues,
+	).Scan(&total); err != nil {
 		return rental.Page{}, fmt.Errorf("count rentals: %w", err)
 	}
 
@@ -227,11 +483,12 @@ func (r *RentalRepository) ListPage(
 		FROM rentals AS r
 		JOIN clients AS c ON c.id = r.client_id
 		LEFT JOIN rental_items AS ri ON ri.rental_id = r.id
+		WHERE r.status = ANY($3::text[])
 		GROUP BY r.id, c.full_name
 		ORDER BY r.id DESC
 		LIMIT $1 OFFSET $2
 	`
-	rows, err := r.pool.Query(ctx, query, pageSize, (page-1)*pageSize)
+	rows, err := r.pool.Query(ctx, query, pageSize, (page-1)*pageSize, statusValues)
 	if err != nil {
 		return rental.Page{}, fmt.Errorf("query rental page: %w", err)
 	}

@@ -36,7 +36,7 @@ func TestServiceCreateConfirmedDelegatesValidatedInput(t *testing.T) {
 	) (Rental, error) {
 		gotActor = actor
 		gotSelections = append([]ModelSelection(nil), selections...)
-		return Restore(24, clientID, interval, StatusConfirmed, []Item{rentalItemFixture(1)})
+		return Restore(24, clientID, interval, StatusConfirmed, nil, []Item{rentalItemFixture(1)})
 	}}
 	service := NewService(repository)
 	operator := user.User{ID: 7, Login: "operator", Role: user.RoleOperator, Active: true}
@@ -81,6 +81,95 @@ func TestServiceCreateConfirmedRejectsAccessAndSelections(t *testing.T) {
 	}
 }
 
+func TestServiceIssueUsesCurrentTimeAndActor(t *testing.T) {
+	issuedAt := time.Date(2026, 8, 17, 12, 34, 56, 0, time.FixedZone("МСК", 3*60*60))
+	var gotActor user.User
+	var gotTime time.Time
+	repository := &serviceRepositoryStub{issue: func(
+		_ context.Context, actor user.User, id int64, at time.Time,
+	) (Rental, error) {
+		gotActor = actor
+		gotTime = at
+		value, err := Restore(id, 18, serviceInterval(t), StatusConfirmed, nil, []Item{rentalItemFixture(1)})
+		if err != nil {
+			return Rental{}, err
+		}
+		if err := value.Issue(at); err != nil {
+			return Rental{}, err
+		}
+		return value, nil
+	}}
+	service := NewService(repository)
+	service.now = func() time.Time { return issuedAt }
+	actor := user.User{ID: 7, Login: "operator", Role: user.RoleOperator, Active: true}
+
+	value, err := service.Issue(context.Background(), actor, 24)
+	if err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+	if value.Status != StatusActive || gotActor != actor || !gotTime.Equal(issuedAt.UTC()) || gotTime.Location() != time.UTC {
+		t.Fatalf("value = %+v actor = %+v issuedAt = %v", value, gotActor, gotTime)
+	}
+}
+
+func TestServiceIssueRejectsAccessAndInvalidID(t *testing.T) {
+	service := NewService(&serviceRepositoryStub{})
+	for _, tt := range []struct {
+		name  string
+		actor user.User
+		id    int64
+		want  error
+	}{
+		{name: "admin", actor: user.User{ID: 1, Role: user.RoleAdmin, Active: true}, id: 24, want: user.ErrAccessDenied},
+		{name: "inactive operator", actor: user.User{ID: 7, Role: user.RoleOperator}, id: 24, want: user.ErrAccessDenied},
+		{name: "invalid ID", actor: user.User{ID: 7, Role: user.RoleOperator, Active: true}, want: ErrRentalNotFound},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := service.Issue(context.Background(), tt.actor, tt.id); !errors.Is(err, tt.want) {
+				t.Fatalf("Issue() error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestServiceCancelUsesActorAndValidatesAccess(t *testing.T) {
+	actor := user.User{ID: 7, Login: "operator", Role: user.RoleOperator, Active: true}
+	var gotActor user.User
+	repository := &serviceRepositoryStub{cancel: func(_ context.Context, value user.User, id int64) (Rental, error) {
+		gotActor = value
+		rentalValue, err := Restore(id, 18, serviceInterval(t), StatusConfirmed, nil, []Item{rentalItemFixture(1)})
+		if err != nil {
+			return Rental{}, err
+		}
+		if err := rentalValue.Cancel(); err != nil {
+			return Rental{}, err
+		}
+		return rentalValue, nil
+	}}
+	cancelled, err := NewService(repository).Cancel(context.Background(), actor, 24)
+	if err != nil || cancelled.Status != StatusCancelled || gotActor != actor {
+		t.Fatalf("Cancel() = %+v, %v; actor = %+v", cancelled, err, gotActor)
+	}
+
+	service := NewService(&serviceRepositoryStub{})
+	for _, tt := range []struct {
+		name  string
+		actor user.User
+		id    int64
+		want  error
+	}{
+		{name: "admin", actor: user.User{ID: 1, Role: user.RoleAdmin, Active: true}, id: 24, want: user.ErrAccessDenied},
+		{name: "inactive", actor: user.User{ID: 7, Role: user.RoleOperator}, id: 24, want: user.ErrAccessDenied},
+		{name: "invalid ID", actor: actor, want: ErrRentalNotFound},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := service.Cancel(context.Background(), tt.actor, tt.id); !errors.Is(err, tt.want) {
+				t.Fatalf("Cancel() error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestServicePropagatesRepositoryErrors(t *testing.T) {
 	repositoryError := errors.New("repository unavailable")
 	service := NewService(&serviceRepositoryStub{
@@ -88,8 +177,10 @@ func TestServicePropagatesRepositoryErrors(t *testing.T) {
 		create: func(context.Context, user.User, int64, Interval, []ModelSelection) (Rental, error) {
 			return Rental{}, repositoryError
 		},
-		get:  func(context.Context, int64) (Rental, error) { return Rental{}, repositoryError },
-		list: func(context.Context, int, int) (Page, error) { return Page{}, repositoryError },
+		issue:  func(context.Context, user.User, int64, time.Time) (Rental, error) { return Rental{}, repositoryError },
+		cancel: func(context.Context, user.User, int64) (Rental, error) { return Rental{}, repositoryError },
+		get:    func(context.Context, int64) (Rental, error) { return Rental{}, repositoryError },
+		list:   func(context.Context, []Status, int, int) (Page, error) { return Page{}, repositoryError },
 	})
 	if _, err := service.AvailableModels(context.Background(), serviceInterval(t)); !errors.Is(err, repositoryError) {
 		t.Errorf("AvailableModels() error = %v", err)
@@ -97,10 +188,16 @@ func TestServicePropagatesRepositoryErrors(t *testing.T) {
 	if _, err := service.CreateConfirmed(context.Background(), user.User{ID: 7, Role: user.RoleOperator, Active: true}, 18, serviceInterval(t), []ModelSelection{{ModelID: 10, Quantity: 1}}); !errors.Is(err, repositoryError) {
 		t.Errorf("CreateConfirmed() error = %v", err)
 	}
+	if _, err := service.Issue(context.Background(), user.User{ID: 7, Role: user.RoleOperator, Active: true}, 1); !errors.Is(err, repositoryError) {
+		t.Errorf("Issue() error = %v", err)
+	}
+	if _, err := service.Cancel(context.Background(), user.User{ID: 7, Role: user.RoleOperator, Active: true}, 1); !errors.Is(err, repositoryError) {
+		t.Errorf("Cancel() error = %v", err)
+	}
 	if _, err := service.Get(context.Background(), 1); !errors.Is(err, repositoryError) {
 		t.Errorf("Get() error = %v", err)
 	}
-	if _, err := service.ListPage(context.Background(), 1, 5); !errors.Is(err, repositoryError) {
+	if _, err := service.ListPage(context.Background(), []Status{StatusConfirmed}, 1, 5); !errors.Is(err, repositoryError) {
 		t.Errorf("ListPage() error = %v", err)
 	}
 }
@@ -108,22 +205,43 @@ func TestServicePropagatesRepositoryErrors(t *testing.T) {
 func TestServiceListPageValidation(t *testing.T) {
 	service := NewService(&serviceRepositoryStub{})
 	for _, input := range [][2]int{{0, 5}, {1, 4}, {1, 20}} {
-		if _, err := service.ListPage(context.Background(), input[0], input[1]); !errors.Is(err, ErrInvalidPage) {
+		if _, err := service.ListPage(context.Background(), []Status{StatusConfirmed}, input[0], input[1]); !errors.Is(err, ErrInvalidPage) {
 			t.Errorf("ListPage(%d, %d) error = %v", input[0], input[1], err)
+		}
+	}
+	for _, statuses := range [][]Status{nil, {}, {Status("draft")}, {StatusConfirmed, StatusConfirmed}} {
+		if _, err := service.ListPage(context.Background(), statuses, 1, 5); !errors.Is(err, ErrInvalidPage) {
+			t.Errorf("ListPage(%v) error = %v", statuses, err)
 		}
 	}
 }
 
 type serviceRepositoryStub struct {
 	create    func(context.Context, user.User, int64, Interval, []ModelSelection) (Rental, error)
+	issue     func(context.Context, user.User, int64, time.Time) (Rental, error)
+	cancel    func(context.Context, user.User, int64) (Rental, error)
 	get       func(context.Context, int64) (Rental, error)
-	list      func(context.Context, int, int) (Page, error)
+	list      func(context.Context, []Status, int, int) (Page, error)
 	available func(context.Context, Interval) ([]equipment.Item, error)
+}
+
+func (s *serviceRepositoryStub) Cancel(ctx context.Context, actor user.User, id int64) (Rental, error) {
+	if s.cancel == nil {
+		return Rental{}, ErrRentalNotFound
+	}
+	return s.cancel(ctx, actor, id)
+}
+
+func (s *serviceRepositoryStub) Issue(ctx context.Context, actor user.User, id int64, issuedAt time.Time) (Rental, error) {
+	if s.issue == nil {
+		return Rental{}, ErrRentalNotFound
+	}
+	return s.issue(ctx, actor, id, issuedAt)
 }
 
 func (s *serviceRepositoryStub) CreateConfirmed(ctx context.Context, actor user.User, clientID int64, interval Interval, selections []ModelSelection) (Rental, error) {
 	if s.create == nil {
-		return Restore(1, clientID, interval, StatusConfirmed, []Item{rentalItemFixture(1)})
+		return Restore(1, clientID, interval, StatusConfirmed, nil, []Item{rentalItemFixture(1)})
 	}
 	return s.create(ctx, actor, clientID, interval, selections)
 }
@@ -133,11 +251,11 @@ func (s *serviceRepositoryStub) Get(ctx context.Context, id int64) (Rental, erro
 	}
 	return s.get(ctx, id)
 }
-func (s *serviceRepositoryStub) ListPage(ctx context.Context, page, pageSize int) (Page, error) {
+func (s *serviceRepositoryStub) ListPage(ctx context.Context, statuses []Status, page, pageSize int) (Page, error) {
 	if s.list == nil {
 		return Page{Page: page, PageSize: pageSize}, nil
 	}
-	return s.list(ctx, page, pageSize)
+	return s.list(ctx, statuses, page, pageSize)
 }
 func (s *serviceRepositoryStub) AvailableEquipment(ctx context.Context, interval Interval) ([]equipment.Item, error) {
 	if s.available == nil {

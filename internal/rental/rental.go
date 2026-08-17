@@ -4,6 +4,7 @@ package rental
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 // Status определяет состояние аренды в её жизненном цикле.
@@ -33,6 +34,11 @@ var (
 	ErrRentalItemsRequired = errors.New("confirmed rental must contain at least one item")
 	// ErrRentalNotFound означает, что аренда не найдена в постоянном хранилище.
 	ErrRentalNotFound = errors.New("rental not found")
+	// ErrIssuedAtRequired означает, что активная или завершённая аренда не имеет
+	// фактического времени выдачи.
+	ErrIssuedAtRequired = errors.New("rental issued time is required")
+	// ErrUnexpectedIssuedAt означает, что время выдачи задано до фактической выдачи.
+	ErrUnexpectedIssuedAt = errors.New("rental issued time is not allowed")
 )
 
 // Valid сообщает, является ли состояние аренды поддерживаемым.
@@ -67,8 +73,9 @@ type Rental struct {
 	// Interval — планируемый полуоткрытый интервал аренды.
 	Interval Interval
 	// Status — текущее состояние аренды.
-	Status Status
-	items  []Item
+	Status   Status
+	items    []Item
+	issuedAt *time.Time
 }
 
 // New создаёт ещё не сохранённую подтверждённую аренду с неизменяемым составом.
@@ -101,6 +108,7 @@ func Restore(
 	clientID int64,
 	interval Interval,
 	status Status,
+	issuedAt *time.Time,
 	items []Item,
 ) (Rental, error) {
 	if id <= 0 {
@@ -115,6 +123,10 @@ func Restore(
 	if !status.Valid() {
 		return Rental{}, ErrInvalidStatus
 	}
+	validatedIssuedAt, err := validateIssuedAt(status, issuedAt)
+	if err != nil {
+		return Rental{}, err
+	}
 	restoredItems, err := validateItems(items)
 	if err != nil {
 		return Rental{}, err
@@ -126,7 +138,33 @@ func Restore(
 		Interval: interval,
 		Status:   status,
 		items:    restoredItems,
+		issuedAt: validatedIssuedAt,
 	}, nil
+}
+
+// Issue фиксирует фактическую выдачу и переводит подтверждённую аренду в active.
+// Плановое время не ограничивает момент выдачи: раннее или позднее действие
+// сохраняется как отдельный фактический timestamp.
+func (r *Rental) Issue(issuedAt time.Time) error {
+	if issuedAt.IsZero() {
+		return ErrIssuedAtRequired
+	}
+	if !r.Status.Valid() {
+		return ErrInvalidStatus
+	}
+	if !r.Status.CanTransitionTo(StatusActive) {
+		return fmt.Errorf("%w: %s -> %s", ErrStatusTransitionNotAllowed, r.Status, StatusActive)
+	}
+	r.Status = StatusActive
+	value := issuedAt
+	r.issuedAt = &value
+	return nil
+}
+
+// Cancel отменяет подтверждённую аренду до фактической выдачи оборудования.
+// Отменённая аренда остаётся в истории и больше не резервирует оборудование.
+func (r *Rental) Cancel() error {
+	return r.ChangeStatus(StatusCancelled)
 }
 
 // ChangeStatus переводит аренду в target, если такой переход разрешён.
@@ -138,8 +176,19 @@ func (r *Rental) ChangeStatus(target Status) error {
 	if !r.Status.CanTransitionTo(target) {
 		return fmt.Errorf("%w: %s -> %s", ErrStatusTransitionNotAllowed, r.Status, target)
 	}
+	if target == StatusActive {
+		return ErrIssuedAtRequired
+	}
 	r.Status = target
 	return nil
+}
+
+// IssuedAt возвращает фактическое время выдачи и признак его наличия.
+func (r Rental) IssuedAt() (time.Time, bool) {
+	if r.issuedAt == nil {
+		return time.Time{}, false
+	}
+	return *r.issuedAt, true
 }
 
 // Items возвращает независимую копию состава аренды в порядке добавления.
@@ -170,4 +219,19 @@ func validateItems(items []Item) ([]Item, error) {
 		validated = append(validated, item)
 	}
 	return validated, nil
+}
+
+func validateIssuedAt(status Status, issuedAt *time.Time) (*time.Time, error) {
+	requiresIssuedAt := status == StatusActive || status == StatusCompleted
+	if requiresIssuedAt {
+		if issuedAt == nil || issuedAt.IsZero() {
+			return nil, ErrIssuedAtRequired
+		}
+		value := *issuedAt
+		return &value, nil
+	}
+	if issuedAt != nil {
+		return nil, ErrUnexpectedIssuedAt
+	}
+	return nil, nil
 }

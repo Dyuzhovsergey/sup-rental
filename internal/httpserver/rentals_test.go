@@ -277,7 +277,7 @@ func TestCreateConfirmedRentalRedirectsToList(t *testing.T) {
 		create: func(_ context.Context, actor user.User, clientID int64, interval rental.Interval, selections []rental.ModelSelection) (rental.Rental, error) {
 			gotActor = actor
 			gotSelections = append([]rental.ModelSelection(nil), selections...)
-			return rental.Restore(24, clientID, interval, rental.StatusConfirmed, []rental.Item{{
+			return rental.Restore(24, clientID, interval, rental.StatusConfirmed, nil, []rental.Item{{
 				EquipmentID: 94, InventoryNumber: "SUP-TOURING-1", Kind: equipment.KindSUPBoard,
 				ModelCode: "TOURING", HourlyRateKopecks: 100_000,
 			}})
@@ -346,12 +346,15 @@ func TestRentalsListAndDetail(t *testing.T) {
 		EquipmentID: 94, InventoryNumber: "SUP-TOURING-1", Kind: equipment.KindSUPBoard,
 		ModelCode: "TOURING", HourlyRateKopecks: 100_000,
 	}
-	stored, err := rental.Restore(24, 18, interval, rental.StatusConfirmed, []rental.Item{item})
+	stored, err := rental.Restore(24, 18, interval, rental.StatusConfirmed, nil, []rental.Item{item})
 	if err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
 	rentals := &rentalServiceStub{
-		list: func(context.Context, int, int) (rental.Page, error) {
+		list: func(_ context.Context, statuses []rental.Status, page, pageSize int) (rental.Page, error) {
+			if len(statuses) != 1 || statuses[0] != rental.StatusConfirmed {
+				return rental.Page{Page: page, PageSize: pageSize}, nil
+			}
 			return rental.Page{Rentals: []rental.Summary{{
 				ID: 24, ClientID: 18, ClientName: "Анна Петрова", Interval: interval,
 				Status: rental.StatusConfirmed, ItemCount: 1, PlannedTotalKopecks: 150_000,
@@ -393,6 +396,10 @@ func TestRentalMutationsRequireOperatorAndCSRF(t *testing.T) {
 		rentalRequest(http.MethodGet, "/rentals/new", nil),
 		rentalRequest(http.MethodGet, "/rentals/new/review", nil),
 		rentalRequest(http.MethodPost, "/rentals", url.Values{"csrf_token": {"csrf-token"}}),
+		rentalRequest(http.MethodGet, "/rentals/24/issue", nil),
+		rentalRequest(http.MethodPost, "/rentals/24/issue", url.Values{"csrf_token": {"csrf-token"}}),
+		rentalRequest(http.MethodGet, "/rentals/24/cancel", nil),
+		rentalRequest(http.MethodPost, "/rentals/24/cancel", url.Values{"csrf_token": {"csrf-token"}}),
 	} {
 		response := httptest.NewRecorder()
 		admin.ServeHTTP(response, request)
@@ -403,11 +410,312 @@ func TestRentalMutationsRequireOperatorAndCSRF(t *testing.T) {
 
 	operator := newRentalTestHandler(t, user.RoleOperator, &rentalServiceStub{}, rentalClientsStub())
 	for _, token := range []string{"", "wrong"} {
-		response := httptest.NewRecorder()
-		operator.ServeHTTP(response, rentalRequest(http.MethodPost, "/rentals", url.Values{"csrf_token": {token}}))
-		if response.Code != http.StatusForbidden {
-			t.Errorf("token %q status = %d, want 403", token, response.Code)
+		for _, path := range []string{"/rentals", "/rentals/24/cancel"} {
+			response := httptest.NewRecorder()
+			operator.ServeHTTP(response, rentalRequest(http.MethodPost, path, url.Values{"csrf_token": {token}}))
+			if response.Code != http.StatusForbidden {
+				t.Errorf("POST %s token %q status = %d, want 403", path, token, response.Code)
+			}
 		}
+	}
+}
+
+func TestRentalsListSeparatesStatusesAndShowsConfirmedActions(t *testing.T) {
+	interval := rentalHTTPInterval(t)
+	rentalByStatus := map[rental.Status]rental.Summary{
+		rental.StatusConfirmed: {ID: 24, ClientName: "Подтверждённый клиент", Interval: interval, Status: rental.StatusConfirmed, ItemCount: 1, PlannedTotalKopecks: 100_000},
+		rental.StatusActive:    {ID: 25, ClientName: "Активный клиент", Interval: interval, Status: rental.StatusActive, ItemCount: 2, PlannedTotalKopecks: 200_000},
+		rental.StatusCancelled: {ID: 26, ClientName: "Отменённый клиент", Interval: interval, Status: rental.StatusCancelled, ItemCount: 3, PlannedTotalKopecks: 300_000},
+	}
+	rentals := &rentalServiceStub{list: func(_ context.Context, statuses []rental.Status, page, pageSize int) (rental.Page, error) {
+		status := statuses[0]
+		if len(statuses) == 2 {
+			status = rental.StatusCancelled
+		}
+		summary := rentalByStatus[status]
+		total := 1
+		if status == rental.StatusConfirmed {
+			total = 6
+		}
+		return rental.Page{Rentals: []rental.Summary{summary}, Total: total, Page: page, PageSize: pageSize}, nil
+	}}
+	response := httptest.NewRecorder()
+	newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub()).ServeHTTP(
+		response, rentalRequest(http.MethodGet, "/rentals", nil),
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("list status = %d body %q", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	confirmedIndex := strings.Index(body, "Подтверждённые аренды")
+	activeIndex := strings.Index(body, "Активные аренды")
+	historyIndex := strings.Index(body, "История аренд")
+	if confirmedIndex < 0 || activeIndex <= confirmedIndex || historyIndex <= activeIndex {
+		t.Fatalf("section order is wrong: confirmed=%d active=%d history=%d", confirmedIndex, activeIndex, historyIndex)
+	}
+	for _, want := range []string{
+		"Подтверждённый клиент", "Активный клиент", "Отменённый клиент",
+		`href="/rentals/24/issue"`, `href="/rentals/24/cancel"`, "Выдать оборудование",
+		`confirmed_page=2&amp;page_size=5`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("list does not contain %q", want)
+		}
+	}
+	for _, unwanted := range []string{`href="/rentals/25/issue"`, `href="/rentals/26/cancel"`} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("list contains unexpected action %q", unwanted)
+		}
+	}
+}
+
+func TestRentalIssueConfirmationAndSuccess(t *testing.T) {
+	interval := rentalHTTPInterval(t)
+	confirmed, err := rental.Restore(24, 18, interval, rental.StatusConfirmed, nil, []rental.Item{{
+		EquipmentID: 94, InventoryNumber: "SUP-TOURING-1", Kind: equipment.KindSUPBoard,
+		ModelCode: "TOURING", HourlyRateKopecks: 100_000,
+	}})
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	issuedAt := time.Date(2026, time.August, 15, 10, 8, 0, 0, moscowTimeZone)
+	active := confirmed
+	if err := active.Issue(issuedAt); err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+	var gotActor user.User
+	rentals := &rentalServiceStub{
+		get: func(context.Context, int64) (rental.Rental, error) { return confirmed, nil },
+		issue: func(_ context.Context, actor user.User, id int64) (rental.Rental, error) {
+			gotActor = actor
+			if id != 24 {
+				t.Errorf("Issue() id = %d", id)
+			}
+			return active, nil
+		},
+	}
+	handler := newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub())
+
+	page := httptest.NewRecorder()
+	handler.ServeHTTP(page, rentalRequest(http.MethodGet, "/rentals/24/issue", nil))
+	if page.Code != http.StatusOK {
+		t.Fatalf("issue page status = %d body %q", page.Code, page.Body.String())
+	}
+	for _, want := range []string{"Подтверждение выдачи", "Анна Петрова", "SUP-TOURING-1", `name="csrf_token" value="csrf-token"`, "Подтвердить выдачу"} {
+		if !strings.Contains(page.Body.String(), want) {
+			t.Errorf("issue page does not contain %q", want)
+		}
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, rentalRequest(http.MethodPost, "/rentals/24/issue", url.Values{"csrf_token": {"csrf-token"}}))
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/rentals?issued=24" {
+		t.Fatalf("issue response = %d Location %q", response.Code, response.Header().Get("Location"))
+	}
+	if gotActor.Role != user.RoleOperator || gotActor.Login != "operator" {
+		t.Fatalf("Issue() actor = %+v", gotActor)
+	}
+}
+
+func TestRentalsListShowsIssuedNotice(t *testing.T) {
+	interval := rentalHTTPInterval(t)
+	issuedAt := time.Date(2026, time.August, 15, 10, 8, 0, 0, moscowTimeZone)
+	active, err := rental.Restore(24, 18, interval, rental.StatusActive, &issuedAt, []rental.Item{{
+		EquipmentID: 94, InventoryNumber: "SUP-TOURING-1", Kind: equipment.KindSUPBoard,
+		ModelCode: "TOURING", HourlyRateKopecks: 100_000,
+	}})
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	rentals := &rentalServiceStub{
+		list: func(_ context.Context, statuses []rental.Status, page, pageSize int) (rental.Page, error) {
+			if len(statuses) != 1 || statuses[0] != rental.StatusActive {
+				return rental.Page{Page: page, PageSize: pageSize}, nil
+			}
+			return rental.Page{Rentals: []rental.Summary{{
+				ID: 24, ClientID: 18, ClientName: "Анна Петрова", Interval: interval,
+				Status: rental.StatusActive, ItemCount: 1, PlannedTotalKopecks: 150_000,
+			}}, Total: 1, Page: 1, PageSize: 5}, nil
+		},
+		get: func(context.Context, int64) (rental.Rental, error) { return active, nil },
+	}
+	response := httptest.NewRecorder()
+	newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub()).ServeHTTP(
+		response, rentalRequest(http.MethodGet, "/rentals?issued=24", nil),
+	)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Аренда №24 переведена в работу. Оборудование выдано.") {
+		t.Fatalf("list response = %d body %q", response.Code, response.Body.String())
+	}
+}
+
+func TestRentalIssueErrorsAreMappedSafely(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantText   string
+	}{
+		{name: "missing", err: rental.ErrRentalNotFound, wantStatus: http.StatusNotFound, wantText: "404 page not found"},
+		{name: "wrong status", err: rental.ErrStatusTransitionNotAllowed, wantStatus: http.StatusConflict, wantText: "только подтверждённую"},
+		{name: "equipment", err: rental.ErrEquipmentUnavailable, wantStatus: http.StatusConflict, wantText: "недоступно для выдачи"},
+		{name: "internal", err: errors.New("database secret detail"), wantStatus: http.StatusInternalServerError, wantText: "Internal Server Error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rentals := &rentalServiceStub{issue: func(context.Context, user.User, int64) (rental.Rental, error) {
+				return rental.Rental{}, tt.err
+			}}
+			response := httptest.NewRecorder()
+			newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub()).ServeHTTP(
+				response, rentalRequest(http.MethodPost, "/rentals/24/issue", url.Values{"csrf_token": {"csrf-token"}}),
+			)
+			if response.Code != tt.wantStatus || !strings.Contains(response.Body.String(), tt.wantText) || strings.Contains(response.Body.String(), "database secret detail") {
+				t.Fatalf("response = %d body %q", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestRentalCancellationConfirmationAndRedirect(t *testing.T) {
+	interval := rentalHTTPInterval(t)
+	confirmed, err := rental.Restore(24, 18, interval, rental.StatusConfirmed, nil, []rental.Item{{
+		EquipmentID: 94, InventoryNumber: "SUP-TOURING-1", Kind: equipment.KindSUPBoard,
+		ModelCode: "TOURING", HourlyRateKopecks: 100_000,
+	}})
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	cancelled := confirmed
+	if err := cancelled.Cancel(); err != nil {
+		t.Fatalf("Cancel() error = %v", err)
+	}
+	var gotActor user.User
+	rentals := &rentalServiceStub{
+		get: func(context.Context, int64) (rental.Rental, error) { return confirmed, nil },
+		cancel: func(_ context.Context, actor user.User, id int64) (rental.Rental, error) {
+			gotActor = actor
+			if id != 24 {
+				t.Errorf("Cancel() id = %d", id)
+			}
+			return cancelled, nil
+		},
+	}
+	handler := newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub())
+	page := httptest.NewRecorder()
+	handler.ServeHTTP(page, rentalRequest(http.MethodGet, "/rentals/24/cancel", nil))
+	if page.Code != http.StatusOK {
+		t.Fatalf("cancel page status = %d body %q", page.Code, page.Body.String())
+	}
+	for _, want := range []string{"Подтверждение отмены", "Анна Петрова", "SUP-TOURING-1", `name="csrf_token" value="csrf-token"`, "Подтвердить отмену", "останутся в истории"} {
+		if !strings.Contains(page.Body.String(), want) {
+			t.Errorf("cancel page does not contain %q", want)
+		}
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, rentalRequest(http.MethodPost, "/rentals/24/cancel", url.Values{"csrf_token": {"csrf-token"}}))
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/rentals?cancelled=24" {
+		t.Fatalf("cancel response = %d Location %q", response.Code, response.Header().Get("Location"))
+	}
+	if gotActor.Role != user.RoleOperator || gotActor.Login != "operator" {
+		t.Fatalf("Cancel() actor = %+v", gotActor)
+	}
+}
+
+func TestRentalCancellationPageErrorsAreMappedSafely(t *testing.T) {
+	interval := rentalHTTPInterval(t)
+	cancelled, err := rental.Restore(24, 18, interval, rental.StatusCancelled, nil, []rental.Item{{
+		EquipmentID: 94, InventoryNumber: "SUP-TOURING-1", Kind: equipment.KindSUPBoard,
+		ModelCode: "TOURING", HourlyRateKopecks: 100_000,
+	}})
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	tests := []struct {
+		name       string
+		path       string
+		get        func(context.Context, int64) (rental.Rental, error)
+		wantStatus int
+		wantText   string
+	}{
+		{name: "invalid id", path: "/rentals/not-a-number/cancel", wantStatus: http.StatusNotFound, wantText: "404 page not found"},
+		{name: "missing", path: "/rentals/24/cancel", get: func(context.Context, int64) (rental.Rental, error) {
+			return rental.Rental{}, rental.ErrRentalNotFound
+		}, wantStatus: http.StatusNotFound, wantText: "404 page not found"},
+		{name: "wrong status", path: "/rentals/24/cancel", get: func(context.Context, int64) (rental.Rental, error) {
+			return cancelled, nil
+		}, wantStatus: http.StatusConflict, wantText: "только подтверждённую"},
+		{name: "internal", path: "/rentals/24/cancel", get: func(context.Context, int64) (rental.Rental, error) {
+			return rental.Rental{}, errors.New("database secret detail")
+		}, wantStatus: http.StatusInternalServerError, wantText: "Internal Server Error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			newRentalTestHandler(t, user.RoleOperator, &rentalServiceStub{get: tt.get}, rentalClientsStub()).ServeHTTP(
+				response, rentalRequest(http.MethodGet, tt.path, nil),
+			)
+			if response.Code != tt.wantStatus || !strings.Contains(response.Body.String(), tt.wantText) || strings.Contains(response.Body.String(), "database secret detail") {
+				t.Fatalf("response = %d body %q", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestRentalCancellationErrorsAreMappedSafely(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		wantText   string
+	}{
+		{name: "missing", err: rental.ErrRentalNotFound, wantStatus: http.StatusNotFound, wantText: "404 page not found"},
+		{name: "wrong status", err: rental.ErrStatusTransitionNotAllowed, wantStatus: http.StatusConflict, wantText: "только подтверждённую"},
+		{name: "internal", err: errors.New("database secret detail"), wantStatus: http.StatusInternalServerError, wantText: "Internal Server Error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rentals := &rentalServiceStub{cancel: func(context.Context, user.User, int64) (rental.Rental, error) {
+				return rental.Rental{}, tt.err
+			}}
+			response := httptest.NewRecorder()
+			newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub()).ServeHTTP(
+				response, rentalRequest(http.MethodPost, "/rentals/24/cancel", url.Values{"csrf_token": {"csrf-token"}}),
+			)
+			if response.Code != tt.wantStatus || !strings.Contains(response.Body.String(), tt.wantText) || strings.Contains(response.Body.String(), "database secret detail") {
+				t.Fatalf("response = %d body %q", response.Code, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestRentalsListShowsCancelledNotice(t *testing.T) {
+	interval := rentalHTTPInterval(t)
+	cancelled, err := rental.Restore(24, 18, interval, rental.StatusCancelled, nil, []rental.Item{{
+		EquipmentID: 94, InventoryNumber: "SUP-TOURING-1", Kind: equipment.KindSUPBoard,
+		ModelCode: "TOURING", HourlyRateKopecks: 100_000,
+	}})
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	rentals := &rentalServiceStub{
+		list: func(_ context.Context, statuses []rental.Status, page, pageSize int) (rental.Page, error) {
+			if len(statuses) != 2 {
+				return rental.Page{Page: page, PageSize: pageSize}, nil
+			}
+			return rental.Page{Rentals: []rental.Summary{{
+				ID: 24, ClientID: 18, ClientName: "Анна Петрова", Interval: interval,
+				Status: rental.StatusCancelled, ItemCount: 1, PlannedTotalKopecks: 150_000,
+			}}, Total: 1, Page: page, PageSize: pageSize}, nil
+		},
+		get: func(context.Context, int64) (rental.Rental, error) { return cancelled, nil },
+	}
+	response := httptest.NewRecorder()
+	newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub()).ServeHTTP(
+		response, rentalRequest(http.MethodGet, "/rentals?cancelled=24", nil),
+	)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Аренда №24 отменена.") {
+		t.Fatalf("list response = %d body %q", response.Code, response.Body.String())
 	}
 }
 

@@ -273,20 +273,25 @@ func safeAuditSummary(event audit.Event) string {
 		}
 		return strings.Join(changes, "; ")
 	}
-	if event.Action == "rental.confirmed" {
+	if event.Action == "rental.confirmed" || event.Action == "rental.issued" || event.Action == "rental.cancelled" {
 		var details struct {
-			ClientID       int64     `json:"client_id"`
-			PlannedStart   time.Time `json:"planned_start"`
-			PlannedEnd     time.Time `json:"planned_end"`
-			EquipmentCount int       `json:"equipment_count"`
+			ClientID       int64      `json:"client_id"`
+			PlannedStart   time.Time  `json:"planned_start"`
+			PlannedEnd     time.Time  `json:"planned_end"`
+			EquipmentCount int        `json:"equipment_count"`
+			IssuedAt       *time.Time `json:"issued_at"`
 		}
 		if json.Unmarshal(event.Details, &details) != nil {
 			return ""
 		}
-		return "Клиент ID: " + strconv.FormatInt(details.ClientID, 10) +
+		summary := "Клиент ID: " + strconv.FormatInt(details.ClientID, 10) +
 			"; период: " + details.PlannedStart.In(moscowTimeZone).Format("02.01.2006 15:04") +
 			" — " + details.PlannedEnd.In(moscowTimeZone).Format("02.01.2006 15:04") +
 			"; оборудование: " + strconv.Itoa(details.EquipmentCount)
+		if details.IssuedAt != nil {
+			summary += "; фактическая выдача: " + details.IssuedAt.In(moscowTimeZone).Format("02.01.2006 15:04")
+		}
+		return summary
 	}
 	if strings.HasPrefix(event.Action, "auth.") {
 		var details struct {
@@ -314,6 +319,8 @@ func auditActionLabel(action string) string {
 		"equipment.deleted": "Оборудование удалено",
 		"client.created":    "Клиент создан", "client.updated": "Данные клиента изменены",
 		"rental.confirmed": "Аренда создана и подтверждена",
+		"rental.issued":    "Оборудование выдано",
+		"rental.cancelled": "Аренда отменена",
 	}
 	if label := labels[action]; label != "" {
 		return label

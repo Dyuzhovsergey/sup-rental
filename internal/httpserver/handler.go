@@ -141,6 +141,18 @@ func NewHandler(
 	mux.Handle("POST /rentals", operatorOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		createConfirmedRental(logger, rentals, clients, pageTemplates, w, r)
 	}))))
+	mux.Handle("GET /rentals/{id}/issue", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showRentalIssuePage(logger, rentals, clients, pageTemplates, w, r)
+	})))
+	mux.Handle("POST /rentals/{id}/issue", operatorOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		issueRental(logger, rentals, w, r)
+	}))))
+	mux.Handle("GET /rentals/{id}/cancel", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showRentalCancelPage(logger, rentals, clients, pageTemplates, w, r)
+	})))
+	mux.Handle("POST /rentals/{id}/cancel", operatorOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		cancelRental(logger, rentals, w, r)
+	}))))
 	mux.Handle("GET /rentals/{id}", authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		showRentalDetailPage(logger, rentals, clients, pageTemplates, w, r)
 	})))

@@ -324,8 +324,24 @@ type clientServiceStub struct {
 type rentalServiceStub struct {
 	available func(context.Context, rental.Interval) ([]rental.AvailableModel, error)
 	create    func(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
+	issue     func(context.Context, user.User, int64) (rental.Rental, error)
+	cancel    func(context.Context, user.User, int64) (rental.Rental, error)
 	get       func(context.Context, int64) (rental.Rental, error)
-	list      func(context.Context, int, int) (rental.Page, error)
+	list      func(context.Context, []rental.Status, int, int) (rental.Page, error)
+}
+
+func (s *rentalServiceStub) Cancel(ctx context.Context, actor user.User, id int64) (rental.Rental, error) {
+	if s.cancel == nil {
+		return rental.Rental{}, rental.ErrRentalNotFound
+	}
+	return s.cancel(ctx, actor, id)
+}
+
+func (s *rentalServiceStub) Issue(ctx context.Context, actor user.User, id int64) (rental.Rental, error) {
+	if s.issue == nil {
+		return rental.Rental{}, rental.ErrRentalNotFound
+	}
+	return s.issue(ctx, actor, id)
 }
 
 func (s *rentalServiceStub) AvailableModels(ctx context.Context, interval rental.Interval) ([]rental.AvailableModel, error) {
@@ -337,7 +353,7 @@ func (s *rentalServiceStub) AvailableModels(ctx context.Context, interval rental
 
 func (s *rentalServiceStub) CreateConfirmed(ctx context.Context, actor user.User, clientID int64, interval rental.Interval, selections []rental.ModelSelection) (rental.Rental, error) {
 	if s.create == nil {
-		return rental.Restore(1, clientID, interval, rental.StatusConfirmed, []rental.Item{{
+		return rental.Restore(1, clientID, interval, rental.StatusConfirmed, nil, []rental.Item{{
 			EquipmentID: 1, InventoryNumber: "SUP-TEST-1", Kind: equipment.KindSUPBoard,
 			ModelCode: "TEST", HourlyRateKopecks: 100_000,
 		}})
@@ -352,11 +368,11 @@ func (s *rentalServiceStub) Get(ctx context.Context, id int64) (rental.Rental, e
 	return s.get(ctx, id)
 }
 
-func (s *rentalServiceStub) ListPage(ctx context.Context, page, pageSize int) (rental.Page, error) {
+func (s *rentalServiceStub) ListPage(ctx context.Context, statuses []rental.Status, page, pageSize int) (rental.Page, error) {
 	if s.list == nil {
 		return rental.Page{Page: page, PageSize: pageSize}, nil
 	}
-	return s.list(ctx, page, pageSize)
+	return s.list(ctx, statuses, page, pageSize)
 }
 
 func (s *clientServiceStub) Create(ctx context.Context, actor user.User, fullName, phone string) (client.Client, error) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
 	"github.com/Dyuzhovsergey/sup-rental/internal/user"
@@ -24,6 +25,9 @@ var (
 	// ErrInsufficientEquipment означает, что доступных единиц выбранной модели
 	// меньше запрошенного количества.
 	ErrInsufficientEquipment = errors.New("insufficient available equipment")
+	// ErrEquipmentUnavailable означает, что зарезервированную физическую
+	// единицу нельзя выдать в её текущем состоянии.
+	ErrEquipmentUnavailable = errors.New("rental equipment is unavailable for issue")
 )
 
 var allowedPageSizes = [...]int{5, 10, 15}
@@ -38,8 +42,10 @@ type Repository interface {
 		interval Interval,
 		selections []ModelSelection,
 	) (Rental, error)
+	Issue(ctx context.Context, actor user.User, id int64, issuedAt time.Time) (Rental, error)
+	Cancel(ctx context.Context, actor user.User, id int64) (Rental, error)
 	Get(ctx context.Context, id int64) (Rental, error)
-	ListPage(ctx context.Context, page, pageSize int) (Page, error)
+	ListPage(ctx context.Context, statuses []Status, page, pageSize int) (Page, error)
 	AvailableEquipment(ctx context.Context, interval Interval) ([]equipment.Item, error)
 }
 
@@ -99,11 +105,12 @@ type Page struct {
 // Service реализует пользовательские сценарии создания и просмотра аренд.
 type Service struct {
 	repository Repository
+	now        func() time.Time
 }
 
 // NewService создаёт сервис аренды с обязательным repository.
 func NewService(repository Repository) *Service {
-	return &Service{repository: repository}
+	return &Service{repository: repository, now: time.Now}
 }
 
 // AvailableModels группирует физические единицы, доступные на весь интервал,
@@ -150,6 +157,40 @@ func (s *Service) CreateConfirmed(
 	return created, nil
 }
 
+// Issue выдаёт весь состав подтверждённой аренды от имени активного оператора.
+// Repository атомарно меняет аренду, оборудование и обязательный audit event.
+func (s *Service) Issue(ctx context.Context, actor user.User, id int64) (Rental, error) {
+	if actor.ID <= 0 || actor.Role != user.RoleOperator || !actor.Active {
+		return Rental{}, user.ErrAccessDenied
+	}
+	if id <= 0 {
+		return Rental{}, ErrRentalNotFound
+	}
+
+	issued, err := s.repository.Issue(ctx, actor, id, s.now().UTC())
+	if err != nil {
+		return Rental{}, fmt.Errorf("issue rental: %w", err)
+	}
+	return issued, nil
+}
+
+// Cancel отменяет подтверждённую аренду от имени активного оператора.
+// Repository сохраняет состояние и обязательный audit event одной транзакцией.
+func (s *Service) Cancel(ctx context.Context, actor user.User, id int64) (Rental, error) {
+	if actor.ID <= 0 || actor.Role != user.RoleOperator || !actor.Active {
+		return Rental{}, user.ErrAccessDenied
+	}
+	if id <= 0 {
+		return Rental{}, ErrRentalNotFound
+	}
+
+	cancelled, err := s.repository.Cancel(ctx, actor, id)
+	if err != nil {
+		return Rental{}, fmt.Errorf("cancel rental: %w", err)
+	}
+	return cancelled, nil
+}
+
 // Get возвращает аренду по положительному идентификатору.
 func (s *Service) Get(ctx context.Context, id int64) (Rental, error) {
 	if id <= 0 {
@@ -162,16 +203,33 @@ func (s *Service) Get(ctx context.Context, id int64) (Rental, error) {
 	return value, nil
 }
 
-// ListPage возвращает страницу аренд от новых записей к старым.
-func (s *Service) ListPage(ctx context.Context, page, pageSize int) (Page, error) {
-	if page <= 0 || !allowedPageSize(pageSize) {
+// ListPage возвращает страницу аренд выбранных состояний от новых записей к старым.
+func (s *Service) ListPage(ctx context.Context, statuses []Status, page, pageSize int) (Page, error) {
+	if page <= 0 || !allowedPageSize(pageSize) || !validStatusFilter(statuses) {
 		return Page{}, ErrInvalidPage
 	}
-	result, err := s.repository.ListPage(ctx, page, pageSize)
+	result, err := s.repository.ListPage(ctx, statuses, page, pageSize)
 	if err != nil {
 		return Page{}, fmt.Errorf("list rentals: %w", err)
 	}
 	return result, nil
+}
+
+func validStatusFilter(statuses []Status) bool {
+	if len(statuses) == 0 {
+		return false
+	}
+	seen := make(map[Status]struct{}, len(statuses))
+	for _, status := range statuses {
+		if !status.Valid() {
+			return false
+		}
+		if _, exists := seen[status]; exists {
+			return false
+		}
+		seen[status] = struct{}{}
+	}
+	return true
 }
 
 // AllowedPageSizes возвращает копию списка допустимых размеров страницы.

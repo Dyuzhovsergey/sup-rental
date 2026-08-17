@@ -6,16 +6,25 @@
 <div class="app-shell">
 {{template "equipment-sidebar" .}}
 <main class="main-content" id="main-content" tabindex="-1"><div class="content-container">
-    <header class="page-header"><div><p class="page-eyebrow">Прокат</p><h1>Аренды</h1><p class="page-description">Подтверждённые и проведённые аренды в порядке от новых к старым.</p></div>{{if .CanCreate}}<a class="button button--primary" href="/rentals/new">Создать аренду</a>{{end}}</header>
-    <section class="panel" aria-labelledby="rentals-heading">
-        <div class="panel-header"><div><h2 id="rentals-heading">Список аренд</h2><p class="panel-description">Откройте строку, чтобы посмотреть период и состав.</p></div><span class="count-chip">{{.TotalLabel}}</span></div>
-        {{if .Success}}<div class="equipment-list-notice"><div class="alert alert--success" role="status">{{.Success}}</div></div>{{end}}
+    <header class="page-header"><div><p class="page-eyebrow">Прокат</p><h1>Аренды</h1><p class="page-description">Подтверждённые аренды, текущая выдача и сохранённая история.</p></div>{{if .CanCreate}}<a class="button button--primary" href="/rentals/new">Создать аренду</a>{{end}}</header>
+    <div class="content-stack">
+        {{if .Success}}<div class="alert alert--success" role="status" aria-live="polite">{{.Success}}</div>{{end}}
         <div class="client-list-toolbar"><form class="list-toolbar" method="get" action="/rentals"><label for="rental-page-size">Строк на странице</label><select id="rental-page-size" name="page_size">{{range .PageSizeOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Value}}</option>{{end}}</select><button class="button button--compact" type="submit">Показать</button></form></div>
-        {{if .Rentals}}
-        <div class="table-scroll"><table><thead><tr><th>№</th><th>Клиент</th><th>Период</th><th>Состав</th><th>Статус</th><th>Стоимость</th></tr></thead><tbody>
-        {{range .Rentals}}<tr><td><a class="client-name-link" href="/rentals/{{.ID}}"><strong>№{{.ID}}</strong></a></td><td>{{.ClientName}}</td><td>{{.Period}}</td><td>{{.ItemCount}}</td><td>{{template "rental-status-chip" .Status}}</td><td>{{.PlannedTotal}}</td></tr>{{end}}
-        </tbody></table></div>{{else}}<div class="empty-state"><h3>Аренд пока нет</h3><p>{{if .CanCreate}}Создайте первую аренду.{{else}}Созданные оператором аренды появятся здесь.{{end}}</p></div>{{end}}
-        {{template "pagination" .Pagination}}
-    </section>
+        {{template "rental-section" .Confirmed}}
+        {{template "rental-section" .Active}}
+        {{template "rental-section" .History}}
+    </div>
 </div></main></div>
 </body></html>
+
+{{define "rental-section"}}
+<section class="panel" aria-labelledby="{{.ID}}">
+    <div class="panel-header"><div><h2 id="{{.ID}}">{{.Heading}}</h2><p class="panel-description">{{.Description}}</p></div><span class="count-chip">{{.TotalLabel}}</span></div>
+    {{if .Rentals}}
+    <div class="table-scroll"><table><thead><tr><th>№</th><th>Клиент</th><th>Период</th><th>Состав</th><th>Статус</th><th>Стоимость</th>{{if and .ShowActions .CanManage}}<th>Действия</th>{{end}}</tr></thead><tbody>
+    {{range .Rentals}}<tr><td><a class="client-name-link" href="/rentals/{{.ID}}"><strong>№{{.ID}}</strong></a></td><td>{{.ClientName}}</td><td>{{.Period}}</td><td>{{.ItemCount}}</td><td>{{template "rental-status-chip" .Status}}</td><td>{{.PlannedTotal}}</td>{{if and $.ShowActions $.CanManage}}<td class="table-actions"><div class="item-actions"><a class="button button--compact button--primary" href="/rentals/{{.ID}}/issue"><svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14"></path><path d="m14 7 5 5-5 5"></path></svg>Выдать оборудование</a><a class="button button--compact button--danger" href="/rentals/{{.ID}}/cancel"><svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>Отменить</a></div></td>{{end}}</tr>{{end}}
+    </tbody></table></div>
+    {{else}}<div class="empty-state"><h3>{{.EmptyTitle}}</h3><p>{{.EmptyText}}</p></div>{{end}}
+    {{template "pagination" .Pagination}}
+</section>
+{{end}}

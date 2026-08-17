@@ -170,6 +170,42 @@ func TestAuditPageShowsRentalCategoryAndSafeSummary(t *testing.T) {
 	}
 }
 
+func TestAuditPageShowsIssuedRentalTime(t *testing.T) {
+	service := &auditServiceStub{list: func(context.Context, user.User, audit.Filter) (audit.Page, error) {
+		return audit.Page{Total: 1, Page: 1, Events: []audit.Event{{
+			Action: "rental.issued", TargetLabel: "Аренда №24", Result: audit.ResultSuccess,
+			Details: []byte(`{"client_id":18,"planned_start":"2026-08-15T07:08:00Z","planned_end":"2026-08-15T08:38:00Z","equipment_count":3,"issued_at":"2026-08-15T07:02:00Z"}`),
+		}}}, nil
+	}}
+	response := httptest.NewRecorder()
+	newAuditTestHandler(t, service, authenticatedFixture()).ServeHTTP(
+		response, authenticatedRequest(http.MethodGet, "/admin/audit?category=rentals", ""),
+	)
+	for _, want := range []string{"Оборудование выдано", "фактическая выдача: 15.08.2026 10:02", "оборудование: 3"} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestAuditPageShowsCancelledRental(t *testing.T) {
+	service := &auditServiceStub{list: func(context.Context, user.User, audit.Filter) (audit.Page, error) {
+		return audit.Page{Total: 1, Page: 1, Events: []audit.Event{{
+			Action: "rental.cancelled", TargetLabel: "Аренда №24", Result: audit.ResultSuccess,
+			Details: []byte(`{"client_id":18,"planned_start":"2026-08-15T07:08:00Z","planned_end":"2026-08-15T08:38:00Z","equipment_count":3}`),
+		}}}, nil
+	}}
+	response := httptest.NewRecorder()
+	newAuditTestHandler(t, service, authenticatedFixture()).ServeHTTP(
+		response, authenticatedRequest(http.MethodGet, "/admin/audit?category=rentals", ""),
+	)
+	for _, want := range []string{"Аренда отменена", "Аренда №24", "оборудование: 3"} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
 func TestAuditPaginationPreservesFilters(t *testing.T) {
 	service := &auditServiceStub{list: func(context.Context, user.User, audit.Filter) (audit.Page, error) {
 		return audit.Page{Total: 51, Page: 1, Events: []audit.Event{{

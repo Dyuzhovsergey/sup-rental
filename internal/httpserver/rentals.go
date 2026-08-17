@@ -24,8 +24,10 @@ const rentalDateTimeLayout = "2006-01-02T15:04"
 type rentalService interface {
 	AvailableModels(context.Context, rental.Interval) ([]rental.AvailableModel, error)
 	CreateConfirmed(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
+	Issue(context.Context, user.User, int64) (rental.Rental, error)
+	Cancel(context.Context, user.User, int64) (rental.Rental, error)
 	Get(context.Context, int64) (rental.Rental, error)
-	ListPage(context.Context, int, int) (rental.Page, error)
+	ListPage(context.Context, []rental.Status, int, int) (rental.Page, error)
 }
 
 type rentalWizardPageData struct {
@@ -101,13 +103,32 @@ type rentalDurationOption struct {
 type rentalsPageData struct {
 	Authentication  *authenticationView
 	Title           string
-	Rentals         []rentalSummaryView
 	Success         string
-	TotalLabel      string
+	Confirmed       rentalSectionView
+	Active          rentalSectionView
+	History         rentalSectionView
 	PageSize        int
 	PageSizeOptions []pageSizeOption
-	Pagination      paginationView
 	CanCreate       bool
+}
+
+type rentalSectionView struct {
+	ID          string
+	Heading     string
+	Description string
+	Rentals     []rentalSummaryView
+	TotalLabel  string
+	Pagination  paginationView
+	EmptyTitle  string
+	EmptyText   string
+	ShowActions bool
+	CanManage   bool
+}
+
+type rentalPageNumbers struct {
+	Confirmed int
+	Active    int
+	History   int
 }
 
 type rentalSummaryView struct {
@@ -130,6 +151,8 @@ type rentalDetailPageData struct {
 	Items          []rentalItemView
 	ItemCount      string
 	PlannedTotal   string
+	IssuedAt       string
+	CanIssue       bool
 }
 
 type rentalItemView struct {
@@ -545,37 +568,64 @@ func showRentalsPage(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	page, pageSize, ok := rentalPagination(r.URL.Query())
+	pages, pageSize, ok := rentalPagination(r.URL.Query())
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-	result, err := rentals.ListPage(r.Context(), page, pageSize)
-	if err != nil {
-		if errors.Is(err, rental.ErrInvalidPage) {
-			http.NotFound(w, r)
-			return
-		}
-		logger.Error("list rentals", slog.Any("error", err))
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	confirmed, err := rentals.ListPage(
+		r.Context(), []rental.Status{rental.StatusConfirmed}, pages.Confirmed, pageSize,
+	)
+	if !writeRentalListError(logger, w, r, err, "list confirmed rentals") {
 		return
 	}
-	totalPages := pageCount(result.Total, pageSize)
-	if page > totalPages {
+	active, err := rentals.ListPage(
+		r.Context(), []rental.Status{rental.StatusActive}, pages.Active, pageSize,
+	)
+	if !writeRentalListError(logger, w, r, err, "list active rentals") {
+		return
+	}
+	history, err := rentals.ListPage(
+		r.Context(), []rental.Status{rental.StatusCompleted, rental.StatusCancelled}, pages.History, pageSize,
+	)
+	if !writeRentalListError(logger, w, r, err, "list rental history") {
+		return
+	}
+	if pages.Confirmed > pageCount(confirmed.Total, pageSize) ||
+		pages.Active > pageCount(active.Total, pageSize) ||
+		pages.History > pageCount(history.Total, pageSize) {
 		http.NotFound(w, r)
 		return
 	}
 	authentication := authenticationForPage(r)
+	canManage := authentication != nil && authentication.IsOperator
 	data := rentalsPageData{
-		Authentication: authentication, Title: "Аренды — SUP Rental",
-		Rentals: rentalSummaryViews(result.Rentals), TotalLabel: rentalCountLabel(result.Total),
-		PageSize: pageSize, PageSizeOptions: rentalPageSizeOptions(pageSize),
-		Pagination: paginationView{
-			HasPrevious: page > 1, HasNext: page < totalPages,
-			PreviousURL: rentalPageURL(page-1, pageSize), NextURL: rentalPageURL(page+1, pageSize),
-			PageLabel: pageLabel(page, totalPages),
+		Authentication: authentication,
+		Title:          "Аренды — SUP Rental",
+		Confirmed: rentalSectionView{
+			ID:      "confirmed-rentals-heading",
+			Heading: "Подтверждённые аренды", Description: "Ожидают фактической выдачи оборудования",
+			Rentals: rentalSummaryViews(confirmed.Rentals), TotalLabel: rentalCountLabel(confirmed.Total),
+			Pagination: rentalSectionPagination("confirmed_page", pages.Confirmed, confirmed.Total, pages, pageSize),
+			EmptyTitle: "Подтверждённых аренд нет", EmptyText: "Новые аренды появятся здесь до выдачи.",
+			ShowActions: true, CanManage: canManage,
 		},
-		CanCreate: authentication != nil && authentication.IsOperator,
+		Active: rentalSectionView{
+			ID:      "active-rentals-heading",
+			Heading: "Активные аренды", Description: "Оборудование выдано клиентам",
+			Rentals: rentalSummaryViews(active.Rentals), TotalLabel: rentalCountLabel(active.Total),
+			Pagination: rentalSectionPagination("active_page", pages.Active, active.Total, pages, pageSize),
+			EmptyTitle: "Активных аренд нет", EmptyText: "Выданные аренды появятся здесь.",
+		},
+		History: rentalSectionView{
+			ID:      "rental-history-heading",
+			Heading: "История аренд", Description: "Отменённые и завершённые аренды",
+			Rentals: rentalSummaryViews(history.Rentals), TotalLabel: rentalCountLabel(history.Total),
+			Pagination: rentalSectionPagination("history_page", pages.History, history.Total, pages, pageSize),
+			EmptyTitle: "История пока пуста", EmptyText: "Отменённые и завершённые аренды появятся здесь.",
+		},
+		PageSize: pageSize, PageSizeOptions: rentalPageSizeOptions(pageSize),
+		CanCreate: canManage,
 	}
 	if createdID, parseErr := positiveOptionalID(r.URL.Query().Get("created")); parseErr == nil && createdID > 0 {
 		if _, getErr := rentals.Get(r.Context(), createdID); getErr == nil {
@@ -586,7 +636,40 @@ func showRentalsPage(
 			return
 		}
 	}
+	if issuedID, parseErr := positiveOptionalID(r.URL.Query().Get("issued")); parseErr == nil && issuedID > 0 {
+		issued, getErr := rentals.Get(r.Context(), issuedID)
+		if getErr == nil && issued.Status == rental.StatusActive {
+			data.Success = "Аренда №" + strconv.FormatInt(issuedID, 10) + " переведена в работу. Оборудование выдано."
+		} else if getErr != nil && !errors.Is(getErr, rental.ErrRentalNotFound) {
+			logger.Error("load issued rental notice", slog.Any("error", getErr))
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+	}
+	if cancelledID, parseErr := positiveOptionalID(r.URL.Query().Get("cancelled")); parseErr == nil && cancelledID > 0 {
+		cancelled, getErr := rentals.Get(r.Context(), cancelledID)
+		if getErr == nil && cancelled.Status == rental.StatusCancelled {
+			data.Success = "Аренда №" + strconv.FormatInt(cancelledID, 10) + " отменена."
+		} else if getErr != nil && !errors.Is(getErr, rental.ErrRentalNotFound) {
+			logger.Error("load cancelled rental notice", slog.Any("error", getErr))
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+	}
 	renderPage(logger, pageTemplates, w, http.StatusOK, "rentals.html", data, "render rentals page", "write rentals response")
+}
+
+func writeRentalListError(logger *slog.Logger, w http.ResponseWriter, r *http.Request, err error, message string) bool {
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, rental.ErrInvalidPage) {
+		http.NotFound(w, r)
+		return false
+	}
+	logger.Error(message, slog.Any("error", err))
+	http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+	return false
 }
 
 func showRentalDetailPage(
@@ -624,13 +707,20 @@ func showRentalDetailPage(
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	renderPage(logger, pageTemplates, w, http.StatusOK, "rental_detail.html", rentalDetailPageData{
-		Authentication: authenticationForPage(r), Title: fmt.Sprintf("Аренда №%d — SUP Rental", id),
+	authentication := authenticationForPage(r)
+	data := rentalDetailPageData{
+		Authentication: authentication, Title: fmt.Sprintf("Аренда №%d — SUP Rental", id),
 		RentalID: id, Client: customer, Period: rentalPeriodLabel(value.Interval),
 		Duration: rentalDurationLabel(value.Interval), Status: rentalStatusLabel(value.Status),
 		Items: rentalItemViews(value.Items()), ItemCount: rentalItemCountLabel(value.ItemCount()),
 		PlannedTotal: rentalMoneyLabel(total),
-	}, "render rental detail", "write rental detail response")
+		CanIssue:     authentication != nil && authentication.IsOperator && value.Status == rental.StatusConfirmed,
+	}
+	if issuedAt, ok := value.IssuedAt(); ok {
+		data.IssuedAt = rentalDateTimeLabel(issuedAt)
+	}
+	renderPage(logger, pageTemplates, w, http.StatusOK, "rental_detail.html", data,
+		"render rental detail", "write rental detail response")
 }
 
 func rentalClientFromRequest(
@@ -898,25 +988,27 @@ func rentalItemViews(items []rental.Item) []rentalItemView {
 	return views
 }
 
-func rentalPagination(query url.Values) (int, int, bool) {
-	page, ok := positiveQueryPage(query.Get("page"))
-	if !ok {
-		return 0, 0, false
+func rentalPagination(query url.Values) (rentalPageNumbers, int, bool) {
+	confirmedPage, confirmedOK := positiveQueryPage(query.Get("confirmed_page"))
+	activePage, activeOK := positiveQueryPage(query.Get("active_page"))
+	historyPage, historyOK := positiveQueryPage(query.Get("history_page"))
+	if !confirmedOK || !activeOK || !historyOK {
+		return rentalPageNumbers{}, 0, false
 	}
 	pageSize := rental.DefaultPageSize
 	if raw := query.Get("page_size"); raw != "" {
 		var err error
 		pageSize, err = strconv.Atoi(raw)
 		if err != nil {
-			return 0, 0, false
+			return rentalPageNumbers{}, 0, false
 		}
 	}
 	for _, allowed := range rental.AllowedPageSizes() {
 		if pageSize == allowed {
-			return page, pageSize, true
+			return rentalPageNumbers{Confirmed: confirmedPage, Active: activePage, History: historyPage}, pageSize, true
 		}
 	}
-	return 0, 0, false
+	return rentalPageNumbers{}, 0, false
 }
 
 func rentalPageSizeOptions(selected int) []pageSizeOption {
@@ -927,12 +1019,31 @@ func rentalPageSizeOptions(selected int) []pageSizeOption {
 	return options
 }
 
-func rentalPageURL(page, pageSize int) string {
+func rentalSectionPageURL(pageKey string, page int, pages rentalPageNumbers, pageSize int) string {
 	query := url.Values{"page_size": {strconv.Itoa(pageSize)}}
-	if page > 1 {
-		query.Set("page", strconv.Itoa(page))
+	pageValues := map[string]int{
+		"confirmed_page": pages.Confirmed,
+		"active_page":    pages.Active,
+		"history_page":   pages.History,
+	}
+	pageValues[pageKey] = page
+	for key, value := range pageValues {
+		if value > 1 {
+			query.Set(key, strconv.Itoa(value))
+		}
 	}
 	return "/rentals?" + query.Encode()
+}
+
+func rentalSectionPagination(pageKey string, page, total int, pages rentalPageNumbers, pageSize int) paginationView {
+	totalPages := pageCount(total, pageSize)
+	return paginationView{
+		HasPrevious: page > 1,
+		HasNext:     page < totalPages,
+		PreviousURL: rentalSectionPageURL(pageKey, page-1, pages, pageSize),
+		NextURL:     rentalSectionPageURL(pageKey, page+1, pages, pageSize),
+		PageLabel:   pageLabel(page, totalPages),
+	}
 }
 
 func rentalPeriodLabel(interval rental.Interval) string {
@@ -942,6 +1053,10 @@ func rentalPeriodLabel(interval rental.Interval) string {
 		return start.Format("02.01.2006 15:04") + " — " + end.Format("15:04")
 	}
 	return start.Format("02.01.2006 15:04") + " — " + end.Format("02.01.2006 15:04")
+}
+
+func rentalDateTimeLabel(value time.Time) string {
+	return value.In(moscowTimeZone).Format("02.01.2006 15:04")
 }
 
 func rentalDurationLabel(interval rental.Interval) string {
