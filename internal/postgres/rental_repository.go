@@ -2,14 +2,17 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
+	"sort"
 	"time"
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/client"
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
 	"github.com/Dyuzhovsergey/sup-rental/internal/rental"
+	"github.com/Dyuzhovsergey/sup-rental/internal/user"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -19,29 +22,59 @@ const (
 	rentalClientForeignKeyConstraint = "rentals_client_id_fkey"
 	rentalItemForeignKeyConstraint   = "rental_items_equipment_id_fkey"
 	rentalItemUniqueEquipmentKey     = "rental_items_rental_equipment_key"
+	actionRentalConfirmed            = "rental.confirmed"
 )
+
+type rentalAuditDetails struct {
+	ClientID       int64     `json:"client_id"`
+	PlannedStart   time.Time `json:"planned_start"`
+	PlannedEnd     time.Time `json:"planned_end"`
+	EquipmentCount int       `json:"equipment_count"`
+}
+
+type rentalAuditWriter func(
+	context.Context,
+	pgx.Tx,
+	string,
+	user.User,
+	rental.Rental,
+	rentalAuditDetails,
+) error
 
 // RentalRepository хранит аренды и их упорядоченный состав в PostgreSQL.
 type RentalRepository struct {
-	pool *pgxpool.Pool
+	pool       *pgxpool.Pool
+	writeAudit rentalAuditWriter
 }
 
 // NewRentalRepository создаёт PostgreSQL repository аренды.
 func NewRentalRepository(pool *pgxpool.Pool) *RentalRepository {
-	return &RentalRepository{pool: pool}
+	return &RentalRepository{pool: pool, writeAudit: writeRentalAudit}
 }
 
-// Create атомарно сохраняет новый черновик и его текущий состав.
-func (r *RentalRepository) Create(ctx context.Context, value rental.Rental) (rental.Rental, error) {
-	if err := validateNewRental(value); err != nil {
-		return rental.Rental{}, err
-	}
-
+// CreateConfirmed повторно проверяет доступность, блокирует выбранные
+// физические единицы и атомарно сохраняет подтверждённую аренду вместе с audit event.
+func (r *RentalRepository) CreateConfirmed(
+	ctx context.Context,
+	actor user.User,
+	clientID int64,
+	interval rental.Interval,
+	selections []rental.ModelSelection,
+) (rental.Rental, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
-		return rental.Rental{}, fmt.Errorf("begin create rental transaction: %w", err)
+		return rental.Rental{}, fmt.Errorf("begin create confirmed rental transaction: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
+
+	items, err := lockAvailableRentalEquipment(ctx, tx, interval, selections)
+	if err != nil {
+		return rental.Rental{}, err
+	}
+	value, err := rental.New(clientID, interval, items)
+	if err != nil {
+		return rental.Rental{}, err
+	}
 
 	const insertRentalQuery = `
 		INSERT INTO rentals (client_id, planned_start_at, planned_end_at, status)
@@ -66,19 +99,27 @@ func (r *RentalRepository) Create(ctx context.Context, value rental.Rental) (ren
 	if err := insertRentalItems(ctx, tx, id, value.Items()); err != nil {
 		return rental.Rental{}, err
 	}
-	if err := tx.Commit(ctx); err != nil {
-		return rental.Rental{}, fmt.Errorf("commit create rental transaction: %w", err)
-	}
-
 	created, err := rental.Restore(
-		id,
-		value.ClientID,
-		value.Interval,
-		value.Status,
-		value.Items(),
+		id, value.ClientID, value.Interval, value.Status, value.Items(),
 	)
 	if err != nil {
-		return rental.Rental{}, fmt.Errorf("restore created rental: %w", err)
+		return rental.Rental{}, fmt.Errorf("restore confirmed rental: %w", err)
+	}
+	if err := r.writeAudit(
+		ctx,
+		tx,
+		actionRentalConfirmed,
+		actor,
+		created,
+		rentalAuditDetails{
+			ClientID: clientID, PlannedStart: interval.Start(), PlannedEnd: interval.End(),
+			EquipmentCount: created.ItemCount(),
+		},
+	); err != nil {
+		return rental.Rental{}, fmt.Errorf("write confirmed rental audit event: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return rental.Rental{}, fmt.Errorf("commit create confirmed rental transaction: %w", err)
 	}
 	return created, nil
 }
@@ -245,7 +286,7 @@ func (r *RentalRepository) ListPage(
 
 // AvailableEquipment возвращает физические единицы в состоянии available,
 // которые не пересекаются с confirmed или active арендой на весь переданный
-// полуоткрытый интервал. Черновики оборудование не резервируют.
+// полуоткрытый интервал.
 func (r *RentalRepository) AvailableEquipment(
 	ctx context.Context,
 	interval rental.Interval,
@@ -298,115 +339,85 @@ func (r *RentalRepository) AvailableEquipment(
 	return items, nil
 }
 
-// UpdateDraft атомарно заменяет клиента, интервал и полный состав черновика.
-func (r *RentalRepository) UpdateDraft(
+func lockAvailableRentalEquipment(
 	ctx context.Context,
-	value rental.Rental,
-) (rental.Rental, error) {
-	if err := validateDraftRental(value); err != nil {
-		return rental.Rental{}, err
-	}
+	tx pgx.Tx,
+	interval rental.Interval,
+	selections []rental.ModelSelection,
+) ([]rental.Item, error) {
+	ordered := append([]rental.ModelSelection(nil), selections...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i].ModelID < ordered[j].ModelID })
 
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return rental.Rental{}, fmt.Errorf("begin update rental draft transaction: %w", err)
-	}
-	defer func() { _ = tx.Rollback(ctx) }()
-
-	const lockQuery = `
-		SELECT status
-		FROM rentals
-		WHERE id = $1
-		FOR UPDATE
+	const query = `
+		SELECT e.id, m.kind, m.model_code, m.hourly_rate_kopecks, e.sequence_number
+		FROM equipment AS e
+		JOIN equipment_models AS m ON m.id = e.model_id
+		WHERE e.model_id = $1
+		  AND e.status = 'available'
+		  AND NOT EXISTS (
+		      SELECT 1
+		      FROM rental_items AS ri
+		      JOIN rentals AS r ON r.id = ri.rental_id
+		      WHERE ri.equipment_id = e.id
+		        AND r.status IN ('confirmed', 'active')
+		        AND r.planned_start_at < $3
+		        AND $2 < r.planned_end_at
+		  )
+		ORDER BY e.id
+		LIMIT $4
+		FOR UPDATE OF e SKIP LOCKED
 	`
-	var storedStatus rental.Status
-	if err := tx.QueryRow(ctx, lockQuery, value.ID).Scan(&storedStatus); err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return rental.Rental{}, rental.ErrRentalNotFound
+
+	lockedByModel := make(map[int64][]rental.Item, len(ordered))
+	for _, selection := range ordered {
+		if selection.Quantity == 0 {
+			continue
 		}
-		return rental.Rental{}, fmt.Errorf("lock rental draft: %w", err)
-	}
-	if storedStatus != rental.StatusDraft {
-		return rental.Rental{}, rental.ErrRentalNotEditable
-	}
-
-	const updateQuery = `
-		UPDATE rentals
-		SET client_id = $1, planned_start_at = $2, planned_end_at = $3
-		WHERE id = $4
-	`
-	if _, err := tx.Exec(
-		ctx,
-		updateQuery,
-		value.ClientID,
-		value.Interval.Start(),
-		value.Interval.End(),
-		value.ID,
-	); err != nil {
-		if mapped := mapRentalReferenceError(err); mapped != nil {
-			return rental.Rental{}, mapped
+		rows, err := tx.Query(
+			ctx, query, selection.ModelID, interval.Start(), interval.End(), selection.Quantity,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("lock available rental equipment: %w", err)
 		}
-		return rental.Rental{}, fmt.Errorf("update rental draft: %w", err)
-	}
-
-	if _, err := tx.Exec(ctx, "DELETE FROM rental_items WHERE rental_id = $1", value.ID); err != nil {
-		return rental.Rental{}, fmt.Errorf("delete previous rental draft items: %w", err)
-	}
-	if err := insertRentalItems(ctx, tx, value.ID, value.Items()); err != nil {
-		return rental.Rental{}, err
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return rental.Rental{}, fmt.Errorf("commit update rental draft transaction: %w", err)
-	}
-
-	updated, err := rental.Restore(
-		value.ID,
-		value.ClientID,
-		value.Interval,
-		value.Status,
-		value.Items(),
-	)
-	if err != nil {
-		return rental.Rental{}, fmt.Errorf("restore updated rental draft: %w", err)
-	}
-	return updated, nil
-}
-
-func validateNewRental(value rental.Rental) error {
-	if value.ID != 0 {
-		return rental.ErrRentalAlreadyPersisted
-	}
-	if value.Status != rental.StatusDraft {
-		return rental.ErrRentalNotEditable
-	}
-
-	draft, err := rental.New(value.ClientID, value.Interval)
-	if err != nil {
-		return err
-	}
-	for _, item := range value.Items() {
-		if err := draft.AddItem(item); err != nil {
-			return err
+		selectedCount := 0
+		for rows.Next() {
+			var (
+				item     rental.Item
+				sequence int64
+			)
+			if err := rows.Scan(
+				&item.EquipmentID,
+				&item.Kind,
+				&item.ModelCode,
+				&item.HourlyRateKopecks,
+				&sequence,
+			); err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("scan locked rental equipment: %w", err)
+			}
+			item.InventoryNumber, err = equipment.InventoryNumber(item.Kind, item.ModelCode, sequence)
+			if err != nil {
+				rows.Close()
+				return nil, fmt.Errorf("build locked rental equipment number: %w", err)
+			}
+			lockedByModel[selection.ModelID] = append(lockedByModel[selection.ModelID], item)
+			selectedCount++
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("iterate locked rental equipment: %w", err)
+		}
+		rows.Close()
+		if selectedCount != selection.Quantity {
+			return nil, rental.ErrInsufficientEquipment
 		}
 	}
-	return nil
-}
 
-func validateDraftRental(value rental.Rental) error {
-	if value.ID <= 0 {
-		return rental.ErrInvalidRentalID
+	items := make([]rental.Item, 0)
+	for _, selection := range selections {
+		items = append(items, lockedByModel[selection.ModelID]...)
 	}
-	if value.Status != rental.StatusDraft {
-		return rental.ErrRentalNotEditable
-	}
-	_, err := rental.Restore(
-		value.ID,
-		value.ClientID,
-		value.Interval,
-		value.Status,
-		value.Items(),
-	)
-	return err
+	return items, nil
 }
 
 func insertRentalItems(
@@ -468,6 +479,41 @@ func mapRentalItemConstraintError(err error) error {
 	}
 	if postgresError.ConstraintName == rentalItemUniqueEquipmentKey {
 		return rental.ErrEquipmentAlreadyAdded
+	}
+	return nil
+}
+
+func writeRentalAudit(
+	ctx context.Context,
+	tx pgx.Tx,
+	action string,
+	actor user.User,
+	target rental.Rental,
+	details rentalAuditDetails,
+) error {
+	encodedDetails, err := json.Marshal(details)
+	if err != nil {
+		return fmt.Errorf("encode rental audit details: %w", err)
+	}
+	const query = `
+		INSERT INTO audit_events (
+			actor_user_id, actor_login, actor_role, action,
+			target_type, target_id, target_label, result, details
+		)
+		VALUES ($1, $2, $3, $4, 'rental', $5, $6, 'success', $7::jsonb)
+	`
+	if _, err := tx.Exec(
+		ctx,
+		query,
+		actor.ID,
+		actor.Login,
+		actor.Role,
+		action,
+		target.ID,
+		fmt.Sprintf("Аренда №%d", target.ID),
+		encodedDetails,
+	); err != nil {
+		return fmt.Errorf("insert rental audit event: %w", err)
 	}
 	return nil
 }

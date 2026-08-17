@@ -14,6 +14,25 @@ import (
 	"github.com/Dyuzhovsergey/sup-rental/internal/user"
 )
 
+func TestClientPhoneLabelFormatsRussianAndKeepsInternationalNumbers(t *testing.T) {
+	tests := []struct {
+		name  string
+		phone client.Phone
+		want  string
+	}{
+		{name: "russian", phone: "+79991234567", want: "+7 (999) 123-45-67"},
+		{name: "international", phone: "+4915123456789", want: "+4915123456789"},
+		{name: "empty", phone: "", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := clientPhoneLabel(tt.phone); got != tt.want {
+				t.Errorf("clientPhoneLabel(%q) = %q, want %q", tt.phone, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestClientsPageShowsOperatorCreateFormAndAdminReadOnlyList(t *testing.T) {
 	service := &clientServiceStub{list: func(context.Context, int, int) (client.Page, error) {
 		return client.Page{Page: 1, Total: 1, Clients: []client.Client{{ID: 3, FullName: "Анна Иванова", Phone: "+79991234567"}}}, nil
@@ -32,7 +51,7 @@ func TestClientsPageShowsOperatorCreateFormAndAdminReadOnlyList(t *testing.T) {
 		}
 		body := response.Body.String()
 		for _, want := range []string{
-			"Клиенты", "Анна Иванова", "&#43;79991234567", "1 клиент",
+			"Клиенты", "Анна Иванова", `href="tel:&#43;79991234567">&#43;7 (999) 123-45-67</a>`, "1 клиент",
 			`href="/clients"`, `class="client-name-link" href="/clients/3"`,
 			`aria-current="page"`, "Строк на странице", `value="5" selected`,
 			`value="10"`, `value="15"`,
@@ -68,7 +87,7 @@ func TestClientDetailIsAvailableToBothRoles(t *testing.T) {
 				t.Fatalf("status = %d", response.Code)
 			}
 			body := response.Body.String()
-			for _, want := range []string{"Карточка клиента", "Анна Иванова", "&#43;79991234567", "Внутренний ID", "23", "Назад к списку"} {
+			for _, want := range []string{"Карточка клиента", "Анна Иванова", `href="tel:&#43;79991234567">&#43;7 (999) 123-45-67</a>`, "Внутренний ID", "23", "Назад к списку"} {
 				if !strings.Contains(body, want) {
 					t.Errorf("body does not contain %q", want)
 				}
@@ -128,7 +147,7 @@ func TestClientEditShowsPrefilledAccessibleFormForOperator(t *testing.T) {
 	}
 	for _, want := range []string{
 		"Редактировать клиента", `action="/clients/23/edit"`, `name="csrf_token" value="csrf-token"`,
-		`value="Анна Иванова"`, `value="&#43;79991234567"`, `for="edit-client-full-name"`,
+		`value="Анна Иванова"`, `value="&#43;7 (999) 123-45-67"`, `for="edit-client-full-name"`,
 		`for="edit-client-phone"`, `href="/clients/23">Отмена`,
 	} {
 		if !strings.Contains(response.Body.String(), want) {
@@ -236,6 +255,9 @@ func TestClientsPageSearchesByRawPhone(t *testing.T) {
 	newClientTestHandler(t, service, user.RoleOperator).ServeHTTP(response, clientRequest(http.MethodGet, "/clients?phone=8+%28999%29+123-45-67", ""))
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "Найденный Клиент") || !strings.Contains(response.Body.String(), "Сбросить") {
 		t.Errorf("status = %d body = %q", response.Code, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), `value="&#43;7 (999) 123-45-67"`) {
+		t.Errorf("search field does not show normalized phone: %q", response.Body.String())
 	}
 }
 

@@ -19,7 +19,7 @@ var (
 	// ErrInvalidPage означает некорректный номер страницы или размер страницы.
 	ErrInvalidPage = errors.New("invalid rental page")
 	// ErrInvalidModelSelection означает некорректный идентификатор модели,
-	// повтор модели или отрицательное количество в запросе на создание черновика.
+	// повтор модели или отрицательное количество в запросе на создание аренды.
 	ErrInvalidModelSelection = errors.New("invalid rental model selection")
 	// ErrInsufficientEquipment означает, что доступных единиц выбранной модели
 	// меньше запрошенного количества.
@@ -31,7 +31,13 @@ var allowedPageSizes = [...]int{5, 10, 15}
 // Repository определяет операции хранения, необходимые пользовательским
 // сценариям аренды.
 type Repository interface {
-	Create(ctx context.Context, value Rental) (Rental, error)
+	CreateConfirmed(
+		ctx context.Context,
+		actor user.User,
+		clientID int64,
+		interval Interval,
+		selections []ModelSelection,
+	) (Rental, error)
 	Get(ctx context.Context, id int64) (Rental, error)
 	ListPage(ctx context.Context, page, pageSize int) (Page, error)
 	AvailableEquipment(ctx context.Context, interval Interval) ([]equipment.Item, error)
@@ -101,8 +107,7 @@ func NewService(repository Repository) *Service {
 }
 
 // AvailableModels группирует физические единицы, доступные на весь интервал,
-// по модели. Черновики не резервируют оборудование и поэтому не уменьшают
-// доступное количество.
+// по модели.
 func (s *Service) AvailableModels(ctx context.Context, interval Interval) ([]AvailableModel, error) {
 	if err := interval.validate(); err != nil {
 		return nil, err
@@ -115,10 +120,10 @@ func (s *Service) AvailableModels(ctx context.Context, interval Interval) ([]Ava
 	return groupAvailableModels(items), nil
 }
 
-// CreateDraft создаёт черновик от имени активного оператора. Снимки состава
-// формируются только из актуальных серверных данных; значения номера, типа,
-// модели и тарифа из browser не принимаются.
-func (s *Service) CreateDraft(
+// CreateConfirmed создаёт подтверждённую аренду от имени активного оператора.
+// Repository повторно проверяет доступность, выбирает физические единицы и
+// сохраняет аренду вместе с обязательным audit event одной транзакцией.
+func (s *Service) CreateConfirmed(
 	ctx context.Context,
 	actor user.User,
 	clientID int64,
@@ -138,34 +143,9 @@ func (s *Service) CreateDraft(
 		return Rental{}, err
 	}
 
-	available, err := s.repository.AvailableEquipment(ctx, interval)
+	created, err := s.repository.CreateConfirmed(ctx, actor, clientID, interval, selections)
 	if err != nil {
-		return Rental{}, fmt.Errorf("load equipment for rental draft: %w", err)
-	}
-	selected, err := selectEquipment(available, selections)
-	if err != nil {
-		return Rental{}, err
-	}
-
-	draft, err := New(clientID, interval)
-	if err != nil {
-		return Rental{}, err
-	}
-	for _, item := range selected {
-		if err := draft.AddItem(Item{
-			EquipmentID:       item.ID,
-			InventoryNumber:   item.InventoryNumber,
-			Kind:              item.Kind,
-			ModelCode:         item.ModelCode,
-			HourlyRateKopecks: item.HourlyRateKopecks,
-		}); err != nil {
-			return Rental{}, fmt.Errorf("add equipment to rental draft: %w", err)
-		}
-	}
-
-	created, err := s.repository.Create(ctx, draft)
-	if err != nil {
-		return Rental{}, fmt.Errorf("create rental draft: %w", err)
+		return Rental{}, fmt.Errorf("create confirmed rental: %w", err)
 	}
 	return created, nil
 }
@@ -210,6 +190,7 @@ func allowedPageSize(value int) bool {
 
 func validateSelections(selections []ModelSelection) error {
 	seen := make(map[int64]struct{}, len(selections))
+	selectedCount := 0
 	for _, selection := range selections {
 		if selection.ModelID <= 0 || selection.Quantity < 0 {
 			return ErrInvalidModelSelection
@@ -218,33 +199,12 @@ func validateSelections(selections []ModelSelection) error {
 			return ErrInvalidModelSelection
 		}
 		seen[selection.ModelID] = struct{}{}
+		selectedCount += selection.Quantity
+	}
+	if selectedCount == 0 {
+		return ErrRentalItemsRequired
 	}
 	return nil
-}
-
-func selectEquipment(items []equipment.Item, selections []ModelSelection) ([]equipment.Item, error) {
-	byModel := make(map[int64][]equipment.Item)
-	for _, item := range items {
-		byModel[item.ModelID] = append(byModel[item.ModelID], item)
-	}
-
-	selected := make([]equipment.Item, 0)
-	for _, selection := range selections {
-		if selection.Quantity == 0 {
-			continue
-		}
-		candidates, exists := byModel[selection.ModelID]
-		if !exists {
-			// Между показом формы и отправкой запроса последняя доступная единица
-			// модели могла изменить состояние или попасть в другую аренду.
-			return nil, ErrInsufficientEquipment
-		}
-		if selection.Quantity > len(candidates) {
-			return nil, ErrInsufficientEquipment
-		}
-		selected = append(selected, candidates[:selection.Quantity]...)
-	}
-	return selected, nil
 }
 
 func groupAvailableModels(items []equipment.Item) []AvailableModel {

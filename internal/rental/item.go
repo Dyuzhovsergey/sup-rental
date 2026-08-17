@@ -26,10 +26,6 @@ var (
 	ErrInexactHalfHourRate = errors.New("rental item hourly rate must be divisible by two")
 	// ErrEquipmentAlreadyAdded означает повторное добавление физической единицы.
 	ErrEquipmentAlreadyAdded = errors.New("equipment is already added to rental")
-	// ErrRentalItemNotFound означает, что физической единицы нет в составе аренды.
-	ErrRentalItemNotFound = errors.New("rental item not found")
-	// ErrRentalCompositionLocked означает попытку изменить состав не-черновика.
-	ErrRentalCompositionLocked = errors.New("rental composition can only be changed in draft status")
 )
 
 // Item хранит снимок физической единицы и её тарифа в составе аренды.

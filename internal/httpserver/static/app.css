@@ -1641,11 +1641,6 @@ tbody tr:last-child td {
     font-size: 18px;
 }
 
-.rental-draft-hint {
-    margin-top: 12px;
-    text-align: right;
-}
-
 .rental-wizard-footer {
     display: flex;
     gap: 12px;
@@ -1800,9 +1795,6 @@ tbody tr:last-child td {
         text-align: left;
     }
 
-    .rental-draft-hint {
-        text-align: left;
-    }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -23,7 +23,7 @@ const rentalDateTimeLayout = "2006-01-02T15:04"
 
 type rentalService interface {
 	AvailableModels(context.Context, rental.Interval) ([]rental.AvailableModel, error)
-	CreateDraft(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
+	CreateConfirmed(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
 	Get(context.Context, int64) (rental.Rental, error)
 	ListPage(context.Context, int, int) (rental.Page, error)
 }
@@ -161,7 +161,7 @@ func selectRentalClient(
 	fullName := strings.TrimSpace(r.PostForm.Get("full_name"))
 	data := rentalWizardPageData{
 		Title: "Новая аренда — SUP Rental", Step: "client", StepNumber: 1,
-		Phone: phone, FullName: fullName,
+		Phone: clientPhoneInputLabel(phone), FullName: fullName,
 	}
 
 	found, err := clients.FindByPhone(r.Context(), phone)
@@ -403,7 +403,7 @@ func showRentalReviewStep(
 	})
 }
 
-func createRentalDraft(
+func createConfirmedRental(
 	logger *slog.Logger,
 	rentals rentalService,
 	clients clientService,
@@ -458,7 +458,7 @@ func createRentalDraft(
 		return
 	}
 
-	created, err := rentals.CreateDraft(
+	created, err := rentals.CreateConfirmed(
 		r.Context(), currentUser(r), clientID, interval, selections,
 	)
 	if err == nil {
@@ -474,6 +474,8 @@ func createRentalDraft(
 	case errors.Is(err, rental.ErrInsufficientEquipment):
 		status = http.StatusConflict
 		message = "Доступное количество изменилось. Проверьте состав и повторите создание."
+	case errors.Is(err, rental.ErrRentalItemsRequired):
+		message = "Выберите хотя бы одну единицу оборудования."
 	case errors.Is(err, rental.ErrInvalidModelSelection):
 		message = "Выбрана неизвестная модель или некорректное количество."
 	case errors.Is(err, user.ErrAccessDenied):
@@ -483,7 +485,7 @@ func createRentalDraft(
 		http.NotFound(w, r)
 		return
 	default:
-		logger.Error("create rental draft", slog.Any("error", err))
+		logger.Error("create confirmed rental", slog.Any("error", err))
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
@@ -577,7 +579,7 @@ func showRentalsPage(
 	}
 	if createdID, parseErr := positiveOptionalID(r.URL.Query().Get("created")); parseErr == nil && createdID > 0 {
 		if _, getErr := rentals.Get(r.Context(), createdID); getErr == nil {
-			data.Success = "Черновик аренды №" + strconv.FormatInt(createdID, 10) + " создан."
+			data.Success = "Аренда №" + strconv.FormatInt(createdID, 10) + " создана и подтверждена."
 		} else if !errors.Is(getErr, rental.ErrRentalNotFound) {
 			logger.Error("load created rental notice", slog.Any("error", getErr))
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -937,9 +939,9 @@ func rentalPeriodLabel(interval rental.Interval) string {
 	start := interval.Start().In(moscowTimeZone)
 	end := interval.End().In(moscowTimeZone)
 	if start.YearDay() == end.YearDay() && start.Year() == end.Year() {
-		return start.Format("02.01.2006 15:04") + " — " + end.Format("15:04 МСК")
+		return start.Format("02.01.2006 15:04") + " — " + end.Format("15:04")
 	}
-	return start.Format("02.01.2006 15:04") + " — " + end.Format("02.01.2006 15:04 МСК")
+	return start.Format("02.01.2006 15:04") + " — " + end.Format("02.01.2006 15:04")
 }
 
 func rentalDurationLabel(interval rental.Interval) string {
@@ -960,13 +962,11 @@ func rentalSlotsLabel(slots int) string {
 }
 
 func rentalEndLabel(interval rental.Interval) string {
-	return interval.End().In(moscowTimeZone).Format("02.01.2006 15:04 МСК")
+	return interval.End().In(moscowTimeZone).Format("02.01.2006 15:04")
 }
 
 func rentalStatusLabel(status rental.Status) string {
 	switch status {
-	case rental.StatusDraft:
-		return "Черновик"
 	case rental.StatusConfirmed:
 		return "Подтверждена"
 	case rental.StatusActive:

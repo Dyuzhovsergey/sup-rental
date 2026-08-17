@@ -10,8 +10,6 @@ import (
 type Status string
 
 const (
-	// StatusDraft обозначает редактируемый черновик аренды.
-	StatusDraft Status = "draft"
 	// StatusConfirmed обозначает подтверждённую аренду с зарезервированным оборудованием.
 	StatusConfirmed Status = "confirmed"
 	// StatusActive обозначает аренду, по которой оборудование выдано клиенту.
@@ -31,20 +29,16 @@ var (
 	ErrInvalidStatus = errors.New("invalid rental status")
 	// ErrStatusTransitionNotAllowed означает, что переход между состояниями запрещён.
 	ErrStatusTransitionNotAllowed = errors.New("rental status transition is not allowed")
-	// ErrRentalItemsRequired означает попытку подтвердить аренду без оборудования.
-	ErrRentalItemsRequired = errors.New("rental must contain at least one item before confirmation")
+	// ErrRentalItemsRequired означает попытку создать аренду без оборудования.
+	ErrRentalItemsRequired = errors.New("confirmed rental must contain at least one item")
 	// ErrRentalNotFound означает, что аренда не найдена в постоянном хранилище.
 	ErrRentalNotFound = errors.New("rental not found")
-	// ErrRentalNotEditable означает попытку сохранить изменения не-черновика.
-	ErrRentalNotEditable = errors.New("only draft rental can be edited")
-	// ErrRentalAlreadyPersisted означает попытку повторно создать аренду с ID.
-	ErrRentalAlreadyPersisted = errors.New("rental is already persisted")
 )
 
 // Valid сообщает, является ли состояние аренды поддерживаемым.
 func (s Status) Valid() bool {
 	switch s {
-	case StatusDraft, StatusConfirmed, StatusActive, StatusCompleted, StatusCancelled:
+	case StatusConfirmed, StatusActive, StatusCompleted, StatusCancelled:
 		return true
 	default:
 		return false
@@ -54,8 +48,6 @@ func (s Status) Valid() bool {
 // CanTransitionTo сообщает, разрешён ли переход из текущего состояния в target.
 func (s Status) CanTransitionTo(target Status) bool {
 	switch s {
-	case StatusDraft:
-		return target == StatusConfirmed || target == StatusCancelled
 	case StatusConfirmed:
 		return target == StatusActive || target == StatusCancelled
 	case StatusActive:
@@ -79,19 +71,25 @@ type Rental struct {
 	items  []Item
 }
 
-// New создаёт ещё не сохранённую аренду в состоянии draft.
-func New(clientID int64, interval Interval) (Rental, error) {
+// New создаёт ещё не сохранённую подтверждённую аренду с неизменяемым составом.
+// Переданный состав копируется и должен содержать хотя бы одну физическую единицу.
+func New(clientID int64, interval Interval, items []Item) (Rental, error) {
 	if clientID <= 0 {
 		return Rental{}, ErrInvalidClientID
 	}
 	if err := interval.validate(); err != nil {
 		return Rental{}, err
 	}
+	validatedItems, err := validateItems(items)
+	if err != nil {
+		return Rental{}, err
+	}
 
 	return Rental{
 		ClientID: clientID,
 		Interval: interval,
-		Status:   StatusDraft,
+		Status:   StatusConfirmed,
+		items:    validatedItems,
 	}, nil
 }
 
@@ -117,21 +115,9 @@ func Restore(
 	if !status.Valid() {
 		return Rental{}, ErrInvalidStatus
 	}
-	if status != StatusDraft && status != StatusCancelled && len(items) == 0 {
-		return Rental{}, ErrRentalItemsRequired
-	}
-
-	restoredItems := make([]Item, 0, len(items))
-	seenEquipment := make(map[int64]struct{}, len(items))
-	for _, item := range items {
-		if err := item.validate(); err != nil {
-			return Rental{}, err
-		}
-		if _, exists := seenEquipment[item.EquipmentID]; exists {
-			return Rental{}, ErrEquipmentAlreadyAdded
-		}
-		seenEquipment[item.EquipmentID] = struct{}{}
-		restoredItems = append(restoredItems, item)
+	restoredItems, err := validateItems(items)
+	if err != nil {
+		return Rental{}, err
 	}
 
 	return Rental{
@@ -152,54 +138,8 @@ func (r *Rental) ChangeStatus(target Status) error {
 	if !r.Status.CanTransitionTo(target) {
 		return fmt.Errorf("%w: %s -> %s", ErrStatusTransitionNotAllowed, r.Status, target)
 	}
-	if target == StatusConfirmed && len(r.items) == 0 {
-		return ErrRentalItemsRequired
-	}
-
 	r.Status = target
 	return nil
-}
-
-// AddItem добавляет снимок физической единицы в состав черновика.
-func (r *Rental) AddItem(item Item) error {
-	if r.Status != StatusDraft {
-		return ErrRentalCompositionLocked
-	}
-	if err := item.validate(); err != nil {
-		return err
-	}
-	for _, existing := range r.items {
-		if existing.EquipmentID == item.EquipmentID {
-			return ErrEquipmentAlreadyAdded
-		}
-	}
-
-	updated := make([]Item, len(r.items)+1)
-	copy(updated, r.items)
-	updated[len(r.items)] = item
-	r.items = updated
-	return nil
-}
-
-// RemoveItem удаляет физическую единицу из состава черновика по идентификатору.
-func (r *Rental) RemoveItem(equipmentID int64) error {
-	if r.Status != StatusDraft {
-		return ErrRentalCompositionLocked
-	}
-	if equipmentID <= 0 {
-		return ErrInvalidEquipmentID
-	}
-	for index, item := range r.items {
-		if item.EquipmentID == equipmentID {
-			updated := make([]Item, 0, len(r.items)-1)
-			updated = append(updated, r.items[:index]...)
-			updated = append(updated, r.items[index+1:]...)
-			r.items = updated
-			return nil
-		}
-	}
-
-	return ErrRentalItemNotFound
 }
 
 // Items возвращает независимую копию состава аренды в порядке добавления.
@@ -210,4 +150,24 @@ func (r Rental) Items() []Item {
 // ItemCount возвращает количество физических единиц в составе аренды.
 func (r Rental) ItemCount() int {
 	return len(r.items)
+}
+
+func validateItems(items []Item) ([]Item, error) {
+	if len(items) == 0 {
+		return nil, ErrRentalItemsRequired
+	}
+
+	validated := make([]Item, 0, len(items))
+	seenEquipment := make(map[int64]struct{}, len(items))
+	for _, item := range items {
+		if err := item.validate(); err != nil {
+			return nil, err
+		}
+		if _, exists := seenEquipment[item.EquipmentID]; exists {
+			return nil, ErrEquipmentAlreadyAdded
+		}
+		seenEquipment[item.EquipmentID] = struct{}{}
+		validated = append(validated, item)
+	}
+	return validated, nil
 }

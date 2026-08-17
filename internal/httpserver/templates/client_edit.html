@@ -48,7 +48,7 @@
                             </div>
                             <div class="field">
                                 <label class="field-label" for="edit-client-phone">Телефон <span class="required" aria-hidden="true">*</span></label>
-                                <input id="edit-client-phone" name="phone" value="{{.Form.Phone}}" type="tel" autocomplete="tel" placeholder="+7 999 123-45-67" required{{if .Form.PhoneError}} aria-invalid="true" aria-describedby="edit-client-phone-error"{{end}}>
+                                <input id="edit-client-phone" name="phone" value="{{.Form.Phone}}" type="tel" autocomplete="tel" placeholder="+7 (999) 123-45-67" required{{if .Form.PhoneError}} aria-invalid="true" aria-describedby="edit-client-phone-error"{{end}}>
                                 {{if .Form.PhoneError}}<p class="field-error" id="edit-client-phone-error" role="alert">{{.Form.PhoneError}}</p>{{end}}
                             </div>
                             <div class="form-actions">

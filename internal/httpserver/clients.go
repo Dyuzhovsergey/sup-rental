@@ -82,7 +82,7 @@ func showClientsPage(logger *slog.Logger, service clientService, pageTemplates *
 	phone := strings.TrimSpace(r.URL.Query().Get("phone"))
 	if phone != "" {
 		data.SearchActive = true
-		data.SearchPhone = phone
+		data.SearchPhone = clientPhoneInputLabel(phone)
 		found, findErr := service.FindByPhone(r.Context(), phone)
 		switch {
 		case findErr == nil:
@@ -171,7 +171,16 @@ func createClient(logger *slog.Logger, service clientService, pageTemplates *tem
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+	form.Phone = clientPhoneInputLabel(form.Phone)
 	showClientsPage(logger, service, pageTemplates, w, r, status, form)
+}
+
+func clientPhoneInputLabel(value string) string {
+	phone, err := client.NormalizePhone(value)
+	if err != nil {
+		return value
+	}
+	return clientPhoneLabel(phone)
 }
 
 func positiveQueryPage(raw string) (int, bool) {

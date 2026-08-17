@@ -6,7 +6,7 @@
 <div class="app-shell">
 {{template "equipment-sidebar" .}}
 <main class="main-content" id="main-content" tabindex="-1"><div class="content-container">
-    <header class="page-header"><div><p class="page-eyebrow">Прокат</p><h1>Аренды</h1><p class="page-description">Черновики и аренды клиентов в порядке от новых к старым.</p></div>{{if .CanCreate}}<a class="button button--primary" href="/rentals/new">Создать аренду</a>{{end}}</header>
+    <header class="page-header"><div><p class="page-eyebrow">Прокат</p><h1>Аренды</h1><p class="page-description">Подтверждённые и проведённые аренды в порядке от новых к старым.</p></div>{{if .CanCreate}}<a class="button button--primary" href="/rentals/new">Создать аренду</a>{{end}}</header>
     <section class="panel" aria-labelledby="rentals-heading">
         <div class="panel-header"><div><h2 id="rentals-heading">Список аренд</h2><p class="panel-description">Откройте строку, чтобы посмотреть период и состав.</p></div><span class="count-chip">{{.TotalLabel}}</span></div>
         {{if .Success}}<div class="equipment-list-notice"><div class="alert alert--success" role="status">{{.Success}}</div></div>{{end}}
@@ -14,7 +14,7 @@
         {{if .Rentals}}
         <div class="table-scroll"><table><thead><tr><th>№</th><th>Клиент</th><th>Период</th><th>Состав</th><th>Статус</th><th>Стоимость</th></tr></thead><tbody>
         {{range .Rentals}}<tr><td><a class="client-name-link" href="/rentals/{{.ID}}"><strong>№{{.ID}}</strong></a></td><td>{{.ClientName}}</td><td>{{.Period}}</td><td>{{.ItemCount}}</td><td>{{template "rental-status-chip" .Status}}</td><td>{{.PlannedTotal}}</td></tr>{{end}}
-        </tbody></table></div>{{else}}<div class="empty-state"><h3>Аренд пока нет</h3><p>{{if .CanCreate}}Создайте первый черновик аренды.{{else}}Созданные оператором аренды появятся здесь.{{end}}</p></div>{{end}}
+        </tbody></table></div>{{else}}<div class="empty-state"><h3>Аренд пока нет</h3><p>{{if .CanCreate}}Создайте первую аренду.{{else}}Созданные оператором аренды появятся здесь.{{end}}</p></div>{{end}}
         {{template "pagination" .Pagination}}
     </section>
 </div></main></div>

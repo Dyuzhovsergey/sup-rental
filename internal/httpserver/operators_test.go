@@ -30,7 +30,7 @@ func TestOperatorsPageShowsSafeAccountData(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", response.Code)
 	}
-	for _, want := range []string{"rental.operator", "Оператор проката", "Активен", "11.08.2026 18:30 МСК", "Сменить пароль", "Отключить"} {
+	for _, want := range []string{"rental.operator", "Оператор проката", "Активен", "11.08.2026 18:30", "Сменить пароль", "Отключить"} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("body does not contain %q", want)
 		}

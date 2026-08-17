@@ -40,7 +40,7 @@
                             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
                             <div class="field">
                                 <label class="field-label" for="rental-phone">Телефон <span class="required">*</span></label>
-                                <input id="rental-phone" name="phone" type="tel" autocomplete="tel" value="{{.Phone}}"{{if .PhoneError}} aria-invalid="true" aria-describedby="rental-phone-error"{{end}} placeholder="+7 999 123-45-67" required>
+                                <input id="rental-phone" name="phone" type="tel" autocomplete="tel" value="{{.Phone}}"{{if .PhoneError}} aria-invalid="true" aria-describedby="rental-phone-error"{{end}} placeholder="+7 (999) 123-45-67" required>
                                 {{if .PhoneError}}<p class="field-error" id="rental-phone-error" role="alert">{{.PhoneError}}</p>{{else}}<p class="field-hint">Система сначала ищет существующего клиента по нормализованному номеру.</p>{{end}}
                             </div>
                             <div class="field">
@@ -60,7 +60,7 @@
                         <p class="panel-description">Укажите точное время начала по Москве и продолжительность с шагом 30 минут.</p>
                         <div class="rental-client-summary" aria-label="Выбранный клиент">
                             <div><span>Клиент</span><strong>{{.Client.FullName}}</strong></div>
-                            <div><span>Телефон</span><strong>{{.Client.Phone}}</strong></div>
+                            <div><span>Телефон</span><strong>{{phoneLabel .Client.Phone}}</strong></div>
                         </div>
                         <form class="form-stack rental-step-form" method="get" action="/rentals/new/equipment" data-rental-period-form>
                             <input type="hidden" name="client_id" value="{{.Client.ID}}">
@@ -147,7 +147,7 @@
                                 {{end}}
                             </div>
                             {{else}}
-                            <div class="empty-state"><h3>Нет доступного оборудования</h3><p>Можно сохранить пустой черновик или выбрать другой период.</p></div>
+                            <div class="empty-state"><h3>Нет доступного оборудования</h3><p>Выберите другой период, чтобы создать аренду.</p></div>
                             {{end}}
                             <div class="rental-total-card rental-equipment-summary" aria-live="polite">
                                 <div><span>SUP-доски</span><strong data-rental-kind-count="sup_board">{{.SUPBoardCount}}</strong></div>
@@ -176,7 +176,7 @@
                         {{end}}
                         <div class="panel-body rental-wizard-body">
                             <h2>Шаг 4. Итог</h2>
-                            <p class="panel-description">Проверьте клиента, период и состав перед созданием аренды.</p>
+                            <p class="panel-description">Проверьте данные. После создания выбранное оборудование будет зарезервировано на указанный период.</p>
                             <div class="rental-client-summary rental-client-summary--three">
                                 <div><span>Клиент</span><strong>{{.Client.FullName}}</strong></div>
                                 <div><span>Период</span><strong>{{.Period}}</strong></div>

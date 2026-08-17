@@ -16,6 +16,7 @@ func TestNewFilterValidatesAllowlistedValuesAndPage(t *testing.T) {
 	}{
 		{name: "valid", category: " equipment ", result: ResultSuccess, page: 2},
 		{name: "valid clients", category: " clients ", result: ResultSuccess, page: 1},
+		{name: "valid rentals", category: " rentals ", result: ResultSuccess, page: 1},
 		{name: "unknown category", category: "secret", page: 1, wantErr: ErrInvalidFilter},
 		{name: "unknown result", result: "unknown", page: 1, wantErr: ErrInvalidFilter},
 		{name: "invalid page", page: 0, wantErr: ErrInvalidPage},

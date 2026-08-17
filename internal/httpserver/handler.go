@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/Dyuzhovsergey/sup-rental/internal/client"
 	"github.com/Dyuzhovsergey/sup-rental/internal/user"
 )
 
@@ -40,7 +41,9 @@ func NewHandler(
 	rentals rentalService,
 	cookieSettings CookieSettings,
 ) (http.Handler, error) {
-	pageTemplates, err := template.ParseFS(templateFiles, "templates/*.html")
+	pageTemplates, err := template.New("pages").Funcs(template.FuncMap{
+		"phoneLabel": clientPhoneLabel,
+	}).ParseFS(templateFiles, "templates/*.html")
 	if err != nil {
 		return nil, fmt.Errorf("parse HTML templates: %w", err)
 	}
@@ -136,7 +139,7 @@ func NewHandler(
 		showRentalReviewStep(logger, rentals, clients, pageTemplates, w, r)
 	})))
 	mux.Handle("POST /rentals", operatorOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		createRentalDraft(logger, rentals, clients, pageTemplates, w, r)
+		createConfirmedRental(logger, rentals, clients, pageTemplates, w, r)
 	}))))
 	mux.Handle("GET /rentals/{id}", authenticated(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		showRentalDetailPage(logger, rentals, clients, pageTemplates, w, r)
@@ -180,6 +183,17 @@ func NewHandler(
 	)
 
 	return protected, nil
+}
+
+func clientPhoneLabel(phone client.Phone) string {
+	value := phone.String()
+	if len(value) != 12 || value[:2] != "+7" {
+		return value
+	}
+	return fmt.Sprintf(
+		"+7 (%s) %s-%s-%s",
+		value[2:5], value[5:8], value[8:10], value[10:12],
+	)
 }
 
 func stylesheet(logger *slog.Logger, w http.ResponseWriter, r *http.Request) {

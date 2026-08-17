@@ -175,7 +175,7 @@ func auditEventViews(events []audit.Event) []auditEventView {
 			actor = *event.ActorLogin
 		}
 		views = append(views, auditEventView{
-			OccurredAt: event.OccurredAt.In(moscowTimeZone).Format("02.01.2006 15:04:05 МСК"),
+			OccurredAt: event.OccurredAt.In(moscowTimeZone).Format("02.01.2006 15:04:05"),
 			Action:     auditActionLabel(event.Action), ActionCode: event.Action,
 			Actor: actor, Target: event.TargetLabel,
 			Result: auditResultLabel(event.Result), Successful: event.Result == audit.ResultSuccess,
@@ -273,6 +273,21 @@ func safeAuditSummary(event audit.Event) string {
 		}
 		return strings.Join(changes, "; ")
 	}
+	if event.Action == "rental.confirmed" {
+		var details struct {
+			ClientID       int64     `json:"client_id"`
+			PlannedStart   time.Time `json:"planned_start"`
+			PlannedEnd     time.Time `json:"planned_end"`
+			EquipmentCount int       `json:"equipment_count"`
+		}
+		if json.Unmarshal(event.Details, &details) != nil {
+			return ""
+		}
+		return "Клиент ID: " + strconv.FormatInt(details.ClientID, 10) +
+			"; период: " + details.PlannedStart.In(moscowTimeZone).Format("02.01.2006 15:04") +
+			" — " + details.PlannedEnd.In(moscowTimeZone).Format("02.01.2006 15:04") +
+			"; оборудование: " + strconv.Itoa(details.EquipmentCount)
+	}
 	if strings.HasPrefix(event.Action, "auth.") {
 		var details struct {
 			RemoteIP string `json:"remote_ip"`
@@ -298,6 +313,7 @@ func auditActionLabel(action string) string {
 		"equipment.status_changed":     "Состояние оборудования изменено", "equipment.retired": "Оборудование списано",
 		"equipment.deleted": "Оборудование удалено",
 		"client.created":    "Клиент создан", "client.updated": "Данные клиента изменены",
+		"rental.confirmed": "Аренда создана и подтверждена",
 	}
 	if label := labels[action]; label != "" {
 		return label

@@ -39,7 +39,7 @@
                         </header>
                         <dl class="details-list">
                             <div class="details-row"><dt>ФИО</dt><dd>{{.Client.FullName}}</dd></div>
-                            <div class="details-row"><dt>Телефон</dt><dd><a href="tel:{{.Client.Phone}}">{{.Client.Phone}}</a></dd></div>
+                            <div class="details-row"><dt>Телефон</dt><dd><a href="tel:{{.Client.Phone}}">{{phoneLabel .Client.Phone}}</a></dd></div>
                             <div class="details-row"><dt>Внутренний ID</dt><dd>{{.Client.ID}}</dd></div>
                         </dl>
                         <div class="details-actions">

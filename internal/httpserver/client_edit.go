@@ -37,7 +37,7 @@ func showClientEditPage(
 	}
 	renderClientEditPage(logger, pageTemplates, w, r, http.StatusOK, id, clientFormData{
 		FullName: customer.FullName,
-		Phone:    string(customer.Phone),
+		Phone:    clientPhoneLabel(customer.Phone),
 	})
 }
 
@@ -99,6 +99,7 @@ func updateClient(
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+	form.Phone = clientPhoneInputLabel(form.Phone)
 	renderClientEditPage(logger, pageTemplates, w, r, status, id, form)
 }
 

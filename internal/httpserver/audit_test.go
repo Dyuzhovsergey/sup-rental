@@ -36,7 +36,7 @@ func TestAuditPageShowsSafeEventsAndFilters(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", response.Code)
 	}
-	for _, want := range []string{"Журнал действий", "12.08.2026 10:30:00 МСК", "Оборудование изменено", "SUP-001", "Номер: SUP-001 → SUP-002", "Страница 1 из 1"} {
+	for _, want := range []string{"Журнал действий", "12.08.2026 10:30:00", "Оборудование изменено", "SUP-001", "Номер: SUP-001 → SUP-002", "Страница 1 из 1"} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("body does not contain %q", want)
 		}
@@ -143,6 +143,30 @@ func TestAuditPageShowsSafeClientUpdateSummary(t *testing.T) {
 	}
 	if strings.Contains(response.Body.String(), "+7999") {
 		t.Error("audit page exposes client phone")
+	}
+}
+
+func TestAuditPageShowsRentalCategoryAndSafeSummary(t *testing.T) {
+	service := &auditServiceStub{list: func(_ context.Context, _ user.User, filter audit.Filter) (audit.Page, error) {
+		if filter.Category != audit.CategoryRentals {
+			t.Errorf("category = %q", filter.Category)
+		}
+		return audit.Page{Total: 1, Page: 1, Events: []audit.Event{{
+			Action: "rental.confirmed", TargetLabel: "Аренда №24", Result: audit.ResultSuccess,
+			Details: []byte(`{"client_id":18,"planned_start":"2026-08-15T07:08:00Z","planned_end":"2026-08-15T08:38:00Z","equipment_count":3}`),
+		}}}, nil
+	}}
+	response := httptest.NewRecorder()
+	newAuditTestHandler(t, service, authenticatedFixture()).ServeHTTP(
+		response, authenticatedRequest(http.MethodGet, "/admin/audit?category=rentals", ""),
+	)
+	for _, want := range []string{
+		`value="rentals" selected`, "Аренда создана и подтверждена", "Аренда №24",
+		"Клиент ID: 18", "15.08.2026 10:08 — 15.08.2026 11:38", "оборудование: 3",
+	} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
 	}
 }
 

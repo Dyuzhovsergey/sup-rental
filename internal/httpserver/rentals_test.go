@@ -97,7 +97,8 @@ func TestRentalWizardShowsClientAndAvailableModels(t *testing.T) {
 		!strings.Contains(period.Body.String(), `name="duration_days"`) ||
 		!strings.Contains(period.Body.String(), `<option value="31">31</option>`) ||
 		!strings.Contains(period.Body.String(), `<option value="23">23</option>`) ||
-		!strings.Contains(period.Body.String(), `<option value="30">30</option>`) {
+		!strings.Contains(period.Body.String(), `<option value="30">30</option>`) ||
+		!strings.Contains(period.Body.String(), "&#43;7 (999) 123-45-67") {
 		t.Fatalf("period page = %d body %q", period.Code, period.Body.String())
 	}
 
@@ -119,7 +120,7 @@ func TestRentalWizardShowsClientAndAvailableModels(t *testing.T) {
 			t.Errorf("equipment page does not contain %q", want)
 		}
 	}
-	for _, want := range []string{"15.08.2026 10:08 — 11:38 МСК", "1 ч 30 мин"} {
+	for _, want := range []string{"15.08.2026 10:08 — 11:38", "1 ч 30 мин"} {
 		if !strings.Contains(equipmentResponse.Body.String(), want) {
 			t.Errorf("equipment page does not contain arbitrary-start result %q", want)
 		}
@@ -134,7 +135,7 @@ func TestRentalWizardShowsClientAndAvailableModels(t *testing.T) {
 		"/rentals/new/period?client_id=18&start=2026-08-15T10%3A08&duration_days=0&duration_hours=1&duration_minutes=30",
 		nil,
 	))
-	for _, want := range []string{`value="2026-08-15T10:08"`, `<option value="1" selected>1</option>`, `<option value="30" selected>30</option>`, "15.08.2026 11:38 МСК"} {
+	for _, want := range []string{`value="2026-08-15T10:08"`, `<option value="1" selected>1</option>`, `<option value="30" selected>30</option>`, "15.08.2026 11:38"} {
 		if !strings.Contains(periodBack.Body.String(), want) {
 			t.Errorf("restored period page does not contain %q", want)
 		}
@@ -164,7 +165,7 @@ func TestRentalWizardShowsReviewWithCompositionAndTotals(t *testing.T) {
 		t.Fatalf("review status = %d body %q", response.Code, response.Body.String())
 	}
 	for _, want := range []string{
-		"Шаг 4. Итог", "Анна Петрова", "15.08.2026 10:08 — 11:38 МСК", "1 ч 30 мин",
+		"Шаг 4. Итог", "Анна Петрова", "15.08.2026 10:08 — 11:38", "1 ч 30 мин",
 		"TOURING", "CARBON", "COMFORT", "SUP-доски</span><strong>1", "Вёсла</span><strong>2",
 		"Жилеты</span><strong>3", "Всего единиц</span><strong>6", "3600 ₽",
 		`name="csrf_token" value="csrf-token"`, "Создать аренду", "Назад к оборудованию",
@@ -269,14 +270,17 @@ func TestParseRentalIntervalCombinesDurationComponents(t *testing.T) {
 	}
 }
 
-func TestCreateRentalDraftRedirectsToList(t *testing.T) {
+func TestCreateConfirmedRentalRedirectsToList(t *testing.T) {
 	var gotActor user.User
 	var gotSelections []rental.ModelSelection
 	rentals := &rentalServiceStub{
 		create: func(_ context.Context, actor user.User, clientID int64, interval rental.Interval, selections []rental.ModelSelection) (rental.Rental, error) {
 			gotActor = actor
 			gotSelections = append([]rental.ModelSelection(nil), selections...)
-			return rental.Restore(24, clientID, interval, rental.StatusDraft, nil)
+			return rental.Restore(24, clientID, interval, rental.StatusConfirmed, []rental.Item{{
+				EquipmentID: 94, InventoryNumber: "SUP-TOURING-1", Kind: equipment.KindSUPBoard,
+				ModelCode: "TOURING", HourlyRateKopecks: 100_000,
+			}})
 		},
 	}
 	response := httptest.NewRecorder()
@@ -297,7 +301,7 @@ func TestCreateRentalDraftRedirectsToList(t *testing.T) {
 	}
 }
 
-func TestCreateRentalDraftHandlesAvailabilityConflictAndHidesError(t *testing.T) {
+func TestCreateConfirmedRentalHandlesAvailabilityConflictAndHidesError(t *testing.T) {
 	tests := []struct {
 		name       string
 		serviceErr error
@@ -305,6 +309,7 @@ func TestCreateRentalDraftHandlesAvailabilityConflictAndHidesError(t *testing.T)
 		wantText   string
 	}{
 		{name: "availability changed", serviceErr: rental.ErrInsufficientEquipment, wantStatus: http.StatusConflict, wantText: "Доступное количество изменилось"},
+		{name: "empty composition", serviceErr: rental.ErrRentalItemsRequired, wantStatus: http.StatusUnprocessableEntity, wantText: "Выберите хотя бы одну единицу"},
 		{name: "internal", serviceErr: errors.New("database secret detail"), wantStatus: http.StatusInternalServerError, wantText: "Internal Server Error"},
 	}
 	for _, tt := range tests {
@@ -341,7 +346,7 @@ func TestRentalsListAndDetail(t *testing.T) {
 		EquipmentID: 94, InventoryNumber: "SUP-TOURING-1", Kind: equipment.KindSUPBoard,
 		ModelCode: "TOURING", HourlyRateKopecks: 100_000,
 	}
-	stored, err := rental.Restore(24, 18, interval, rental.StatusDraft, []rental.Item{item})
+	stored, err := rental.Restore(24, 18, interval, rental.StatusConfirmed, []rental.Item{item})
 	if err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
@@ -349,7 +354,7 @@ func TestRentalsListAndDetail(t *testing.T) {
 		list: func(context.Context, int, int) (rental.Page, error) {
 			return rental.Page{Rentals: []rental.Summary{{
 				ID: 24, ClientID: 18, ClientName: "Анна Петрова", Interval: interval,
-				Status: rental.StatusDraft, ItemCount: 1, PlannedTotalKopecks: 150_000,
+				Status: rental.StatusConfirmed, ItemCount: 1, PlannedTotalKopecks: 150_000,
 			}}, Total: 1, Page: 1, PageSize: 5}, nil
 		},
 		get: func(context.Context, int64) (rental.Rental, error) { return stored, nil },
@@ -361,7 +366,7 @@ func TestRentalsListAndDetail(t *testing.T) {
 	if list.Code != http.StatusOK {
 		t.Fatalf("list status = %d", list.Code)
 	}
-	for _, want := range []string{"Черновик аренды №24 создан", "Анна Петрова", "1 позиция", "1500 ₽", `href="/rentals/24"`} {
+	for _, want := range []string{"Аренда №24 создана и подтверждена", "Подтверждена", "Анна Петрова", "1 позиция", "1500 ₽", `href="/rentals/24"`} {
 		if !strings.Contains(list.Body.String(), want) {
 			t.Errorf("list does not contain %q", want)
 		}
@@ -375,7 +380,7 @@ func TestRentalsListAndDetail(t *testing.T) {
 	if detail.Code != http.StatusOK {
 		t.Fatalf("detail status = %d", detail.Code)
 	}
-	for _, want := range []string{"Аренда №24", "SUP-TOURING-1", "TOURING", "1000 ₽/час", "1 ч 30 мин"} {
+	for _, want := range []string{"Аренда №24", "SUP-TOURING-1", "TOURING", "1000 ₽/час", "1 ч 30 мин", "&#43;7 (999) 123-45-67"} {
 		if !strings.Contains(detail.Body.String(), want) {
 			t.Errorf("detail does not contain %q", want)
 		}

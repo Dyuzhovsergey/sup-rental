@@ -36,6 +36,11 @@ func TestAuditRepositoryListFiltersAndOrdersEvents(t *testing.T) {
 		VALUES ('audit.operator', 'operator', 'client.created', 'client', $1, 'success', '{}')`, label); err != nil {
 		t.Fatalf("insert client audit fixture: %v", err)
 	}
+	if _, err := pool.Exec(ctx, `INSERT INTO audit_events
+		(actor_login, actor_role, action, target_type, target_label, result, details)
+		VALUES ('audit.operator', 'operator', 'rental.confirmed', 'rental', $1, 'success', '{}')`, label); err != nil {
+		t.Fatalf("insert rental audit fixture: %v", err)
+	}
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cleanupCancel()
@@ -65,5 +70,16 @@ func TestAuditRepositoryListFiltersAndOrdersEvents(t *testing.T) {
 	}
 	if clientPage.Total != 1 || len(clientPage.Events) != 1 || clientPage.Events[0].Action != "client.created" {
 		t.Errorf("List(clients) = %+v", clientPage)
+	}
+	rentalFilter, err := audit.NewFilter("rentals", "success", "audit.operator", label, nil, nil, 1)
+	if err != nil {
+		t.Fatalf("NewFilter(rentals) error = %v", err)
+	}
+	rentalPage, err := NewAuditRepository(pool).List(ctx, rentalFilter)
+	if err != nil {
+		t.Fatalf("List(rentals) error = %v", err)
+	}
+	if rentalPage.Total != 1 || len(rentalPage.Events) != 1 || rentalPage.Events[0].Action != "rental.confirmed" {
+		t.Errorf("List(rentals) = %+v", rentalPage)
 	}
 }

@@ -253,7 +253,7 @@
             const twoDigits = (number) => String(number).padStart(2, "0");
             end.textContent = twoDigits(value.getUTCDate()) + "." +
                 twoDigits(value.getUTCMonth() + 1) + "." + value.getUTCFullYear() + " " +
-                twoDigits(value.getUTCHours()) + ":" + twoDigits(value.getUTCMinutes()) + " МСК";
+                twoDigits(value.getUTCHours()) + ":" + twoDigits(value.getUTCMinutes());
         };
 
         periodForm.addEventListener("input", updateEnd);

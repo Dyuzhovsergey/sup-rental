@@ -335,9 +335,12 @@ func (s *rentalServiceStub) AvailableModels(ctx context.Context, interval rental
 	return s.available(ctx, interval)
 }
 
-func (s *rentalServiceStub) CreateDraft(ctx context.Context, actor user.User, clientID int64, interval rental.Interval, selections []rental.ModelSelection) (rental.Rental, error) {
+func (s *rentalServiceStub) CreateConfirmed(ctx context.Context, actor user.User, clientID int64, interval rental.Interval, selections []rental.ModelSelection) (rental.Rental, error) {
 	if s.create == nil {
-		return rental.Restore(1, clientID, interval, rental.StatusDraft, nil)
+		return rental.Restore(1, clientID, interval, rental.StatusConfirmed, []rental.Item{{
+			EquipmentID: 1, InventoryNumber: "SUP-TEST-1", Kind: equipment.KindSUPBoard,
+			ModelCode: "TEST", HourlyRateKopecks: 100_000,
+		}})
 	}
 	return s.create(ctx, actor, clientID, interval, selections)
 }

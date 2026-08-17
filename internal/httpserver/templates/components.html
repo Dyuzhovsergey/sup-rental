@@ -103,9 +103,7 @@
 {{end}}
 
 {{define "rental-status-chip"}}
-{{if eq . "Черновик"}}
-<span class="status-chip status-chip--maintenance"><span class="status-dot" aria-hidden="true"></span>{{.}}</span>
-{{else if eq . "Подтверждена"}}
+{{if eq . "Подтверждена"}}
 <span class="status-chip status-chip--issued"><span class="status-dot" aria-hidden="true"></span>{{.}}</span>
 {{else if eq . "Активна"}}
 <span class="status-chip status-chip--available"><span class="status-dot" aria-hidden="true"></span>{{.}}</span>

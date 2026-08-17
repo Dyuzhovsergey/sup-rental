@@ -18,11 +18,6 @@ func TestRentalPlannedTotalKopecks(t *testing.T) {
 		wantTotal int64
 	}{
 		{
-			name:      "empty draft",
-			duration:  30 * time.Minute,
-			wantTotal: 0,
-		},
-		{
 			name:      "one item for half hour",
 			duration:  30 * time.Minute,
 			items:     []Item{validRentalItem(1)},
@@ -62,12 +57,7 @@ func TestRentalPlannedTotalKopecks(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			rental := rentalWithDuration(t, tt.duration)
-			for _, item := range tt.items {
-				if err := rental.AddItem(item); err != nil {
-					t.Fatalf("AddItem() error = %v", err)
-				}
-			}
+			rental := rentalWithDuration(t, tt.duration, tt.items)
 
 			got, err := rental.PlannedTotalKopecks()
 			if err != nil {
@@ -83,11 +73,7 @@ func TestRentalPlannedTotalKopecks(t *testing.T) {
 func TestRentalPlannedTotalKopecksRejectsOverflow(t *testing.T) {
 	t.Parallel()
 
-	rental := rentalWithDuration(t, 90*time.Minute)
-	item := validRentalItemWithRate(1, math.MaxInt64-1)
-	if err := rental.AddItem(item); err != nil {
-		t.Fatalf("AddItem() error = %v", err)
-	}
+	rental := rentalWithDuration(t, 90*time.Minute, []Item{validRentalItemWithRate(1, math.MaxInt64-1)})
 
 	_, err := rental.PlannedTotalKopecks()
 	if !errors.Is(err, ErrPriceOverflow) {
@@ -98,15 +84,10 @@ func TestRentalPlannedTotalKopecksRejectsOverflow(t *testing.T) {
 func TestRentalPlannedTotalKopecksRejectsHourlySumOverflow(t *testing.T) {
 	t.Parallel()
 
-	rental := rentalWithDuration(t, time.Hour)
-	for _, item := range []Item{
+	rental := rentalWithDuration(t, time.Hour, []Item{
 		validRentalItemWithRate(1, math.MaxInt64-1),
 		validRentalItemWithRate(2, 2),
-	} {
-		if err := rental.AddItem(item); err != nil {
-			t.Fatalf("AddItem() error = %v", err)
-		}
-	}
+	})
 
 	_, err := rental.PlannedTotalKopecks()
 	if !errors.Is(err, ErrPriceOverflow) {
@@ -114,12 +95,12 @@ func TestRentalPlannedTotalKopecksRejectsHourlySumOverflow(t *testing.T) {
 	}
 }
 
-func rentalWithDuration(t *testing.T, duration time.Duration) Rental {
+func rentalWithDuration(t *testing.T, duration time.Duration, items []Item) Rental {
 	t.Helper()
 
 	start := time.Date(2026, time.August, 14, 10, 0, 0, 0, time.UTC)
 	interval := mustInterval(t, start, start.Add(duration))
-	rental, err := New(42, interval)
+	rental, err := New(42, interval, items)
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
 	}
