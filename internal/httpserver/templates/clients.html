@@ -35,7 +35,7 @@
                                 </div>
                                 <div class="field">
                                     <label class="field-label" for="client-phone">Телефон <span class="required" aria-hidden="true">*</span></label>
-                                    <input id="client-phone" name="phone" value="{{.Form.Phone}}" type="tel" autocomplete="tel" placeholder="+7 999 123-45-67" required{{if .Form.PhoneError}} aria-invalid="true" aria-describedby="client-phone-error"{{end}}>
+                                    <input id="client-phone" name="phone" value="{{.Form.Phone}}" type="tel" autocomplete="tel" placeholder="+7 (999) 123-45-67" required{{if .Form.PhoneError}} aria-invalid="true" aria-describedby="client-phone-error"{{end}}>
                                     {{if .Form.PhoneError}}<p class="field-error" id="client-phone-error" role="alert">{{.Form.PhoneError}}</p>{{end}}
                                 </div>
                                 <button class="button button--primary" type="submit">Добавить клиента</button>
@@ -51,16 +51,25 @@
                             <form class="client-search-form" method="get" action="/clients" role="search">
                                 <div class="field">
                                     <label class="field-label" for="client-search-phone">Поиск по телефону</label>
-                                    <input id="client-search-phone" name="phone" value="{{.SearchPhone}}" type="tel" autocomplete="off" placeholder="8 (999) 123-45-67"{{if .SearchError}} aria-invalid="true" aria-describedby="client-search-error"{{end}}>
+                                    <input id="client-search-phone" name="phone" value="{{.SearchPhone}}" type="tel" autocomplete="off" placeholder="+7 (999) 123-45-67"{{if .SearchError}} aria-invalid="true" aria-describedby="client-search-error"{{end}}>
                                     {{if .SearchError}}<p class="field-error" id="client-search-error" role="alert">{{.SearchError}}</p>{{end}}
                                 </div>
                                 <div class="client-search-actions"><button class="button button--primary" type="submit">Найти</button>{{if .SearchActive}}<a class="button" href="/clients">Сбросить</a>{{end}}</div>
                             </form>
                         </div>
+                        {{if not .SearchActive}}
+                        <form class="list-toolbar client-list-toolbar" method="get" action="/clients">
+                            <label for="client-page-size">Строк на странице</label>
+                            <select id="client-page-size" name="page_size">
+                                {{range .PageSizeOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Value}}</option>{{end}}
+                            </select>
+                            <button class="button button--compact" type="submit">Показать</button>
+                        </form>
+                        {{end}}
                         {{if .Clients}}
                         <div class="table-scroll" role="region" aria-labelledby="clients-list-heading" tabindex="0">
                             <table><thead><tr><th scope="col">ФИО</th><th scope="col">Телефон</th><th scope="col">ID</th></tr></thead>
-                            <tbody>{{range .Clients}}<tr><td><strong>{{.FullName}}</strong></td><td><a href="tel:{{.Phone}}">{{.Phone}}</a></td><td>{{.ID}}</td></tr>{{end}}</tbody></table>
+                            <tbody>{{range .Clients}}<tr><td><strong><a class="client-name-link" href="/clients/{{.ID}}">{{.FullName}}</a></strong></td><td><a href="tel:{{.Phone}}">{{phoneLabel .Phone}}</a></td><td>{{.ID}}</td></tr>{{end}}</tbody></table>
                         </div>
                         {{else if .SearchEmpty}}
                         <div class="empty-state"><strong>Клиент не найден</strong><span>Проверьте номер или создайте новую карточку клиента.</span></div>

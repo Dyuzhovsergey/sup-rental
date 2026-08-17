@@ -36,7 +36,7 @@ func TestAuditPageShowsSafeEventsAndFilters(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", response.Code)
 	}
-	for _, want := range []string{"Журнал действий", "12.08.2026 10:30:00 МСК", "Оборудование изменено", "SUP-001", "Номер: SUP-001 → SUP-002", "Страница 1 из 1"} {
+	for _, want := range []string{"Журнал действий", "12.08.2026 10:30:00", "Оборудование изменено", "SUP-001", "Номер: SUP-001 → SUP-002", "Страница 1 из 1"} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("body does not contain %q", want)
 		}
@@ -123,6 +123,89 @@ func TestAuditPageShowsClientCategoryAndAction(t *testing.T) {
 	}
 }
 
+func TestAuditPageShowsSafeClientUpdateSummary(t *testing.T) {
+	service := &auditServiceStub{list: func(context.Context, user.User, audit.Filter) (audit.Page, error) {
+		return audit.Page{Total: 1, Page: 1, Events: []audit.Event{{
+			Action: "client.updated", TargetLabel: "Анна Петрова", Result: audit.ResultSuccess,
+			Details: []byte(`{"before_full_name":"Анна Иванова","after_full_name":"Анна Петрова","phone_changed":true}`),
+		}}}, nil
+	}}
+	response := httptest.NewRecorder()
+	newAuditTestHandler(t, service, authenticatedFixture()).ServeHTTP(
+		response, authenticatedRequest(http.MethodGet, "/admin/audit?category=clients", ""),
+	)
+	for _, want := range []string{
+		"Данные клиента изменены", "ФИО: Анна Иванова → Анна Петрова", "Телефон изменён",
+	} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+	if strings.Contains(response.Body.String(), "+7999") {
+		t.Error("audit page exposes client phone")
+	}
+}
+
+func TestAuditPageShowsRentalCategoryAndSafeSummary(t *testing.T) {
+	service := &auditServiceStub{list: func(_ context.Context, _ user.User, filter audit.Filter) (audit.Page, error) {
+		if filter.Category != audit.CategoryRentals {
+			t.Errorf("category = %q", filter.Category)
+		}
+		return audit.Page{Total: 1, Page: 1, Events: []audit.Event{{
+			Action: "rental.confirmed", TargetLabel: "Аренда №24", Result: audit.ResultSuccess,
+			Details: []byte(`{"client_id":18,"planned_start":"2026-08-15T07:08:00Z","planned_end":"2026-08-15T08:38:00Z","equipment_count":3}`),
+		}}}, nil
+	}}
+	response := httptest.NewRecorder()
+	newAuditTestHandler(t, service, authenticatedFixture()).ServeHTTP(
+		response, authenticatedRequest(http.MethodGet, "/admin/audit?category=rentals", ""),
+	)
+	for _, want := range []string{
+		`value="rentals" selected`, "Аренда создана и подтверждена", "Аренда №24",
+		"Клиент ID: 18", "15.08.2026 10:08 — 15.08.2026 11:38", "оборудование: 3",
+	} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestAuditPageShowsIssuedRentalTime(t *testing.T) {
+	service := &auditServiceStub{list: func(context.Context, user.User, audit.Filter) (audit.Page, error) {
+		return audit.Page{Total: 1, Page: 1, Events: []audit.Event{{
+			Action: "rental.issued", TargetLabel: "Аренда №24", Result: audit.ResultSuccess,
+			Details: []byte(`{"client_id":18,"planned_start":"2026-08-15T07:08:00Z","planned_end":"2026-08-15T08:38:00Z","equipment_count":3,"issued_at":"2026-08-15T07:02:00Z"}`),
+		}}}, nil
+	}}
+	response := httptest.NewRecorder()
+	newAuditTestHandler(t, service, authenticatedFixture()).ServeHTTP(
+		response, authenticatedRequest(http.MethodGet, "/admin/audit?category=rentals", ""),
+	)
+	for _, want := range []string{"Оборудование выдано", "фактическая выдача: 15.08.2026 10:02", "оборудование: 3"} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestAuditPageShowsCancelledRental(t *testing.T) {
+	service := &auditServiceStub{list: func(context.Context, user.User, audit.Filter) (audit.Page, error) {
+		return audit.Page{Total: 1, Page: 1, Events: []audit.Event{{
+			Action: "rental.cancelled", TargetLabel: "Аренда №24", Result: audit.ResultSuccess,
+			Details: []byte(`{"client_id":18,"planned_start":"2026-08-15T07:08:00Z","planned_end":"2026-08-15T08:38:00Z","equipment_count":3}`),
+		}}}, nil
+	}}
+	response := httptest.NewRecorder()
+	newAuditTestHandler(t, service, authenticatedFixture()).ServeHTTP(
+		response, authenticatedRequest(http.MethodGet, "/admin/audit?category=rentals", ""),
+	)
+	for _, want := range []string{"Аренда отменена", "Аренда №24", "оборудование: 3"} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
 func TestAuditPaginationPreservesFilters(t *testing.T) {
 	service := &auditServiceStub{list: func(context.Context, user.User, audit.Filter) (audit.Page, error) {
 		return audit.Page{Total: 51, Page: 1, Events: []audit.Event{{
@@ -159,7 +242,7 @@ func newAuditTestHandler(t *testing.T, service auditService, authenticated sessi
 	}}
 	handler, err := NewHandler(
 		slog.New(slog.NewTextHandler(io.Discard, nil)), &equipmentServiceStub{},
-		&authServiceStub{}, resolver, &operatorServiceStub{}, service, &clientServiceStub{}, CookieSettings{},
+		&authServiceStub{}, resolver, &operatorServiceStub{}, service, &clientServiceStub{}, &rentalServiceStub{}, CookieSettings{},
 	)
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)

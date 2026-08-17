@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{.Title}}</title><link rel="stylesheet" href="/static/app.css"></head>
+<body>
+<a class="skip-link" href="#main-content">К содержимому</a>
+<div class="app-shell">{{template "equipment-sidebar" .}}
+<main class="main-content" id="main-content" tabindex="-1"><div class="content-container confirmation">
+    <nav class="breadcrumb" aria-label="Хлебные крошки"><a href="/rentals">Аренды</a><span aria-hidden="true">/</span><span>{{.Heading}}</span></nav>
+    <header class="page-header"><div><p class="page-eyebrow">Групповое действие</p><h1>{{.Heading}}</h1><p class="page-description">{{.Description}}</p></div></header>
+    <section class="panel" aria-labelledby="bulk-rental-heading">
+        <header class="panel-header"><div><h2 id="bulk-rental-heading">Выбранные аренды</h2><p class="panel-description">Изменения будут выполнены одной операцией по всему списку.</p></div><span class="count-chip">{{.RentalCount}}</span></header>
+        <div class="panel-body content-stack">
+            <div class="alert {{if .IsCancellation}}alert--danger{{else}}alert--warning{{end}}" role="alert"><svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v5"></path><path d="M12 16.5h.01"></path></svg><p>{{.Warning}}</p></div>
+            <div class="table-scroll"><table><thead><tr><th>№</th><th>Клиент</th><th>Период</th><th>Состав</th><th>Стоимость</th></tr></thead><tbody>{{range .Rentals}}<tr><td><a class="client-name-link" href="/rentals/{{.ID}}"><strong>№{{.ID}}</strong></a></td><td>{{.ClientName}}</td><td>{{.Period}}</td><td>{{.ItemCount}}</td><td>{{.PlannedTotal}}</td></tr>{{end}}</tbody></table></div>
+        </div>
+        <div class="confirmation-actions"><form method="post" action="{{.Action}}" data-confirmation-form><input type="hidden" name="csrf_token" value="{{.Authentication.CSRFToken}}">{{range .Rentals}}<input type="hidden" name="rental_id" value="{{.ID}}">{{end}}<button class="button {{if .IsCancellation}}button--danger-filled{{else}}button--primary{{end}}" type="submit">{{.SubmitLabel}}</button></form><a class="button button--secondary" href="/rentals">Вернуться к списку</a><span class="count-chip">{{.EquipmentCount}}</span></div>
+    </section>
+</div></main></div>
+</body></html>

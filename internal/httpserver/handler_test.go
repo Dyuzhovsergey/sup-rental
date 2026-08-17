@@ -15,6 +15,7 @@ import (
 	appauth "github.com/Dyuzhovsergey/sup-rental/internal/auth"
 	"github.com/Dyuzhovsergey/sup-rental/internal/client"
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
+	"github.com/Dyuzhovsergey/sup-rental/internal/rental"
 	"github.com/Dyuzhovsergey/sup-rental/internal/session"
 	"github.com/Dyuzhovsergey/sup-rental/internal/user"
 )
@@ -145,11 +146,42 @@ func TestStylesheet(t *testing.T) {
 		".button--compact",
 		".button--edit",
 		".retirement-panel",
+		".limited-select__list",
+		".limited-select__toggle",
+		"max-height: 208px",
+		".rental-review-summary",
+		".rental-equipment-group",
+		".quantity-stepper",
 		":focus-visible",
 		"prefers-reduced-motion",
 	} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestRentalScript(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/static/rental.js", nil)
+	response := httptest.NewRecorder()
+
+	newUnauthenticatedTestHandler(t, discardLogger()).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+	if got := response.Header().Get("Content-Type"); got != "text/javascript; charset=utf-8" {
+		t.Errorf("Content-Type = %q", got)
+	}
+	for _, want := range []string{
+		"data-rental-period-form", "data-rental-end", "data-rental-equipment-form",
+		"data-rental-total", "data-rental-kind-count", "data-limited-select",
+		"limited-select__option", `trigger.type = "number"`, "integerInRange", "Intl.NumberFormat",
+		"data-rental-bulk-form", "data-rental-select-all", "data-rental-selected-count",
+		"data-quantity-stepper", "data-quantity-decrease", "data-quantity-increase",
+	} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("script does not contain %q", want)
 		}
 	}
 }
@@ -266,6 +298,7 @@ func newHandlerWithDependencies(
 		&operatorServiceStub{},
 		&auditServiceStub{},
 		&clientServiceStub{},
+		&rentalServiceStub{},
 		CookieSettings{},
 	)
 	if err != nil {
@@ -286,9 +319,80 @@ type auditServiceStub struct {
 
 type clientServiceStub struct {
 	create func(context.Context, user.User, string, string) (client.Client, error)
+	update func(context.Context, user.User, int64, string, string) (client.Client, error)
 	get    func(context.Context, int64) (client.Client, error)
 	find   func(context.Context, string) (client.Client, error)
-	list   func(context.Context, int) (client.Page, error)
+	list   func(context.Context, int, int) (client.Page, error)
+}
+
+type rentalServiceStub struct {
+	available  func(context.Context, rental.Interval) ([]rental.AvailableModel, error)
+	create     func(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
+	issue      func(context.Context, user.User, int64) (rental.Rental, error)
+	issueMany  func(context.Context, user.User, []int64) ([]rental.Rental, error)
+	cancel     func(context.Context, user.User, int64) (rental.Rental, error)
+	cancelMany func(context.Context, user.User, []int64) ([]rental.Rental, error)
+	get        func(context.Context, int64) (rental.Rental, error)
+	list       func(context.Context, []rental.Status, int, int) (rental.Page, error)
+}
+
+func (s *rentalServiceStub) CancelMany(ctx context.Context, actor user.User, ids []int64) ([]rental.Rental, error) {
+	if s.cancelMany == nil {
+		return nil, rental.ErrRentalNotFound
+	}
+	return s.cancelMany(ctx, actor, ids)
+}
+
+func (s *rentalServiceStub) Cancel(ctx context.Context, actor user.User, id int64) (rental.Rental, error) {
+	if s.cancel == nil {
+		return rental.Rental{}, rental.ErrRentalNotFound
+	}
+	return s.cancel(ctx, actor, id)
+}
+
+func (s *rentalServiceStub) Issue(ctx context.Context, actor user.User, id int64) (rental.Rental, error) {
+	if s.issue == nil {
+		return rental.Rental{}, rental.ErrRentalNotFound
+	}
+	return s.issue(ctx, actor, id)
+}
+
+func (s *rentalServiceStub) IssueMany(ctx context.Context, actor user.User, ids []int64) ([]rental.Rental, error) {
+	if s.issueMany == nil {
+		return nil, rental.ErrRentalNotFound
+	}
+	return s.issueMany(ctx, actor, ids)
+}
+
+func (s *rentalServiceStub) AvailableModels(ctx context.Context, interval rental.Interval) ([]rental.AvailableModel, error) {
+	if s.available == nil {
+		return nil, nil
+	}
+	return s.available(ctx, interval)
+}
+
+func (s *rentalServiceStub) CreateConfirmed(ctx context.Context, actor user.User, clientID int64, interval rental.Interval, selections []rental.ModelSelection) (rental.Rental, error) {
+	if s.create == nil {
+		return rental.Restore(1, clientID, interval, rental.StatusConfirmed, nil, []rental.Item{{
+			EquipmentID: 1, InventoryNumber: "SUP-TEST-1", Kind: equipment.KindSUPBoard,
+			ModelCode: "TEST", HourlyRateKopecks: 100_000,
+		}})
+	}
+	return s.create(ctx, actor, clientID, interval, selections)
+}
+
+func (s *rentalServiceStub) Get(ctx context.Context, id int64) (rental.Rental, error) {
+	if s.get == nil {
+		return rental.Rental{}, rental.ErrRentalNotFound
+	}
+	return s.get(ctx, id)
+}
+
+func (s *rentalServiceStub) ListPage(ctx context.Context, statuses []rental.Status, page, pageSize int) (rental.Page, error) {
+	if s.list == nil {
+		return rental.Page{Page: page, PageSize: pageSize}, nil
+	}
+	return s.list(ctx, statuses, page, pageSize)
 }
 
 func (s *clientServiceStub) Create(ctx context.Context, actor user.User, fullName, phone string) (client.Client, error) {
@@ -296,6 +400,13 @@ func (s *clientServiceStub) Create(ctx context.Context, actor user.User, fullNam
 		return client.Client{}, nil
 	}
 	return s.create(ctx, actor, fullName, phone)
+}
+
+func (s *clientServiceStub) Update(ctx context.Context, actor user.User, id int64, fullName, phone string) (client.Client, error) {
+	if s.update == nil {
+		return client.Client{}, nil
+	}
+	return s.update(ctx, actor, id, fullName, phone)
 }
 
 func (s *clientServiceStub) Get(ctx context.Context, id int64) (client.Client, error) {
@@ -312,11 +423,11 @@ func (s *clientServiceStub) FindByPhone(ctx context.Context, phone string) (clie
 	return s.find(ctx, phone)
 }
 
-func (s *clientServiceStub) ListPage(ctx context.Context, page int) (client.Page, error) {
+func (s *clientServiceStub) ListPage(ctx context.Context, page, pageSize int) (client.Page, error) {
 	if s.list == nil {
 		return client.Page{Page: page}, nil
 	}
-	return s.list(ctx, page)
+	return s.list(ctx, page, pageSize)
 }
 
 func (s *auditServiceStub) List(ctx context.Context, actor user.User, filter audit.Filter) (audit.Page, error) {

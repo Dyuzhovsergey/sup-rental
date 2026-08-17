@@ -24,6 +24,8 @@ const (
 	CategoryEquipment Category = "equipment"
 	// CategoryClients ограничивает журнал событиями работы с клиентами.
 	CategoryClients Category = "clients"
+	// CategoryRentals ограничивает журнал событиями работы с арендами.
+	CategoryRentals Category = "rentals"
 	ResultAll                = ""
 	ResultSuccess            = "success"
 	ResultFailure            = "failure"
@@ -114,7 +116,7 @@ func NewFilter(category, result, actor, target string, from, to *time.Time, page
 	}
 	if filter.Category != CategoryAll && filter.Category != CategoryAuth &&
 		filter.Category != CategoryUsers && filter.Category != CategoryEquipment &&
-		filter.Category != CategoryClients {
+		filter.Category != CategoryClients && filter.Category != CategoryRentals {
 		return Filter{}, ErrInvalidFilter
 	}
 	if filter.Result != ResultAll && filter.Result != ResultSuccess && filter.Result != ResultFailure {

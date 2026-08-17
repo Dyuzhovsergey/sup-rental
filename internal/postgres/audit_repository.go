@@ -70,6 +70,8 @@ func auditWhere(filter audit.Filter) (string, []any) {
 		add("action LIKE $%d", "equipment.%")
 	case audit.CategoryClients:
 		add("action LIKE $%d", "client.%")
+	case audit.CategoryRentals:
+		add("action LIKE $%d", "rental.%")
 	}
 	if filter.Result != "" {
 		add("result = $%d", filter.Result)

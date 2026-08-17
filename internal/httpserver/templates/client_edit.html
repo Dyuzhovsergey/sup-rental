@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+    <a class="skip-link" href="#main-content">К содержимому</a>
+    <div class="app-shell">
+        {{template "equipment-sidebar" .}}
+        <main class="main-content" id="main-content" tabindex="-1">
+            <div class="content-container">
+                <nav class="breadcrumb" aria-label="Хлебные крошки">
+                    <a href="/clients">
+                        <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m15 18-6-6 6-6"></path></svg>
+                        Клиенты
+                    </a>
+                    <span aria-hidden="true">/</span>
+                    <a href="/clients/{{.ID}}">Карточка</a>
+                    <span aria-hidden="true">/</span>
+                    <span>Редактирование</span>
+                </nav>
+
+                <header class="page-header">
+                    <div>
+                        <p class="page-eyebrow">Клиенты</p>
+                        <h1 id="edit-client-heading">Редактировать клиента</h1>
+                        <p class="page-description">Исправьте ФИО или телефон клиента перед оформлением аренды.</p>
+                    </div>
+                </header>
+
+                <section class="panel panel--narrow" aria-labelledby="client-contact-heading">
+                    <header class="panel-header">
+                        <div>
+                            <h2 id="client-contact-heading">Контактные данные</h2>
+                            <p class="panel-description">Обязательные поля отмечены символом «*»</p>
+                        </div>
+                    </header>
+                    <div class="panel-body">
+                        <form class="form-stack" method="post" action="/clients/{{.ID}}/edit" aria-labelledby="client-contact-heading">
+                            <input type="hidden" name="csrf_token" value="{{.Authentication.CSRFToken}}">
+                            <div class="field">
+                                <label class="field-label" for="edit-client-full-name">ФИО <span class="required" aria-hidden="true">*</span></label>
+                                <input id="edit-client-full-name" name="full_name" value="{{.Form.FullName}}" maxlength="200" autocomplete="name" required{{if .Form.FullNameError}} aria-invalid="true" aria-describedby="edit-client-full-name-error"{{end}}>
+                                {{if .Form.FullNameError}}<p class="field-error" id="edit-client-full-name-error" role="alert">{{.Form.FullNameError}}</p>{{end}}
+                            </div>
+                            <div class="field">
+                                <label class="field-label" for="edit-client-phone">Телефон <span class="required" aria-hidden="true">*</span></label>
+                                <input id="edit-client-phone" name="phone" value="{{.Form.Phone}}" type="tel" autocomplete="tel" placeholder="+7 (999) 123-45-67" required{{if .Form.PhoneError}} aria-invalid="true" aria-describedby="edit-client-phone-error"{{end}}>
+                                {{if .Form.PhoneError}}<p class="field-error" id="edit-client-phone-error" role="alert">{{.Form.PhoneError}}</p>{{end}}
+                            </div>
+                            <div class="form-actions">
+                                <button class="button button--primary" type="submit">
+                                    <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 4h12l2 2v14H5V4Z"></path><path d="M8 4v6h8V4"></path><path d="M8 20v-6h8v6"></path></svg>
+                                    Сохранить
+                                </button>
+                                <a class="button button--secondary" href="/clients/{{.ID}}">Отмена</a>
+                            </div>
+                        </form>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

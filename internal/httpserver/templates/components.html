@@ -27,6 +27,13 @@
             <span>Главная</span>
         </a>
         {{end}}
+		<a class="nav-item{{if .RentalsActive}} is-active{{end}}" href="/rentals"{{if .RentalsActive}} aria-current="page"{{end}}>
+			<svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+				<path d="M6 3h12v18H6z"></path>
+				<path d="M9 7h6M9 11h6M9 15h4"></path>
+			</svg>
+			<span>Аренды</span>
+		</a>
         <a class="nav-item{{if .EquipmentActive}} is-active{{end}}" href="/equipment"{{if .EquipmentActive}} aria-current="page"{{end}}>
             <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M4 7.5 12 3l8 4.5-8 4.5-8-4.5Z"></path>
@@ -93,6 +100,18 @@
     </div>
     {{end}}
 </aside>
+{{end}}
+
+{{define "rental-status-chip"}}
+{{if eq . "Подтверждена"}}
+<span class="status-chip status-chip--issued"><span class="status-dot" aria-hidden="true"></span>{{.}}</span>
+{{else if eq . "Активна"}}
+<span class="status-chip status-chip--available"><span class="status-dot" aria-hidden="true"></span>{{.}}</span>
+{{else if eq . "Завершена"}}
+<span class="status-chip"><span class="status-dot" aria-hidden="true"></span>{{.}}</span>
+{{else}}
+<span class="status-chip status-chip--retired"><span class="status-dot" aria-hidden="true"></span>{{.}}</span>
+{{end}}
 {{end}}
 
 {{define "pagination"}}

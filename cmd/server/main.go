@@ -18,6 +18,7 @@ import (
 	"github.com/Dyuzhovsergey/sup-rental/internal/httpserver"
 	"github.com/Dyuzhovsergey/sup-rental/internal/password"
 	"github.com/Dyuzhovsergey/sup-rental/internal/postgres"
+	"github.com/Dyuzhovsergey/sup-rental/internal/rental"
 	"github.com/Dyuzhovsergey/sup-rental/internal/session"
 	"github.com/Dyuzhovsergey/sup-rental/internal/user"
 )
@@ -79,6 +80,8 @@ func run(ctx context.Context, logger *slog.Logger) error {
 	auditService := audit.NewService(auditRepository)
 	clientRepository := postgres.NewClientRepository(pool)
 	clientService := client.NewService(clientRepository)
+	rentalRepository := postgres.NewRentalRepository(pool)
+	rentalService := rental.NewService(rentalRepository)
 
 	handler, err := httpserver.NewHandler(
 		httpLogger,
@@ -88,6 +91,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		operatorService,
 		auditService,
 		clientService,
+		rentalService,
 		httpserver.CookieSettings{Secure: cfg.SessionCookieSecure},
 	)
 	if err != nil {

@@ -301,6 +301,7 @@ func newAuthenticationTestHandler(
 		&operatorServiceStub{},
 		&auditServiceStub{},
 		&clientServiceStub{},
+		&rentalServiceStub{},
 		settings,
 	)
 	if err != nil {

@@ -354,7 +354,7 @@ func operatorViews(accounts []user.User) []operatorView {
 func operatorViewFor(account user.User) operatorView {
 	lastLogin := "Ещё не входил"
 	if account.LastLoginAt != nil {
-		lastLogin = account.LastLoginAt.In(moscowTimeZone).Format("02.01.2006 15:04 МСК")
+		lastLogin = account.LastLoginAt.In(moscowTimeZone).Format("02.01.2006 15:04")
 	}
 	state := "Отключён"
 	if account.Active {
