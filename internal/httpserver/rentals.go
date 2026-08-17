@@ -9,6 +9,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -53,6 +54,7 @@ type rentalWizardPageData struct {
 	MinuteOptions    []rentalDurationOption
 	EndLabel         string
 	Models           []rentalModelView
+	ModelGroups      []rentalModelGroupView
 	SelectedModels   []rentalSelectedModelView
 	SelectionError   string
 	Duration         string
@@ -63,7 +65,11 @@ type rentalWizardPageData struct {
 	LifeJacketCount  int
 	ItemCount        int
 	PlannedTotal     string
+	PeriodBackURL    string
 	EquipmentBackURL string
+	ClientBackURL    string
+	ReviewURL        string
+	ChangeClientURL  string
 	CSRFToken        string
 }
 
@@ -76,6 +82,13 @@ type rentalModelView struct {
 	HourlyRateKopecks int64
 	AvailableCount    int
 	Quantity          string
+}
+
+type rentalModelGroupView struct {
+	KindValue      string
+	Kind           string
+	Models         []rentalModelView
+	AvailableLabel string
 }
 
 type rentalSelectedModelView struct {
@@ -167,118 +180,13 @@ type rentalItemView struct {
 
 func showRentalClientStep(
 	logger *slog.Logger,
-	pageTemplates *template.Template,
-	w http.ResponseWriter,
-	r *http.Request,
-) {
-	renderRentalWizard(logger, pageTemplates, w, http.StatusOK, r, rentalWizardPageData{
-		Title: "Новая аренда — SUP Rental", Step: "client", StepNumber: 1,
-	})
-}
-
-func selectRentalClient(
-	logger *slog.Logger,
-	clients clientService,
-	pageTemplates *template.Template,
-	w http.ResponseWriter,
-	r *http.Request,
-) {
-	phone := strings.TrimSpace(r.PostForm.Get("phone"))
-	fullName := strings.TrimSpace(r.PostForm.Get("full_name"))
-	data := rentalWizardPageData{
-		Title: "Новая аренда — SUP Rental", Step: "client", StepNumber: 1,
-		Phone: clientPhoneInputLabel(phone), FullName: fullName,
-	}
-
-	found, err := clients.FindByPhone(r.Context(), phone)
-	if err == nil {
-		redirectToRentalPeriod(w, r, found.ID)
-		return
-	}
-	if errors.Is(err, client.ErrPhoneRequired) || errors.Is(err, client.ErrInvalidPhone) {
-		data.PhoneError = "Введите корректный номер телефона."
-		renderRentalWizard(logger, pageTemplates, w, http.StatusUnprocessableEntity, r, data)
-		return
-	}
-	if !errors.Is(err, client.ErrClientNotFound) {
-		logger.Error("find rental client", slog.Any("error", err))
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-
-	created, err := clients.Create(r.Context(), currentUser(r), fullName, phone)
-	if err == nil {
-		redirectToRentalPeriod(w, r, created.ID)
-		return
-	}
-	switch {
-	case errors.Is(err, client.ErrFullNameRequired):
-		data.FullNameError = "Клиент не найден. Укажите ФИО для создания карточки."
-	case errors.Is(err, client.ErrFullNameTooLong):
-		data.FullNameError = "ФИО должно содержать не более 200 символов."
-	case errors.Is(err, client.ErrInvalidFullName):
-		data.FullNameError = "ФИО содержит недопустимые символы."
-	case errors.Is(err, client.ErrPhoneRequired), errors.Is(err, client.ErrInvalidPhone):
-		data.PhoneError = "Введите корректный номер телефона."
-	case errors.Is(err, client.ErrPhoneExists):
-		data.PhoneError = "Клиент с таким телефоном уже существует. Повторите поиск."
-	default:
-		logger.Error("create rental client", slog.Any("error", err))
-		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
-		return
-	}
-	renderRentalWizard(logger, pageTemplates, w, http.StatusUnprocessableEntity, r, data)
-}
-
-func redirectToRentalPeriod(w http.ResponseWriter, r *http.Request, clientID int64) {
-	http.Redirect(
-		w,
-		r,
-		"/rentals/new/period?client_id="+strconv.FormatInt(clientID, 10),
-		http.StatusSeeOther,
-	)
-}
-
-func showRentalPeriodStep(
-	logger *slog.Logger,
-	clients clientService,
-	pageTemplates *template.Template,
-	w http.ResponseWriter,
-	r *http.Request,
-) {
-	customer, ok := rentalClientFromRequest(logger, clients, w, r)
-	if !ok {
-		return
-	}
-	startValue := strings.TrimSpace(r.URL.Query().Get("start"))
-	daysValue := strings.TrimSpace(r.URL.Query().Get("duration_days"))
-	hoursValue := strings.TrimSpace(r.URL.Query().Get("duration_hours"))
-	minutesValue := strings.TrimSpace(r.URL.Query().Get("duration_minutes"))
-	data := rentalWizardPageData{
-		Title: "Новая аренда — SUP Rental", Step: "period", StepNumber: 2,
-		Client: customer, Start: startValue,
-		DurationDays: daysValue, DurationHours: hoursValue, DurationMinutes: minutesValue,
-		DayOptions:    rentalDurationOptions(rental.MaxDurationDays, daysValue),
-		HourOptions:   rentalDurationOptions(23, hoursValue),
-		MinuteOptions: rentalMinuteOptions(minutesValue),
-	}
-	if interval, startError, durationError := parseRentalInterval(
-		startValue, daysValue, hoursValue, minutesValue,
-	); startError == "" && durationError == "" {
-		data.EndLabel = rentalEndLabel(interval)
-	}
-	renderRentalWizard(logger, pageTemplates, w, http.StatusOK, r, data)
-}
-
-func showRentalEquipmentStep(
-	logger *slog.Logger,
 	rentals rentalService,
 	clients clientService,
 	pageTemplates *template.Template,
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	customer, ok := rentalClientFromRequest(logger, clients, w, r)
+	customer, ok := optionalRentalClientFromRequest(logger, clients, w, r)
 	if !ok {
 		return
 	}
@@ -290,15 +198,220 @@ func showRentalEquipmentStep(
 		startValue, daysValue, hoursValue, minutesValue,
 	)
 	if startError != "" || durationError != "" {
-		renderRentalWizard(logger, pageTemplates, w, http.StatusUnprocessableEntity, r, rentalWizardPageData{
-			Title: "Новая аренда — SUP Rental", Step: "period", StepNumber: 2,
-			Client: customer, Start: startValue,
-			DurationDays: daysValue, DurationHours: hoursValue, DurationMinutes: minutesValue,
-			StartError: startError, DurationError: durationError,
-			DayOptions:    rentalDurationOptions(rental.MaxDurationDays, daysValue),
-			HourOptions:   rentalDurationOptions(23, hoursValue),
-			MinuteOptions: rentalMinuteOptions(minutesValue),
-		})
+		renderRentalPeriodStep(
+			logger, pageTemplates, w, http.StatusUnprocessableEntity, r, customer,
+			startValue, daysValue, hoursValue, minutesValue, startError, durationError,
+		)
+		return
+	}
+
+	selections, selected, parseOK := rentalSelections(
+		r.URL.Query()["model_id"], r.URL.Query()["quantity"],
+	)
+	if !parseOK {
+		renderRentalEquipmentError(
+			logger, rentals, pageTemplates, w, r, customer, interval,
+			startValue, daysValue, hoursValue, minutesValue, nil,
+			"Проверьте выбранные модели и количество.", http.StatusUnprocessableEntity,
+		)
+		return
+	}
+	models, err := rentals.AvailableModels(r.Context(), interval)
+	if err != nil {
+		logger.Error("load rental equipment before client step", slog.Any("error", err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	summary, err := buildRentalSelectionSummary(models, selections, interval)
+	if err != nil {
+		status, message := rentalSelectionHTTPError(err)
+		if status == http.StatusInternalServerError {
+			logger.Error("calculate rental selection before client step", slog.Any("error", err))
+			http.Error(w, "Internal Server Error", status)
+			return
+		}
+		renderRentalEquipmentError(
+			logger, rentals, pageTemplates, w, r, customer, interval,
+			startValue, daysValue, hoursValue, minutesValue, selected, message, status,
+		)
+		return
+	}
+
+	renderRentalClientSelectionStep(
+		logger, pageTemplates, w, http.StatusOK, r, customer, interval,
+		startValue, daysValue, hoursValue, minutesValue, selections, summary,
+		"", "", "", "",
+	)
+}
+
+func selectRentalClient(
+	logger *slog.Logger,
+	rentals rentalService,
+	clients clientService,
+	pageTemplates *template.Template,
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	startValue := strings.TrimSpace(r.PostForm.Get("start"))
+	daysValue := strings.TrimSpace(r.PostForm.Get("duration_days"))
+	hoursValue := strings.TrimSpace(r.PostForm.Get("duration_hours"))
+	minutesValue := strings.TrimSpace(r.PostForm.Get("duration_minutes"))
+	interval, startError, durationError := parseRentalInterval(
+		startValue, daysValue, hoursValue, minutesValue,
+	)
+	if startError != "" || durationError != "" {
+		renderRentalPeriodStep(
+			logger, pageTemplates, w, http.StatusUnprocessableEntity, r, client.Client{},
+			startValue, daysValue, hoursValue, minutesValue, startError, durationError,
+		)
+		return
+	}
+	selections, selected, parseOK := rentalSelections(r.PostForm["model_id"], r.PostForm["quantity"])
+	if !parseOK {
+		renderRentalEquipmentError(
+			logger, rentals, pageTemplates, w, r, client.Client{}, interval,
+			startValue, daysValue, hoursValue, minutesValue, nil,
+			"Проверьте выбранные модели и количество.", http.StatusUnprocessableEntity,
+		)
+		return
+	}
+	models, err := rentals.AvailableModels(r.Context(), interval)
+	if err != nil {
+		logger.Error("load rental equipment before client selection", slog.Any("error", err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	summary, err := buildRentalSelectionSummary(models, selections, interval)
+	if err != nil {
+		status, message := rentalSelectionHTTPError(err)
+		if status == http.StatusInternalServerError {
+			logger.Error("calculate rental selection before client selection", slog.Any("error", err))
+			http.Error(w, "Internal Server Error", status)
+			return
+		}
+		renderRentalEquipmentError(
+			logger, rentals, pageTemplates, w, r, client.Client{}, interval,
+			startValue, daysValue, hoursValue, minutesValue, selected, message, status,
+		)
+		return
+	}
+
+	phone := strings.TrimSpace(r.PostForm.Get("phone"))
+	fullName := strings.TrimSpace(r.PostForm.Get("full_name"))
+
+	found, err := clients.FindByPhone(r.Context(), phone)
+	if err == nil {
+		redirectToRentalReview(
+			w, r, found.ID, startValue, daysValue, hoursValue, minutesValue, selections,
+		)
+		return
+	}
+	if errors.Is(err, client.ErrPhoneRequired) || errors.Is(err, client.ErrInvalidPhone) {
+		renderRentalClientSelectionStep(
+			logger, pageTemplates, w, http.StatusUnprocessableEntity, r, client.Client{}, interval,
+			startValue, daysValue, hoursValue, minutesValue, selections, summary,
+			clientPhoneInputLabel(phone), fullName, "Введите корректный номер телефона.", "",
+		)
+		return
+	}
+	if !errors.Is(err, client.ErrClientNotFound) {
+		logger.Error("find rental client", slog.Any("error", err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+
+	created, err := clients.Create(r.Context(), currentUser(r), fullName, phone)
+	if err == nil {
+		redirectToRentalReview(
+			w, r, created.ID, startValue, daysValue, hoursValue, minutesValue, selections,
+		)
+		return
+	}
+	phoneError := ""
+	fullNameError := ""
+	switch {
+	case errors.Is(err, client.ErrFullNameRequired):
+		fullNameError = "Клиент не найден. Укажите ФИО для создания карточки."
+	case errors.Is(err, client.ErrFullNameTooLong):
+		fullNameError = "ФИО должно содержать не более 200 символов."
+	case errors.Is(err, client.ErrInvalidFullName):
+		fullNameError = "ФИО содержит недопустимые символы."
+	case errors.Is(err, client.ErrPhoneRequired), errors.Is(err, client.ErrInvalidPhone):
+		phoneError = "Введите корректный номер телефона."
+	case errors.Is(err, client.ErrPhoneExists):
+		phoneError = "Клиент с таким телефоном уже существует. Повторите поиск."
+	default:
+		logger.Error("create rental client", slog.Any("error", err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
+	renderRentalClientSelectionStep(
+		logger, pageTemplates, w, http.StatusUnprocessableEntity, r, client.Client{}, interval,
+		startValue, daysValue, hoursValue, minutesValue, selections, summary,
+		clientPhoneInputLabel(phone), fullName, phoneError, fullNameError,
+	)
+}
+
+func redirectToRentalReview(
+	w http.ResponseWriter,
+	r *http.Request,
+	clientID int64,
+	start, days, hours, minutes string,
+	selections []rental.ModelSelection,
+) {
+	http.Redirect(
+		w,
+		r,
+		rentalReviewURL(clientID, start, days, hours, minutes, selections),
+		http.StatusSeeOther,
+	)
+}
+
+func showRentalPeriodStep(
+	logger *slog.Logger,
+	clients clientService,
+	pageTemplates *template.Template,
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	customer, ok := optionalRentalClientFromRequest(logger, clients, w, r)
+	if !ok {
+		return
+	}
+	startValue := strings.TrimSpace(r.URL.Query().Get("start"))
+	daysValue := strings.TrimSpace(r.URL.Query().Get("duration_days"))
+	hoursValue := strings.TrimSpace(r.URL.Query().Get("duration_hours"))
+	minutesValue := strings.TrimSpace(r.URL.Query().Get("duration_minutes"))
+	renderRentalPeriodStep(
+		logger, pageTemplates, w, http.StatusOK, r, customer,
+		startValue, daysValue, hoursValue, minutesValue, "", "",
+	)
+}
+
+func showRentalEquipmentStep(
+	logger *slog.Logger,
+	rentals rentalService,
+	clients clientService,
+	pageTemplates *template.Template,
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	customer, ok := optionalRentalClientFromRequest(logger, clients, w, r)
+	if !ok {
+		return
+	}
+	startValue := strings.TrimSpace(r.URL.Query().Get("start"))
+	daysValue := strings.TrimSpace(r.URL.Query().Get("duration_days"))
+	hoursValue := strings.TrimSpace(r.URL.Query().Get("duration_hours"))
+	minutesValue := strings.TrimSpace(r.URL.Query().Get("duration_minutes"))
+	interval, startError, durationError := parseRentalInterval(
+		startValue, daysValue, hoursValue, minutesValue,
+	)
+	if startError != "" || durationError != "" {
+		renderRentalPeriodStep(
+			logger, pageTemplates, w, http.StatusUnprocessableEntity, r, customer,
+			startValue, daysValue, hoursValue, minutesValue, startError, durationError,
+		)
 		return
 	}
 
@@ -334,16 +447,17 @@ func showRentalEquipmentStep(
 		}
 	}
 	renderRentalWizard(logger, pageTemplates, w, status, r, rentalWizardPageData{
-		Title: "Новая аренда — SUP Rental", Step: "equipment", StepNumber: 3,
+		Title: "Новая аренда — SUP Rental", Step: "equipment", StepNumber: 2,
 		Client: customer, Start: startValue,
 		DurationDays: daysValue, DurationHours: hoursValue, DurationMinutes: minutesValue,
-		Models: rentalModelViews(models, selected), SelectionError: selectionError,
+		Models: rentalModelViews(models, selected), ModelGroups: rentalModelGroups(models, selected), SelectionError: selectionError,
 		Duration: rentalDurationLabel(interval),
 		Period:   rentalPeriodLabel(interval), EndLabel: rentalEndLabel(interval),
 		SlotCount:     interval.SlotCount(),
 		SUPBoardCount: summary.SUPBoardCount, PaddleCount: summary.PaddleCount,
 		LifeJacketCount: summary.LifeJacketCount, ItemCount: summary.ItemCount,
-		PlannedTotal: rentalMoneyLabel(summary.TotalKopecks),
+		PlannedTotal:  rentalMoneyLabel(summary.TotalKopecks),
+		PeriodBackURL: rentalPeriodURL(customer.ID, startValue, daysValue, hoursValue, minutesValue),
 	})
 }
 
@@ -367,14 +481,10 @@ func showRentalReviewStep(
 		startValue, daysValue, hoursValue, minutesValue,
 	)
 	if startError != "" || durationError != "" {
-		renderRentalWizard(logger, pageTemplates, w, http.StatusUnprocessableEntity, r, rentalWizardPageData{
-			Title: "Новая аренда — SUP Rental", Step: "period", StepNumber: 2,
-			Client: customer, Start: startValue,
-			DurationDays: daysValue, DurationHours: hoursValue, DurationMinutes: minutesValue,
-			StartError: startError, DurationError: durationError,
-			DayOptions:  rentalDurationOptions(rental.MaxDurationDays, daysValue),
-			HourOptions: rentalDurationOptions(23, hoursValue), MinuteOptions: rentalMinuteOptions(minutesValue),
-		})
+		renderRentalPeriodStep(
+			logger, pageTemplates, w, http.StatusUnprocessableEntity, r, customer,
+			startValue, daysValue, hoursValue, minutesValue, startError, durationError,
+		)
 		return
 	}
 
@@ -426,6 +536,9 @@ func showRentalReviewStep(
 		EquipmentBackURL: rentalEquipmentURL(
 			customer.ID, startValue, daysValue, hoursValue, minutesValue, selections,
 		),
+		ClientBackURL: rentalClientURL(
+			customer.ID, startValue, daysValue, hoursValue, minutesValue, selections,
+		),
 	})
 }
 
@@ -461,15 +574,10 @@ func createConfirmedRental(
 		startValue, daysValue, hoursValue, minutesValue,
 	)
 	if startError != "" || durationError != "" {
-		renderRentalWizard(logger, pageTemplates, w, http.StatusUnprocessableEntity, r, rentalWizardPageData{
-			Title: "Новая аренда — SUP Rental", Step: "period", StepNumber: 2,
-			Client: customer, Start: startValue,
-			DurationDays: daysValue, DurationHours: hoursValue, DurationMinutes: minutesValue,
-			StartError: startError, DurationError: durationError,
-			DayOptions:    rentalDurationOptions(rental.MaxDurationDays, daysValue),
-			HourOptions:   rentalDurationOptions(23, hoursValue),
-			MinuteOptions: rentalMinuteOptions(minutesValue),
-		})
+		renderRentalPeriodStep(
+			logger, pageTemplates, w, http.StatusUnprocessableEntity, r, customer,
+			startValue, daysValue, hoursValue, minutesValue, startError, durationError,
+		)
 		return
 	}
 
@@ -552,15 +660,16 @@ func renderRentalEquipmentError(
 		summary = rentalSelectionSummary{}
 	}
 	renderRentalWizard(logger, pageTemplates, w, status, r, rentalWizardPageData{
-		Title: "Новая аренда — SUP Rental", Step: "equipment", StepNumber: 3,
+		Title: "Новая аренда — SUP Rental", Step: "equipment", StepNumber: 2,
 		Client: customer, Start: startValue,
 		DurationDays: daysValue, DurationHours: hoursValue, DurationMinutes: minutesValue,
-		Models: rentalModelViews(models, selected), SelectionError: message,
+		Models: rentalModelViews(models, selected), ModelGroups: rentalModelGroups(models, selected), SelectionError: message,
 		Duration: rentalDurationLabel(interval), Period: rentalPeriodLabel(interval), EndLabel: rentalEndLabel(interval),
 		SlotCount:     interval.SlotCount(),
 		SUPBoardCount: summary.SUPBoardCount, PaddleCount: summary.PaddleCount,
 		LifeJacketCount: summary.LifeJacketCount, ItemCount: summary.ItemCount,
-		PlannedTotal: rentalMoneyLabel(summary.TotalKopecks),
+		PlannedTotal:  rentalMoneyLabel(summary.TotalKopecks),
+		PeriodBackURL: rentalPeriodURL(customer.ID, startValue, daysValue, hoursValue, minutesValue),
 	})
 }
 
@@ -740,6 +849,116 @@ func showRentalDetailPage(
 	}
 	renderPage(logger, pageTemplates, w, http.StatusOK, "rental_detail.html", data,
 		"render rental detail", "write rental detail response")
+}
+
+func renderRentalPeriodStep(
+	logger *slog.Logger,
+	pageTemplates *template.Template,
+	w http.ResponseWriter,
+	status int,
+	r *http.Request,
+	customer client.Client,
+	startValue, daysValue, hoursValue, minutesValue, startError, durationError string,
+) {
+	data := rentalWizardPageData{
+		Title: "Новая аренда — SUP Rental", Step: "period", StepNumber: 1,
+		Client: customer, Start: startValue,
+		DurationDays: daysValue, DurationHours: hoursValue, DurationMinutes: minutesValue,
+		StartError: startError, DurationError: durationError,
+		DayOptions:    rentalDurationOptions(rental.MaxDurationDays, daysValue),
+		HourOptions:   rentalDurationOptions(23, hoursValue),
+		MinuteOptions: rentalMinuteOptions(minutesValue),
+	}
+	if interval, periodStartError, periodDurationError := parseRentalInterval(
+		startValue, daysValue, hoursValue, minutesValue,
+	); periodStartError == "" && periodDurationError == "" {
+		data.EndLabel = rentalEndLabel(interval)
+	}
+	renderRentalWizard(logger, pageTemplates, w, status, r, data)
+}
+
+func renderRentalClientSelectionStep(
+	logger *slog.Logger,
+	pageTemplates *template.Template,
+	w http.ResponseWriter,
+	status int,
+	r *http.Request,
+	customer client.Client,
+	interval rental.Interval,
+	startValue, daysValue, hoursValue, minutesValue string,
+	selections []rental.ModelSelection,
+	summary rentalSelectionSummary,
+	phone, fullName, phoneError, fullNameError string,
+) {
+	if customer.ID > 0 {
+		if phone == "" {
+			phone = clientPhoneInputLabel(string(customer.Phone))
+		}
+		if fullName == "" {
+			fullName = customer.FullName
+		}
+	}
+	data := rentalWizardPageData{
+		Title: "Новая аренда — SUP Rental", Step: "client", StepNumber: 3,
+		Client: customer, Phone: phone, FullName: fullName,
+		PhoneError: phoneError, FullNameError: fullNameError,
+		Start: startValue, DurationDays: daysValue, DurationHours: hoursValue, DurationMinutes: minutesValue,
+		SelectedModels: summary.Models, Duration: rentalDurationLabel(interval), Period: rentalPeriodLabel(interval),
+		SUPBoardCount: summary.SUPBoardCount, PaddleCount: summary.PaddleCount,
+		LifeJacketCount: summary.LifeJacketCount, ItemCount: summary.ItemCount,
+		PlannedTotal: rentalMoneyLabel(summary.TotalKopecks),
+		EquipmentBackURL: rentalEquipmentURL(
+			customer.ID, startValue, daysValue, hoursValue, minutesValue, selections,
+		),
+		ChangeClientURL: rentalClientURL(
+			0, startValue, daysValue, hoursValue, minutesValue, selections,
+		),
+	}
+	if customer.ID > 0 {
+		data.ReviewURL = rentalReviewURL(
+			customer.ID, startValue, daysValue, hoursValue, minutesValue, selections,
+		)
+	}
+	renderRentalWizard(logger, pageTemplates, w, status, r, data)
+}
+
+func rentalSelectionHTTPError(err error) (int, string) {
+	switch {
+	case errors.Is(err, rental.ErrInsufficientEquipment):
+		return http.StatusConflict, "Доступное количество изменилось. Проверьте состав."
+	case errors.Is(err, rental.ErrInvalidModelSelection):
+		return http.StatusUnprocessableEntity, "Выбрана неизвестная модель или некорректное количество."
+	default:
+		return http.StatusInternalServerError, "Internal Server Error"
+	}
+}
+
+func optionalRentalClientFromRequest(
+	logger *slog.Logger,
+	clients clientService,
+	w http.ResponseWriter,
+	r *http.Request,
+) (client.Client, bool) {
+	rawID := strings.TrimSpace(r.URL.Query().Get("client_id"))
+	if rawID == "" {
+		return client.Client{}, true
+	}
+	id, err := strconv.ParseInt(rawID, 10, 64)
+	if err != nil || id <= 0 {
+		http.NotFound(w, r)
+		return client.Client{}, false
+	}
+	customer, err := clients.Get(r.Context(), id)
+	if errors.Is(err, client.ErrClientNotFound) {
+		http.NotFound(w, r)
+		return client.Client{}, false
+	}
+	if err != nil {
+		logger.Error("load optional rental client", slog.Any("error", err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return client.Client{}, false
+	}
+	return customer, true
 }
 
 func rentalClientFromRequest(
@@ -953,18 +1172,56 @@ func rentalEquipmentURL(
 	start, days, hours, minutes string,
 	selections []rental.ModelSelection,
 ) string {
+	return "/rentals/new/equipment?" + rentalWizardQuery(
+		clientID, start, days, hours, minutes, selections,
+	).Encode()
+}
+
+func rentalClientURL(
+	clientID int64,
+	start, days, hours, minutes string,
+	selections []rental.ModelSelection,
+) string {
+	return "/rentals/new/client?" + rentalWizardQuery(
+		clientID, start, days, hours, minutes, selections,
+	).Encode()
+}
+
+func rentalReviewURL(
+	clientID int64,
+	start, days, hours, minutes string,
+	selections []rental.ModelSelection,
+) string {
+	return "/rentals/new/review?" + rentalWizardQuery(
+		clientID, start, days, hours, minutes, selections,
+	).Encode()
+}
+
+func rentalPeriodURL(clientID int64, start, days, hours, minutes string) string {
+	return "/rentals/new?" + rentalWizardQuery(
+		clientID, start, days, hours, minutes, nil,
+	).Encode()
+}
+
+func rentalWizardQuery(
+	clientID int64,
+	start, days, hours, minutes string,
+	selections []rental.ModelSelection,
+) url.Values {
 	query := url.Values{
-		"client_id":        {strconv.FormatInt(clientID, 10)},
 		"start":            {start},
 		"duration_days":    {days},
 		"duration_hours":   {hours},
 		"duration_minutes": {minutes},
 	}
+	if clientID > 0 {
+		query.Set("client_id", strconv.FormatInt(clientID, 10))
+	}
 	for _, selection := range selections {
 		query.Add("model_id", strconv.FormatInt(selection.ModelID, 10))
 		query.Add("quantity", strconv.Itoa(selection.Quantity))
 	}
-	return "/rentals/new/equipment?" + query.Encode()
+	return query
 }
 
 func rentalModelViews(models []rental.AvailableModel, selected map[int64]string) []rentalModelView {
@@ -982,6 +1239,44 @@ func rentalModelViews(models []rental.AvailableModel, selected map[int64]string)
 		})
 	}
 	return views
+}
+
+func rentalModelGroups(
+	models []rental.AvailableModel,
+	selected map[int64]string,
+) []rentalModelGroupView {
+	viewsByKind := make(map[equipment.Kind][]rentalModelView, 3)
+	for _, view := range rentalModelViews(models, selected) {
+		kind := equipment.Kind(view.KindValue)
+		viewsByKind[kind] = append(viewsByKind[kind], view)
+	}
+
+	kinds := []equipment.Kind{
+		equipment.KindSUPBoard,
+		equipment.KindPaddle,
+		equipment.KindLifeJacket,
+	}
+	groups := make([]rentalModelGroupView, 0, len(kinds))
+	for _, kind := range kinds {
+		kindViews := viewsByKind[kind]
+		sort.SliceStable(kindViews, func(i, j int) bool {
+			if kindViews[i].AvailableCount != kindViews[j].AvailableCount {
+				return kindViews[i].AvailableCount > kindViews[j].AvailableCount
+			}
+			return kindViews[i].ModelCode < kindViews[j].ModelCode
+		})
+		availableCount := 0
+		for _, view := range kindViews {
+			availableCount += view.AvailableCount
+		}
+		groups = append(groups, rentalModelGroupView{
+			KindValue:      string(kind),
+			Kind:           equipmentKindLabel(kind),
+			Models:         kindViews,
+			AvailableLabel: fmt.Sprintf("Доступно: %d", availableCount),
+		})
+	}
+	return groups
 }
 
 func rentalSummaryViews(values []rental.Summary) []rentalSummaryView {

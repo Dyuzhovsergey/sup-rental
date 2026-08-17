@@ -45,7 +45,7 @@
                         <div class="details-actions">
                             <div class="page-actions" role="group" aria-label="Действия с клиентом">
                                 {{if .CanEdit}}
-                                <a class="button button--primary" href="/rentals/new/period?client_id={{.Client.ID}}">Создать аренду</a>
+                                <a class="button button--primary" href="/rentals/new?client_id={{.Client.ID}}">Создать аренду</a>
                                 <a class="button button--edit" href="/clients/{{.Client.ID}}/edit">
                                     <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m14.5 5.5 4 4"></path><path d="m4 20 3.8-.8L19 8a2.1 2.1 0 0 0-3-3L4.8 16.2 4 20Z"></path></svg>
                                     Редактировать

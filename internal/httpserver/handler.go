@@ -124,10 +124,13 @@ func NewHandler(
 		showRentalsPage(logger, rentals, pageTemplates, w, r)
 	})))
 	mux.Handle("GET /rentals/new", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		showRentalClientStep(logger, pageTemplates, w, r)
+		showRentalPeriodStep(logger, clients, pageTemplates, w, r)
+	})))
+	mux.Handle("GET /rentals/new/client", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showRentalClientStep(logger, rentals, clients, pageTemplates, w, r)
 	})))
 	mux.Handle("POST /rentals/new/client", operatorOnly(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		selectRentalClient(logger, clients, pageTemplates, w, r)
+		selectRentalClient(logger, rentals, clients, pageTemplates, w, r)
 	}))))
 	mux.Handle("GET /rentals/new/period", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		showRentalPeriodStep(logger, clients, pageTemplates, w, r)

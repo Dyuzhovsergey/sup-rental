@@ -291,6 +291,33 @@
         return;
     }
 
+    form.querySelectorAll("[data-quantity-stepper]").forEach((stepper) => {
+        const input = stepper.querySelector("[data-rental-quantity]");
+        const decrease = stepper.querySelector("[data-quantity-decrease]");
+        const increase = stepper.querySelector("[data-quantity-increase]");
+        if (!input || !decrease || !increase) {
+            return;
+        }
+
+        const updateButtons = () => {
+            const value = Number(input.value) || 0;
+            decrease.disabled = value <= Number(input.min);
+            increase.disabled = value >= Number(input.max);
+        };
+        const changeBy = (difference) => {
+            const minimum = Number(input.min);
+            const maximum = Number(input.max);
+            const current = Number(input.value) || 0;
+            input.value = String(Math.min(maximum, Math.max(minimum, current + difference)));
+            input.dispatchEvent(new Event("input", {bubbles: true}));
+        };
+
+        decrease.addEventListener("click", () => changeBy(-1));
+        increase.addEventListener("click", () => changeBy(1));
+        input.addEventListener("input", updateButtons);
+        updateButtons();
+    });
+
     const slots = Number(form.dataset.slotCount);
     const itemCount = form.querySelector("[data-rental-item-count]");
     const total = form.querySelector("[data-rental-total]");

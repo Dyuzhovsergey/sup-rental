@@ -21,19 +21,31 @@ import (
 )
 
 func TestRentalWizardSelectsExistingClient(t *testing.T) {
+	models := []rental.AvailableModel{{
+		ModelID: 4, Kind: equipment.KindSUPBoard, ModelCode: "TOURING",
+		HourlyRateKopecks: 100_000, AvailableCount: 5,
+	}}
 	clients := &clientServiceStub{
 		find: func(context.Context, string) (client.Client, error) {
 			return rentalClientFixture(), nil
 		},
 	}
-	handler := newRentalTestHandler(t, user.RoleOperator, &rentalServiceStub{}, clients)
+	handler := newRentalTestHandler(t, user.RoleOperator, &rentalServiceStub{
+		available: func(context.Context, rental.Interval) ([]rental.AvailableModel, error) {
+			return models, nil
+		},
+	}, clients)
 
 	page := httptest.NewRecorder()
-	handler.ServeHTTP(page, rentalRequest(http.MethodGet, "/rentals/new", nil))
+	handler.ServeHTTP(page, rentalRequest(
+		http.MethodGet,
+		"/rentals/new/client?start=2026-08-15T10%3A08&duration_hours=1&model_id=4&quantity=1",
+		nil,
+	))
 	if page.Code != http.StatusOK {
-		t.Fatalf("GET /rentals/new status = %d", page.Code)
+		t.Fatalf("GET client step status = %d", page.Code)
 	}
-	for _, want := range []string{"Шаг 1. Клиент", "Телефон", "ФИО нового клиента", "wizard-steps"} {
+	for _, want := range []string{"Шаг 3. Клиент", "Телефон", "ФИО нового клиента", "wizard-steps", `name="model_id" value="4"`} {
 		if !strings.Contains(page.Body.String(), want) {
 			t.Errorf("client step does not contain %q", want)
 		}
@@ -42,8 +54,15 @@ func TestRentalWizardSelectsExistingClient(t *testing.T) {
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, rentalRequest(http.MethodPost, "/rentals/new/client", url.Values{
 		"csrf_token": {"csrf-token"}, "phone": {"+79991234567"}, "full_name": {"Не должен заменить клиента"},
+		"start": {"2026-08-15T10:08"}, "duration_hours": {"1"},
+		"model_id": {"4"}, "quantity": {"1"},
 	}))
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/rentals/new/period?client_id=18" {
+	location, err := url.Parse(response.Header().Get("Location"))
+	if err != nil {
+		t.Fatalf("parse Location: %v", err)
+	}
+	if response.Code != http.StatusSeeOther || location.Path != "/rentals/new/review" ||
+		location.Query().Get("client_id") != "18" || location.Query().Get("model_id") != "4" {
 		t.Fatalf("response = %d Location %q", response.Code, response.Header().Get("Location"))
 	}
 }
@@ -63,13 +82,23 @@ func TestRentalWizardCreatesMissingClient(t *testing.T) {
 		},
 	}
 	response := httptest.NewRecorder()
-	newRentalTestHandler(t, user.RoleOperator, &rentalServiceStub{}, clients).ServeHTTP(
+	newRentalTestHandler(t, user.RoleOperator, &rentalServiceStub{
+		available: func(context.Context, rental.Interval) ([]rental.AvailableModel, error) {
+			return []rental.AvailableModel{{
+				ModelID: 4, Kind: equipment.KindSUPBoard, ModelCode: "TOURING",
+				HourlyRateKopecks: 100_000, AvailableCount: 5,
+			}}, nil
+		},
+	}, clients).ServeHTTP(
 		response,
 		rentalRequest(http.MethodPost, "/rentals/new/client", url.Values{
 			"csrf_token": {"csrf-token"}, "phone": {"+7 999 123-45-67"}, "full_name": {"Анна Петрова"},
+			"start": {"2026-08-15T10:08"}, "duration_hours": {"1"},
+			"model_id": {"4"}, "quantity": {"1"},
 		}),
 	)
-	if response.Code != http.StatusSeeOther || createdActor.Role != user.RoleOperator {
+	if response.Code != http.StatusSeeOther || createdActor.Role != user.RoleOperator ||
+		!strings.HasPrefix(response.Header().Get("Location"), "/rentals/new/review?") {
 		t.Fatalf("response = %d, actor = %+v", response.Code, createdActor)
 	}
 }
@@ -81,64 +110,103 @@ func TestRentalWizardShowsClientAndAvailableModels(t *testing.T) {
 			if interval.SlotCount() != 3 {
 				t.Errorf("SlotCount() = %d, want 3", interval.SlotCount())
 			}
-			return []rental.AvailableModel{{
-				ModelID: 4, Kind: equipment.KindSUPBoard, ModelCode: "TOURING",
-				HourlyRateKopecks: 100_000, AvailableCount: 5,
-			}}, nil
+			return []rental.AvailableModel{
+				{ModelID: 7, Kind: equipment.KindSUPBoard, ModelCode: "LOW-STOCK", HourlyRateKopecks: 80_000, AvailableCount: 2},
+				{ModelID: 4, Kind: equipment.KindSUPBoard, ModelCode: "TOURING", HourlyRateKopecks: 100_000, AvailableCount: 5},
+			}, nil
 		},
 	}
 	handler := newRentalTestHandler(t, user.RoleOperator, rentals, clients)
 
 	period := httptest.NewRecorder()
-	handler.ServeHTTP(period, rentalRequest(http.MethodGet, "/rentals/new/period?client_id=18", nil))
-	if period.Code != http.StatusOK || !strings.Contains(period.Body.String(), "Шаг 2. Срок аренды") ||
-		!strings.Contains(period.Body.String(), "Анна Петрова") ||
+	handler.ServeHTTP(period, rentalRequest(http.MethodGet, "/rentals/new", nil))
+	if period.Code != http.StatusOK || !strings.Contains(period.Body.String(), "Шаг 1. Срок аренды") ||
 		!strings.Contains(period.Body.String(), `step="60"`) ||
 		!strings.Contains(period.Body.String(), `data-limited-select`) ||
 		!strings.Contains(period.Body.String(), `name="duration_days"`) ||
 		!strings.Contains(period.Body.String(), `<option value="31">31</option>`) ||
 		!strings.Contains(period.Body.String(), `<option value="23">23</option>`) ||
-		!strings.Contains(period.Body.String(), `<option value="30">30</option>`) ||
-		!strings.Contains(period.Body.String(), "&#43;7 (999) 123-45-67") {
+		!strings.Contains(period.Body.String(), `<option value="30">30</option>`) {
 		t.Fatalf("period page = %d body %q", period.Code, period.Body.String())
 	}
 
 	equipmentResponse := httptest.NewRecorder()
 	handler.ServeHTTP(equipmentResponse, rentalRequest(
 		http.MethodGet,
-		"/rentals/new/equipment?client_id=18&start=2026-08-15T10%3A08&duration_days=0&duration_hours=1&duration_minutes=30",
+		"/rentals/new/equipment?start=2026-08-15T10%3A08&duration_days=0&duration_hours=1&duration_minutes=30",
 		nil,
 	))
 	if equipmentResponse.Code != http.StatusOK {
 		t.Fatalf("equipment page status = %d body %q", equipmentResponse.Code, equipmentResponse.Body.String())
 	}
 	for _, want := range []string{
-		"Шаг 3. Оборудование", "TOURING", "1000 ₽/час", "Доступно на период",
-		`max="5"`, `data-slot-count="3"`, `action="/rentals/new/review"`,
-		`data-rental-kind-count="sup_board"`, "Перейти к итогу", ">4</span>Итог",
+		"Шаг 2. Оборудование", "TOURING", "LOW-STOCK", "1000 ₽/час", "Доступно на период",
+		`max="5"`, `data-slot-count="3"`, `action="/rentals/new/client"`,
+		`data-rental-kind-count="sup_board"`, "Перейти к клиенту", ">4</span>Итог",
+		`id="rental-kind-sup_board"`, `id="rental-kind-paddle"`, `id="rental-kind-life_jacket"`,
+		`data-quantity-decrease`, `data-quantity-increase`, `aria-label="Увеличить количество модели TOURING"`,
 	} {
 		if !strings.Contains(equipmentResponse.Body.String(), want) {
 			t.Errorf("equipment page does not contain %q", want)
 		}
+	}
+	if strings.Index(equipmentResponse.Body.String(), "TOURING") > strings.Index(equipmentResponse.Body.String(), "LOW-STOCK") {
+		t.Error("models are not sorted by available count descending")
 	}
 	for _, want := range []string{"15.08.2026 10:08 — 11:38", "1 ч 30 мин"} {
 		if !strings.Contains(equipmentResponse.Body.String(), want) {
 			t.Errorf("equipment page does not contain arbitrary-start result %q", want)
 		}
 	}
-	if !strings.Contains(equipmentResponse.Body.String(), "start=2026-08-15T10%3A08&amp;duration_days=0&amp;duration_hours=1&amp;duration_minutes=30") {
-		t.Error("back link does not preserve rental period")
+	for _, want := range []string{
+		"duration_days=0", "duration_hours=1", "duration_minutes=30", "start=2026-08-15T10%3A08",
+	} {
+		if !strings.Contains(equipmentResponse.Body.String(), want) {
+			t.Errorf("back link does not preserve %q", want)
+		}
 	}
 
 	periodBack := httptest.NewRecorder()
 	handler.ServeHTTP(periodBack, rentalRequest(
 		http.MethodGet,
-		"/rentals/new/period?client_id=18&start=2026-08-15T10%3A08&duration_days=0&duration_hours=1&duration_minutes=30",
+		"/rentals/new?start=2026-08-15T10%3A08&duration_days=0&duration_hours=1&duration_minutes=30",
 		nil,
 	))
 	for _, want := range []string{`value="2026-08-15T10:08"`, `<option value="1" selected>1</option>`, `<option value="30" selected>30</option>`, "15.08.2026 11:38"} {
 		if !strings.Contains(periodBack.Body.String(), want) {
 			t.Errorf("restored period page does not contain %q", want)
+		}
+	}
+}
+
+func TestRentalWizardPreservesPreselectedClientAfterEquipment(t *testing.T) {
+	rentals := &rentalServiceStub{
+		available: func(context.Context, rental.Interval) ([]rental.AvailableModel, error) {
+			return []rental.AvailableModel{{
+				ModelID: 4, Kind: equipment.KindSUPBoard, ModelCode: "TOURING",
+				HourlyRateKopecks: 100_000, AvailableCount: 5,
+			}}, nil
+		},
+	}
+	response := httptest.NewRecorder()
+	newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub()).ServeHTTP(
+		response,
+		rentalRequest(
+			http.MethodGet,
+			"/rentals/new/client?client_id=18&start=2026-08-15T10%3A08&duration_hours=1&model_id=4&quantity=2",
+			nil,
+		),
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("client step status = %d body %q", response.Code, response.Body.String())
+	}
+	for _, want := range []string{
+		"Шаг 3. Клиент", "Предварительно выбран", "Анна Петрова", "&#43;7 (999) 123-45-67",
+		"Выбрать другого клиента", "Перейти к итогу", "Выбрано оборудования", "2",
+		"/rentals/new/review?", "client_id=18", "model_id=4", "quantity=2",
+	} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("preselected client step does not contain %q", want)
 		}
 	}
 }
@@ -169,7 +237,7 @@ func TestRentalWizardShowsReviewWithCompositionAndTotals(t *testing.T) {
 		"Шаг 4. Итог", "Анна Петрова", "15.08.2026 10:08 — 11:38", "1 ч 30 мин",
 		"TOURING", "CARBON", "COMFORT", "SUP-доски</span><strong>1", "Вёсла</span><strong>2",
 		"Жилеты</span><strong>3", "Всего единиц</span><strong>6", "3600 ₽",
-		`name="csrf_token" value="csrf-token"`, "Создать аренду", "Назад к оборудованию",
+		`name="csrf_token" value="csrf-token"`, "Создать аренду", "Назад к клиенту",
 	} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("review page does not contain %q", want)
@@ -205,7 +273,7 @@ func TestRentalWizardReviewRejectsUnavailableQuantity(t *testing.T) {
 	)
 	if response.Code != http.StatusConflict ||
 		!strings.Contains(response.Body.String(), "Доступное количество изменилось") ||
-		!strings.Contains(response.Body.String(), "Шаг 3. Оборудование") {
+		!strings.Contains(response.Body.String(), "Шаг 2. Оборудование") {
 		t.Fatalf("response = %d body %q", response.Code, response.Body.String())
 	}
 }
@@ -395,6 +463,7 @@ func TestRentalMutationsRequireOperatorAndCSRF(t *testing.T) {
 	admin := newRentalTestHandler(t, user.RoleAdmin, &rentalServiceStub{}, rentalClientsStub())
 	for _, request := range []*http.Request{
 		rentalRequest(http.MethodGet, "/rentals/new", nil),
+		rentalRequest(http.MethodGet, "/rentals/new/client", nil),
 		rentalRequest(http.MethodGet, "/rentals/new/review", nil),
 		rentalRequest(http.MethodPost, "/rentals", url.Values{"csrf_token": {"csrf-token"}}),
 		rentalRequest(http.MethodGet, "/rentals/24/issue", nil),

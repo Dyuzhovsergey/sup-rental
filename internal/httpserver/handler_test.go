@@ -150,6 +150,8 @@ func TestStylesheet(t *testing.T) {
 		".limited-select__toggle",
 		"max-height: 208px",
 		".rental-review-summary",
+		".rental-equipment-group",
+		".quantity-stepper",
 		":focus-visible",
 		"prefers-reduced-motion",
 	} {
@@ -176,6 +178,7 @@ func TestRentalScript(t *testing.T) {
 		"data-rental-total", "data-rental-kind-count", "data-limited-select",
 		"limited-select__option", `trigger.type = "number"`, "integerInRange", "Intl.NumberFormat",
 		"data-rental-bulk-form", "data-rental-select-all", "data-rental-selected-count",
+		"data-quantity-stepper", "data-quantity-decrease", "data-quantity-increase",
 	} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("script does not contain %q", want)

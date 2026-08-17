@@ -26,18 +26,38 @@
                 <section class="panel rental-wizard" aria-labelledby="wizard-title">
                     <h2 class="visually-hidden" id="wizard-title">Мастер создания аренды</h2>
                     <ol class="wizard-steps" aria-label="Этапы создания аренды">
-                        <li class="wizard-step{{if eq .StepNumber 1}} is-active{{else if gt .StepNumber 1}} is-complete{{end}}"{{if eq .StepNumber 1}} aria-current="step"{{end}}><span>1</span>Клиент</li>
-                        <li class="wizard-step{{if eq .StepNumber 2}} is-active{{else if gt .StepNumber 2}} is-complete{{end}}"{{if eq .StepNumber 2}} aria-current="step"{{end}}><span>2</span>Срок аренды</li>
-                        <li class="wizard-step{{if eq .StepNumber 3}} is-active{{else if gt .StepNumber 3}} is-complete{{end}}"{{if eq .StepNumber 3}} aria-current="step"{{end}}><span>3</span>Оборудование</li>
+                        <li class="wizard-step{{if eq .StepNumber 1}} is-active{{else if gt .StepNumber 1}} is-complete{{end}}"{{if eq .StepNumber 1}} aria-current="step"{{end}}><span>1</span>Срок аренды</li>
+                        <li class="wizard-step{{if eq .StepNumber 2}} is-active{{else if gt .StepNumber 2}} is-complete{{end}}"{{if eq .StepNumber 2}} aria-current="step"{{end}}><span>2</span>Оборудование</li>
+                        <li class="wizard-step{{if eq .StepNumber 3}} is-active{{else if gt .StepNumber 3}} is-complete{{end}}"{{if eq .StepNumber 3}} aria-current="step"{{end}}><span>3</span>Клиент</li>
                         <li class="wizard-step{{if eq .StepNumber 4}} is-active{{end}}"{{if eq .StepNumber 4}} aria-current="step"{{end}}><span>4</span>Итог</li>
                     </ol>
 
                     {{if eq .Step "client"}}
                     <div class="panel-body rental-wizard-body">
-                        <h2>Шаг 1. Клиент</h2>
-                        <p class="panel-description">Введите телефон. Если клиента ещё нет, укажите ФИО — карточка будет сохранена отдельно.</p>
+                        <h2>Шаг 3. Клиент</h2>
+                        <p class="panel-description">Выберите существующего клиента или создайте нового после проверки доступности оборудования.</p>
+                        <div class="rental-client-summary rental-client-summary--three" aria-label="Параметры будущей аренды">
+                            <div><span>Период</span><strong>{{.Period}}</strong></div>
+                            <div><span>Продолжительность</span><strong>{{.Duration}}</strong></div>
+                            <div><span>Выбрано оборудования</span><strong>{{.ItemCount}}</strong></div>
+                        </div>
+                        {{if .Client.ID}}
+                        <section class="rental-selected-client" aria-labelledby="selected-rental-client">
+                            <div><p class="page-eyebrow">Предварительно выбран</p><h3 id="selected-rental-client">{{.Client.FullName}}</h3><p>{{phoneLabel .Client.Phone}}</p></div>
+                            <a class="button button--secondary" href="{{.ChangeClientURL}}">Выбрать другого клиента</a>
+                        </section>
+                        <div class="form-actions rental-wizard-actions">
+                            <a class="button" href="{{.EquipmentBackURL}}">Назад к оборудованию</a>
+                            <a class="button button--primary" href="{{.ReviewURL}}">Перейти к итогу</a>
+                        </div>
+                        {{else}}
                         <form class="form-stack rental-step-form" method="post" action="/rentals/new/client">
                             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+                            <input type="hidden" name="start" value="{{.Start}}">
+                            <input type="hidden" name="duration_days" value="{{.DurationDays}}">
+                            <input type="hidden" name="duration_hours" value="{{.DurationHours}}">
+                            <input type="hidden" name="duration_minutes" value="{{.DurationMinutes}}">
+                            {{range .SelectedModels}}<input type="hidden" name="model_id" value="{{.ModelID}}"><input type="hidden" name="quantity" value="{{.Quantity}}">{{end}}
                             <div class="field">
                                 <label class="field-label" for="rental-phone">Телефон <span class="required">*</span></label>
                                 <input id="rental-phone" name="phone" type="tel" autocomplete="tel" value="{{.Phone}}"{{if .PhoneError}} aria-invalid="true" aria-describedby="rental-phone-error"{{end}} placeholder="+7 (999) 123-45-67" required>
@@ -49,21 +69,22 @@
                                 {{if .FullNameError}}<p class="field-error" id="rental-name-error" role="alert">{{.FullNameError}}</p>{{else}}<p class="field-hint">Если телефон уже зарегистрирован, используются данные найденной карточки.</p>{{end}}
                             </div>
                             <div class="form-actions rental-wizard-actions">
-                                <a class="button" href="/rentals">Отмена</a>
-                                <button class="button button--primary" type="submit">Продолжить</button>
+                                <a class="button" href="{{.EquipmentBackURL}}">Назад к оборудованию</a>
+                                <button class="button button--primary" type="submit">Перейти к итогу</button>
                             </div>
                         </form>
+                        {{end}}
                     </div>
                     {{else if eq .Step "period"}}
                     <div class="panel-body rental-wizard-body">
-                        <h2>Шаг 2. Срок аренды</h2>
-                        <p class="panel-description">Укажите точное время начала по Москве и продолжительность с шагом 30 минут.</p>
-                        <div class="rental-client-summary" aria-label="Выбранный клиент">
+                        <h2>Шаг 1. Срок аренды</h2>
+                        <p class="panel-description">Сначала укажите период — на следующем шаге система покажет оборудование, доступное на всё выбранное время.</p>
+                        {{if .Client.ID}}<div class="rental-client-summary" aria-label="Предварительно выбранный клиент">
                             <div><span>Клиент</span><strong>{{.Client.FullName}}</strong></div>
                             <div><span>Телефон</span><strong>{{phoneLabel .Client.Phone}}</strong></div>
-                        </div>
+                        </div>{{end}}
                         <form class="form-stack rental-step-form" method="get" action="/rentals/new/equipment" data-rental-period-form>
-                            <input type="hidden" name="client_id" value="{{.Client.ID}}">
+                            {{if .Client.ID}}<input type="hidden" name="client_id" value="{{.Client.ID}}">{{end}}
                             <div class="form-grid rental-period-grid">
                                 <div class="field">
                                     <label class="field-label" for="rental-start">Начало <span class="required">*</span></label>
@@ -110,45 +131,52 @@
                                 </div>
                             </div>
                             <div class="form-actions rental-wizard-actions">
-                                <a class="button" href="/rentals/new">Назад</a>
-                                <button class="button button--primary" type="submit">Показать оборудование</button>
+                                <a class="button" href="/rentals">Отмена</a>
+                                <button class="button button--primary" type="submit">Показать доступное оборудование</button>
                             </div>
                         </form>
                     </div>
                     {{else if eq .Step "equipment"}}
-                    <form method="get" action="/rentals/new/review" data-rental-equipment-form data-slot-count="{{.SlotCount}}">
-                        <input type="hidden" name="client_id" value="{{.Client.ID}}">
+                    <form method="get" action="/rentals/new/client" data-rental-equipment-form data-slot-count="{{.SlotCount}}">
+                        {{if .Client.ID}}<input type="hidden" name="client_id" value="{{.Client.ID}}">{{end}}
                         <input type="hidden" name="start" value="{{.Start}}">
                         <input type="hidden" name="duration_days" value="{{.DurationDays}}">
                         <input type="hidden" name="duration_hours" value="{{.DurationHours}}">
                         <input type="hidden" name="duration_minutes" value="{{.DurationMinutes}}">
                         <div class="panel-body rental-wizard-body">
-                            <h2>Шаг 3. Оборудование</h2>
-                            <p class="panel-description">Выберите количество. Конкретные физические единицы назначит сервер.</p>
-                            <div class="rental-client-summary rental-client-summary--three">
-                                <div><span>Клиент</span><strong>{{.Client.FullName}}</strong></div>
+                            <h2>Шаг 2. Оборудование</h2>
+                            <p class="panel-description">Модели отсортированы по доступному количеству на весь период. Конкретные физические единицы назначит сервер при создании аренды.</p>
+                            <div class="rental-client-summary">
                                 <div><span>Период</span><strong>{{.Period}}</strong></div>
                                 <div><span>Длительность</span><strong>{{.Duration}}</strong></div>
                             </div>
                             {{if .SelectionError}}<div class="alert alert--danger rental-selection-alert" role="alert">{{.SelectionError}}</div>{{end}}
-                            {{if .Models}}
-                            <div class="rental-model-list">
-                                {{range .Models}}
-                                <div class="rental-model-row">
-                                    <input type="hidden" name="model_id" value="{{.ModelID}}">
-                                    <div><span class="rental-model-kind">{{.Kind}}</span><strong>{{.ModelCode}}</strong></div>
-                                    <div><span>Тариф</span><strong>{{.HourlyRate}}</strong></div>
-                                    <div><span>Доступно на период</span><strong>{{.AvailableCount}}</strong></div>
-                                    <div class="field rental-quantity-field">
-                                        <label class="field-label" for="rental-model-{{.ModelID}}">Количество</label>
-                                        <input id="rental-model-{{.ModelID}}" name="quantity" type="number" min="0" max="{{.AvailableCount}}" inputmode="numeric" value="{{.Quantity}}" data-rental-quantity data-equipment-kind="{{.KindValue}}" data-hourly-rate-kopecks="{{.HourlyRateKopecks}}">
+                            <div class="rental-equipment-groups">
+                                {{range .ModelGroups}}
+                                <section class="rental-equipment-group" aria-labelledby="rental-kind-{{.KindValue}}">
+                                    <header class="rental-equipment-group__header"><div><p class="page-eyebrow">Категория</p><h3 id="rental-kind-{{.KindValue}}">{{.Kind}}</h3></div><span class="count-chip">{{.AvailableLabel}}</span></header>
+                                    {{if .Models}}<div class="rental-model-list">
+                                    {{range .Models}}
+                                    <div class="rental-model-row">
+                                        <input type="hidden" name="model_id" value="{{.ModelID}}">
+                                        <div><span>Модель</span><strong>{{.ModelCode}}</strong></div>
+                                        <div><span>Тариф</span><strong>{{.HourlyRate}}</strong></div>
+                                        <div><span>Доступно на период</span><strong>{{.AvailableCount}}</strong></div>
+                                        <div class="field rental-quantity-field">
+                                            <label class="field-label" for="rental-model-{{.ModelID}}">Количество</label>
+                                            <div class="quantity-stepper" data-quantity-stepper>
+                                                <button class="quantity-stepper__button" type="button" aria-label="Уменьшить количество модели {{.ModelCode}}" data-quantity-decrease>−</button>
+                                                <input id="rental-model-{{.ModelID}}" name="quantity" type="number" min="0" max="{{.AvailableCount}}" inputmode="numeric" value="{{.Quantity}}" data-rental-quantity data-equipment-kind="{{.KindValue}}" data-hourly-rate-kopecks="{{.HourlyRateKopecks}}">
+                                                <button class="quantity-stepper__button" type="button" aria-label="Увеличить количество модели {{.ModelCode}}" data-quantity-increase>+</button>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
+                                    {{end}}
+                                    </div>{{else}}<div class="rental-category-empty"><p>Нет доступных моделей на выбранный период.</p></div>{{end}}
+                                </section>
                                 {{end}}
                             </div>
-                            {{else}}
-                            <div class="empty-state"><h3>Нет доступного оборудования</h3><p>Выберите другой период, чтобы создать аренду.</p></div>
-                            {{end}}
+                            {{if not .Models}}<div class="alert alert--warning" role="status">На выбранный период нет доступного оборудования. Вернитесь к сроку аренды и выберите другое время.</div>{{end}}
                             <div class="rental-total-card rental-equipment-summary" aria-live="polite">
                                 <div><span>SUP-доски</span><strong data-rental-kind-count="sup_board">{{.SUPBoardCount}}</strong></div>
                                 <div><span>Вёсла</span><strong data-rental-kind-count="paddle">{{.PaddleCount}}</strong></div>
@@ -158,8 +186,8 @@
                             </div>
                         </div>
                         <div class="rental-wizard-footer">
-                            <a class="button" href="/rentals/new/period?client_id={{.Client.ID}}&amp;start={{urlquery .Start}}&amp;duration_days={{urlquery .DurationDays}}&amp;duration_hours={{urlquery .DurationHours}}&amp;duration_minutes={{urlquery .DurationMinutes}}">Назад</a>
-                            <button class="button button--primary" type="submit">Перейти к итогу</button>
+                            <a class="button" href="{{.PeriodBackURL}}">Назад к сроку</a>
+                            <button class="button button--primary" type="submit">Перейти к клиенту</button>
                         </div>
                     </form>
                     {{else}}
@@ -209,7 +237,7 @@
                             </div>
                         </div>
                         <div class="rental-wizard-footer">
-                            <a class="button" href="{{.EquipmentBackURL}}">Назад к оборудованию</a>
+                            <a class="button" href="{{.ClientBackURL}}">Назад к клиенту</a>
                             <button class="button button--primary" type="submit">Создать аренду</button>
                         </div>
                     </form>
