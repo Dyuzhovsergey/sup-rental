@@ -40,6 +40,7 @@ func NewHandler(
 	clients clientService,
 	rentals rentalService,
 	cookieSettings CookieSettings,
+	clientIPSettings ClientIPSettings,
 ) (http.Handler, error) {
 	pageTemplates, err := template.New("pages").Funcs(template.FuncMap{
 		"phoneLabel": clientPhoneLabel,
@@ -73,7 +74,7 @@ func NewHandler(
 		showLoginPage(logger, pageTemplates, w, r)
 	})
 	mux.HandleFunc("POST /login", func(w http.ResponseWriter, r *http.Request) {
-		login(logger, authenticationService, pageTemplates, cookieSettings, w, r)
+		login(logger, authenticationService, pageTemplates, cookieSettings, clientIPSettings, w, r)
 	})
 	mux.Handle("POST /logout", authenticated(requireCSRF(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logout(logger, authenticationService, cookieSettings, w, r)

@@ -17,6 +17,7 @@ const (
 	databaseURLEnv           = "DATABASE_URL"
 	dbConnectTimeoutEnv      = "DB_CONNECT_TIMEOUT"
 	sessionCookieSecureEnv   = "SESSION_COOKIE_SECURE"
+	trustProxyHeadersEnv     = "TRUST_PROXY_HEADERS"
 )
 
 // Config содержит проверенные параметры запуска приложения.
@@ -33,6 +34,9 @@ type Config struct {
 	DBConnectTimeout time.Duration
 	// SessionCookieSecure включает передачу session cookie только через HTTPS.
 	SessionCookieSecure bool
+	// TrustProxyHeaders разрешает HTTP-слою доверять proxy-заголовкам от
+	// заранее доверенного reverse proxy.
+	TrustProxyHeaders bool
 }
 
 // DatabaseConfig содержит проверенные параметры подключения к PostgreSQL.
@@ -77,6 +81,11 @@ func Load() (Config, error) {
 		return Config{}, err
 	}
 
+	trustProxyHeaders, err := booleanEnv(trustProxyHeadersEnv)
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		HTTPAddress:           address,
 		HTTPReadHeaderTimeout: readHeaderTimeout,
@@ -84,6 +93,7 @@ func Load() (Config, error) {
 		DatabaseURL:           databaseConfig.DatabaseURL,
 		DBConnectTimeout:      databaseConfig.DBConnectTimeout,
 		SessionCookieSecure:   sessionCookieSecure,
+		TrustProxyHeaders:     trustProxyHeaders,
 	}, nil
 }
 

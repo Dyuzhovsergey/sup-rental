@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"errors"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net"
@@ -37,6 +38,13 @@ type sessionResolver interface {
 type CookieSettings struct {
 	// Secure требует HTTPS для передачи cookie.
 	Secure bool
+}
+
+// ClientIPSettings задаёт границу доверия для определения IP клиента.
+type ClientIPSettings struct {
+	// TrustProxyHeaders разрешает использовать X-Forwarded-For от доверенного
+	// reverse proxy.
+	TrustProxyHeaders bool
 }
 
 type authenticationContextKey struct{}
@@ -133,6 +141,7 @@ func login(
 	service authService,
 	pageTemplates *template.Template,
 	cookieSettings CookieSettings,
+	clientIPSettings ClientIPSettings,
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
@@ -149,7 +158,7 @@ func login(
 	}
 
 	loginValue := r.PostForm.Get("login")
-	remoteIP, err := remoteIPFromRequest(r)
+	remoteIP, err := remoteIPFromRequest(r, clientIPSettings)
 	if err != nil {
 		logger.Error("read login remote IP", slog.Any("error", err))
 		http.Error(w, "Bad Request", http.StatusBadRequest)
@@ -382,10 +391,26 @@ func equalSecret(actual, expected string) bool {
 	return subtle.ConstantTimeCompare([]byte(actual), []byte(expected)) == 1
 }
 
-func remoteIPFromRequest(r *http.Request) (string, error) {
+func remoteIPFromRequest(r *http.Request, settings ClientIPSettings) (string, error) {
+	if settings.TrustProxyHeaders {
+		forwardedFor := r.Header.Get("X-Forwarded-For")
+		if strings.TrimSpace(forwardedFor) == "" {
+			return "", errors.New("X-Forwarded-For header is required in trusted proxy mode")
+		}
+
+		firstValue, _, _ := strings.Cut(forwardedFor, ",")
+		clientIP := strings.TrimSpace(firstValue)
+		parsed := net.ParseIP(clientIP)
+		if parsed == nil {
+			return "", fmt.Errorf("X-Forwarded-For first value %q is not an IP address", clientIP)
+		}
+
+		return parsed.String(), nil
+	}
+
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("parse RemoteAddr: %w", err)
 	}
 	parsed := net.ParseIP(host)
 	if parsed == nil {

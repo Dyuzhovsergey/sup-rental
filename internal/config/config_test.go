@@ -15,6 +15,7 @@ func TestLoad(t *testing.T) {
 		databaseURL  string
 		dbTimeout    string
 		cookieSecure string
+		trustProxy   string
 		want         Config
 		wantErrText  string
 	}{
@@ -26,6 +27,7 @@ func TestLoad(t *testing.T) {
 			databaseURL:  "postgres://sup_rental:secret@localhost:5432/sup_rental",
 			dbTimeout:    "5s",
 			cookieSecure: "false",
+			trustProxy:   "false",
 			want: Config{
 				HTTPAddress:           "127.0.0.1:8080",
 				HTTPReadHeaderTimeout: 5 * time.Second,
@@ -33,6 +35,7 @@ func TestLoad(t *testing.T) {
 				DatabaseURL:           "postgres://sup_rental:secret@localhost:5432/sup_rental",
 				DBConnectTimeout:      5 * time.Second,
 				SessionCookieSecure:   false,
+				TrustProxyHeaders:     false,
 			},
 		},
 		{
@@ -148,6 +151,27 @@ func TestLoad(t *testing.T) {
 			cookieSecure: "sometimes",
 			wantErrText:  "SESSION_COOKIE_SECURE: parse boolean",
 		},
+		{
+			name:         "missing trust proxy headers",
+			address:      "127.0.0.1:8080",
+			timeout:      "5s",
+			shutdown:     "10s",
+			databaseURL:  "postgres://localhost/sup_rental",
+			dbTimeout:    "5s",
+			cookieSecure: "false",
+			wantErrText:  "TRUST_PROXY_HEADERS: environment variable is required",
+		},
+		{
+			name:         "invalid trust proxy headers",
+			address:      "127.0.0.1:8080",
+			timeout:      "5s",
+			shutdown:     "10s",
+			databaseURL:  "postgres://localhost/sup_rental",
+			dbTimeout:    "5s",
+			cookieSecure: "false",
+			trustProxy:   "sometimes",
+			wantErrText:  "TRUST_PROXY_HEADERS: parse boolean",
+		},
 	}
 
 	for _, tt := range tests {
@@ -158,6 +182,7 @@ func TestLoad(t *testing.T) {
 			t.Setenv(databaseURLEnv, tt.databaseURL)
 			t.Setenv(dbConnectTimeoutEnv, tt.dbTimeout)
 			t.Setenv(sessionCookieSecureEnv, tt.cookieSecure)
+			t.Setenv(trustProxyHeadersEnv, tt.trustProxy)
 
 			got, err := Load()
 			if tt.wantErrText != "" {

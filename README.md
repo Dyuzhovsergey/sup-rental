@@ -536,7 +536,10 @@ PostgreSQL и `tern`.
 * `DB_CONNECT_TIMEOUT` — максимальное время подключения к PostgreSQL,
   например `5s`.
 * `SESSION_COOKIE_SECURE` — `false` только для согласованного loopback HTTP;
-  при HTTPS обязательно `true`.
+  при HTTPS обязательно `true`;
+* `TRUST_PROXY_HEADERS` — `false` для локального и прямого запуска; `true` только
+  при запуске за заранее доверенным reverse proxy, который формирует
+  `X-Forwarded-For`.
 
 Несекретный пример значений находится в `.env.example`.
 

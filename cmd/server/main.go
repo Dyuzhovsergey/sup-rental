@@ -93,6 +93,7 @@ func run(ctx context.Context, logger *slog.Logger) error {
 		clientService,
 		rentalService,
 		httpserver.CookieSettings{Secure: cfg.SessionCookieSecure},
+		httpserver.ClientIPSettings{TrustProxyHeaders: cfg.TrustProxyHeaders},
 	)
 	if err != nil {
 		return fmt.Errorf("create HTTP handler: %w", err)

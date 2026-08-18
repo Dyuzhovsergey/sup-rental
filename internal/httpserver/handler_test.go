@@ -300,6 +300,7 @@ func newHandlerWithDependencies(
 		&clientServiceStub{},
 		&rentalServiceStub{},
 		CookieSettings{},
+		ClientIPSettings{},
 	)
 	if err != nil {
 		t.Fatalf("create handler: %v", err)

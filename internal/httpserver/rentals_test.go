@@ -938,6 +938,7 @@ func newRentalTestHandler(t *testing.T, role user.Role, rentals rentalService, c
 		slog.New(slog.NewTextHandler(io.Discard, nil)), &equipmentServiceStub{},
 		&authServiceStub{}, resolver, &operatorServiceStub{}, &auditServiceStub{}, clients,
 		rentals, CookieSettings{},
+		ClientIPSettings{},
 	)
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)

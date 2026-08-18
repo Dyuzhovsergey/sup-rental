@@ -418,7 +418,7 @@ func newClientTestHandler(t *testing.T, clients clientService, role user.Role) h
 		authenticated.User.Login = "operator"
 	}
 	resolver := &sessionResolverStub{resolve: func(context.Context, string) (session.AuthenticatedSession, error) { return authenticated, nil }}
-	handler, err := NewHandler(discardLogger(), &equipmentServiceStub{}, &authServiceStub{}, resolver, &operatorServiceStub{}, &auditServiceStub{}, clients, &rentalServiceStub{}, CookieSettings{})
+	handler, err := NewHandler(discardLogger(), &equipmentServiceStub{}, &authServiceStub{}, resolver, &operatorServiceStub{}, &auditServiceStub{}, clients, &rentalServiceStub{}, CookieSettings{}, ClientIPSettings{})
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
 	}

@@ -88,6 +88,110 @@ func TestLoginSuccessSetsSessionCookie(t *testing.T) {
 	}
 }
 
+func TestLoginUsesTrustedProxyClientIP(t *testing.T) {
+	service := &authServiceStub{
+		login: func(_ context.Context, input appauth.LoginInput) (appauth.LoginResult, error) {
+			if input.RemoteIP != "198.51.100.24" {
+				t.Errorf("Login() RemoteIP = %q, want %q", input.RemoteIP, "198.51.100.24")
+			}
+			return appauth.LoginResult{
+				User:  user.User{Role: user.RoleAdmin},
+				Token: "raw-session-token",
+			}, nil
+		},
+	}
+	handler := newAuthenticationTestHandlerWithClientIPSettings(
+		t,
+		service,
+		&sessionResolverStub{},
+		CookieSettings{},
+		ClientIPSettings{TrustProxyHeaders: true},
+	)
+	request := loginRequest(url.Values{"login": {"admin"}, "password": {"secret1"}})
+	request.Header.Set("X-Forwarded-For", " 198.51.100.24, 203.0.113.10 ")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusSeeOther {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusSeeOther)
+	}
+}
+
+func TestRemoteIPFromRequest(t *testing.T) {
+	tests := []struct {
+		name       string
+		settings   ClientIPSettings
+		remoteAddr string
+		forwarded  string
+		want       string
+		wantErr    string
+	}{
+		{
+			name:       "local mode uses RemoteAddr",
+			remoteAddr: "192.0.2.10:4321",
+			forwarded:  "198.51.100.10",
+			want:       "192.0.2.10",
+		},
+		{
+			name:       "trusted proxy uses first forwarded address",
+			settings:   ClientIPSettings{TrustProxyHeaders: true},
+			remoteAddr: "10.0.0.5:4321",
+			forwarded:  " 198.51.100.24, 203.0.113.10 ",
+			want:       "198.51.100.24",
+		},
+		{
+			name:       "trusted proxy accepts IPv6",
+			settings:   ClientIPSettings{TrustProxyHeaders: true},
+			remoteAddr: "10.0.0.5:4321",
+			forwarded:  "2001:db8::1",
+			want:       "2001:db8::1",
+		},
+		{
+			name:       "trusted proxy requires forwarded header",
+			settings:   ClientIPSettings{TrustProxyHeaders: true},
+			remoteAddr: "10.0.0.5:4321",
+			wantErr:    "X-Forwarded-For header is required",
+		},
+		{
+			name:       "trusted proxy rejects invalid forwarded address",
+			settings:   ClientIPSettings{TrustProxyHeaders: true},
+			remoteAddr: "10.0.0.5:4321",
+			forwarded:  "not-an-ip, 203.0.113.10",
+			wantErr:    "is not an IP address",
+		},
+		{
+			name:       "local mode rejects malformed RemoteAddr",
+			remoteAddr: "not-a-socket-address",
+			wantErr:    "parse RemoteAddr",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPost, "/login", nil)
+			request.RemoteAddr = tt.remoteAddr
+			if tt.forwarded != "" {
+				request.Header.Set("X-Forwarded-For", tt.forwarded)
+			}
+
+			got, err := remoteIPFromRequest(request, tt.settings)
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("remoteIPFromRequest() error = %v, want containing %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("remoteIPFromRequest() error = %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("remoteIPFromRequest() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestOperatorLoginRedirectsToOperatorHome(t *testing.T) {
 	service := &authServiceStub{
 		login: func(context.Context, appauth.LoginInput) (appauth.LoginResult, error) {
@@ -293,6 +397,20 @@ func newAuthenticationTestHandler(
 ) http.Handler {
 	t.Helper()
 
+	return newAuthenticationTestHandlerWithClientIPSettings(
+		t, authenticationService, resolver, settings, ClientIPSettings{},
+	)
+}
+
+func newAuthenticationTestHandlerWithClientIPSettings(
+	t *testing.T,
+	authenticationService authService,
+	resolver sessionResolver,
+	cookieSettings CookieSettings,
+	clientIPSettings ClientIPSettings,
+) http.Handler {
+	t.Helper()
+
 	handler, err := NewHandler(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		&equipmentServiceStub{},
@@ -302,7 +420,8 @@ func newAuthenticationTestHandler(
 		&auditServiceStub{},
 		&clientServiceStub{},
 		&rentalServiceStub{},
-		settings,
+		cookieSettings,
+		clientIPSettings,
 	)
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)
