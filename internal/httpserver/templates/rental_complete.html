@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<a class="skip-link" href="#main-content">К содержимому</a>
+<div class="app-shell">
+{{template "equipment-sidebar" .}}
+<main class="main-content" id="main-content" tabindex="-1"><div class="content-container content-container--narrow">
+    <nav class="breadcrumb" aria-label="Хлебные крошки"><a href="/rentals">Аренды</a><span aria-hidden="true">/</span><a href="/rentals/{{.RentalID}}">№{{.RentalID}}</a><span aria-hidden="true">/</span><span>Возврат</span></nav>
+    <header class="page-header"><div><p class="page-eyebrow">Возврат оборудования</p><h1>Завершить аренду №{{.RentalID}}</h1><p class="page-description">Проверьте состав перед подтверждением полного возврата.</p></div></header>
+    <section class="panel confirmation-card" aria-labelledby="rental-complete-heading">
+        <div class="panel-header"><div><h2 id="rental-complete-heading">Подтверждение возврата</h2><p class="panel-description">После подтверждения аренда будет завершена, а всё оборудование станет доступным.</p></div></div>
+        <div class="panel-body"><dl class="details-list details-list--compact"><div class="details-row"><dt>Клиент</dt><dd>{{.Client.FullName}}</dd></div><div class="details-row"><dt>Плановый период</dt><dd>{{.Period}}</dd></div><div class="details-row"><dt>Длительность</dt><dd>{{.Duration}}</dd></div><div class="details-row"><dt>Фактическая выдача</dt><dd>{{.IssuedAt}}</dd></div></dl></div>
+        <div class="table-scroll"><table><thead><tr><th>Инвентарный номер</th><th>Тип</th><th>Модель</th></tr></thead><tbody>{{range .Items}}<tr><td><strong>{{.InventoryNumber}}</strong></td><td>{{.Kind}}</td><td>{{.ModelCode}}</td></tr>{{end}}</tbody></table></div>
+        <div class="confirmation-actions"><form method="post" action="/rentals/{{.RentalID}}/complete"><input type="hidden" name="csrf_token" value="{{.Authentication.CSRFToken}}"><button class="button button--primary" type="submit">Подтвердить возврат и завершить</button></form><a class="button button--secondary" href="/rentals">Отмена</a><span class="count-chip">{{.ItemCount}}</span></div>
+    </section>
+</div></main>
+</div>
+</body>
+</html>

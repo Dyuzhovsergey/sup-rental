@@ -108,7 +108,7 @@
 {{else if eq . "Активна"}}
 <span class="status-chip status-chip--available"><span class="status-dot" aria-hidden="true"></span>{{.}}</span>
 {{else if eq . "Завершена"}}
-<span class="status-chip"><span class="status-dot" aria-hidden="true"></span>{{.}}</span>
+<span class="status-chip status-chip--available"><span class="status-dot" aria-hidden="true"></span>{{.}}</span>
 {{else}}
 <span class="status-chip status-chip--retired"><span class="status-dot" aria-hidden="true"></span>{{.}}</span>
 {{end}}

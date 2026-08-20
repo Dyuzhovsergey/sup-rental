@@ -39,6 +39,13 @@ var (
 	ErrIssuedAtRequired = errors.New("rental issued time is required")
 	// ErrUnexpectedIssuedAt означает, что время выдачи задано до фактической выдачи.
 	ErrUnexpectedIssuedAt = errors.New("rental issued time is not allowed")
+	// ErrReturnedAtRequired означает, что завершённая аренда не имеет
+	// фактического времени возврата.
+	ErrReturnedAtRequired = errors.New("rental returned time is required")
+	// ErrUnexpectedReturnedAt означает, что время возврата задано до завершения аренды.
+	ErrUnexpectedReturnedAt = errors.New("rental returned time is not allowed")
+	// ErrReturnedBeforeIssued означает, что возврат указан раньше фактической выдачи.
+	ErrReturnedBeforeIssued = errors.New("rental returned time is before issued time")
 )
 
 // Valid сообщает, является ли состояние аренды поддерживаемым.
@@ -73,9 +80,10 @@ type Rental struct {
 	// Interval — планируемый полуоткрытый интервал аренды.
 	Interval Interval
 	// Status — текущее состояние аренды.
-	Status   Status
-	items    []Item
-	issuedAt *time.Time
+	Status     Status
+	items      []Item
+	issuedAt   *time.Time
+	returnedAt *time.Time
 }
 
 // New создаёт ещё не сохранённую подтверждённую аренду с неизменяемым составом.
@@ -109,6 +117,7 @@ func Restore(
 	interval Interval,
 	status Status,
 	issuedAt *time.Time,
+	returnedAt *time.Time,
 	items []Item,
 ) (Rental, error) {
 	if id <= 0 {
@@ -123,7 +132,7 @@ func Restore(
 	if !status.Valid() {
 		return Rental{}, ErrInvalidStatus
 	}
-	validatedIssuedAt, err := validateIssuedAt(status, issuedAt)
+	validatedIssuedAt, validatedReturnedAt, err := validateLifecycleTimes(status, issuedAt, returnedAt)
 	if err != nil {
 		return Rental{}, err
 	}
@@ -133,12 +142,13 @@ func Restore(
 	}
 
 	return Rental{
-		ID:       id,
-		ClientID: clientID,
-		Interval: interval,
-		Status:   status,
-		items:    restoredItems,
-		issuedAt: validatedIssuedAt,
+		ID:         id,
+		ClientID:   clientID,
+		Interval:   interval,
+		Status:     status,
+		items:      restoredItems,
+		issuedAt:   validatedIssuedAt,
+		returnedAt: validatedReturnedAt,
 	}, nil
 }
 
@@ -167,6 +177,30 @@ func (r *Rental) Cancel() error {
 	return r.ChangeStatus(StatusCancelled)
 }
 
+// Complete фиксирует фактический возврат всего состава и переводит активную
+// аренду в completed. Плановый интервал при этом не изменяется.
+func (r *Rental) Complete(returnedAt time.Time) error {
+	if returnedAt.IsZero() {
+		return ErrReturnedAtRequired
+	}
+	if !r.Status.Valid() {
+		return ErrInvalidStatus
+	}
+	if !r.Status.CanTransitionTo(StatusCompleted) {
+		return fmt.Errorf("%w: %s -> %s", ErrStatusTransitionNotAllowed, r.Status, StatusCompleted)
+	}
+	if r.issuedAt == nil || r.issuedAt.IsZero() {
+		return ErrIssuedAtRequired
+	}
+	if returnedAt.Before(*r.issuedAt) {
+		return ErrReturnedBeforeIssued
+	}
+	r.Status = StatusCompleted
+	value := returnedAt
+	r.returnedAt = &value
+	return nil
+}
+
 // ChangeStatus переводит аренду в target, если такой переход разрешён.
 // При ошибке исходное состояние аренды не изменяется.
 func (r *Rental) ChangeStatus(target Status) error {
@@ -179,6 +213,9 @@ func (r *Rental) ChangeStatus(target Status) error {
 	if target == StatusActive {
 		return ErrIssuedAtRequired
 	}
+	if target == StatusCompleted {
+		return ErrReturnedAtRequired
+	}
 	r.Status = target
 	return nil
 }
@@ -189,6 +226,14 @@ func (r Rental) IssuedAt() (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return *r.issuedAt, true
+}
+
+// ReturnedAt возвращает фактическое время полного возврата и признак его наличия.
+func (r Rental) ReturnedAt() (time.Time, bool) {
+	if r.returnedAt == nil {
+		return time.Time{}, false
+	}
+	return *r.returnedAt, true
 }
 
 // Items возвращает независимую копию состава аренды в порядке добавления.
@@ -221,17 +266,35 @@ func validateItems(items []Item) ([]Item, error) {
 	return validated, nil
 }
 
-func validateIssuedAt(status Status, issuedAt *time.Time) (*time.Time, error) {
+func validateLifecycleTimes(status Status, issuedAt, returnedAt *time.Time) (*time.Time, *time.Time, error) {
 	requiresIssuedAt := status == StatusActive || status == StatusCompleted
 	if requiresIssuedAt {
 		if issuedAt == nil || issuedAt.IsZero() {
-			return nil, ErrIssuedAtRequired
+			return nil, nil, ErrIssuedAtRequired
 		}
-		value := *issuedAt
-		return &value, nil
+	} else if issuedAt != nil {
+		return nil, nil, ErrUnexpectedIssuedAt
 	}
+
+	if status == StatusCompleted {
+		if returnedAt == nil || returnedAt.IsZero() {
+			return nil, nil, ErrReturnedAtRequired
+		}
+		if returnedAt.Before(*issuedAt) {
+			return nil, nil, ErrReturnedBeforeIssued
+		}
+	} else if returnedAt != nil {
+		return nil, nil, ErrUnexpectedReturnedAt
+	}
+
+	var issuedCopy, returnedCopy *time.Time
 	if issuedAt != nil {
-		return nil, ErrUnexpectedIssuedAt
+		value := *issuedAt
+		issuedCopy = &value
 	}
-	return nil, nil
+	if returnedAt != nil {
+		value := *returnedAt
+		returnedCopy = &value
+	}
+	return issuedCopy, returnedCopy, nil
 }

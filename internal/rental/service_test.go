@@ -36,7 +36,7 @@ func TestServiceCreateConfirmedDelegatesValidatedInput(t *testing.T) {
 	) (Rental, error) {
 		gotActor = actor
 		gotSelections = append([]ModelSelection(nil), selections...)
-		return Restore(24, clientID, interval, StatusConfirmed, nil, []Item{rentalItemFixture(1)})
+		return Restore(24, clientID, interval, StatusConfirmed, nil, nil, []Item{rentalItemFixture(1)})
 	}}
 	service := NewService(repository)
 	operator := user.User{ID: 7, Login: "operator", Role: user.RoleOperator, Active: true}
@@ -90,7 +90,7 @@ func TestServiceIssueUsesCurrentTimeAndActor(t *testing.T) {
 	) (Rental, error) {
 		gotActor = actor
 		gotTime = at
-		value, err := Restore(id, 18, serviceInterval(t), StatusConfirmed, nil, []Item{rentalItemFixture(1)})
+		value, err := Restore(id, 18, serviceInterval(t), StatusConfirmed, nil, nil, []Item{rentalItemFixture(1)})
 		if err != nil {
 			return Rental{}, err
 		}
@@ -137,7 +137,7 @@ func TestServiceCancelUsesActorAndValidatesAccess(t *testing.T) {
 	var gotActor user.User
 	repository := &serviceRepositoryStub{cancel: func(_ context.Context, value user.User, id int64) (Rental, error) {
 		gotActor = value
-		rentalValue, err := Restore(id, 18, serviceInterval(t), StatusConfirmed, nil, []Item{rentalItemFixture(1)})
+		rentalValue, err := Restore(id, 18, serviceInterval(t), StatusConfirmed, nil, nil, []Item{rentalItemFixture(1)})
 		if err != nil {
 			return Rental{}, err
 		}
@@ -170,11 +170,67 @@ func TestServiceCancelUsesActorAndValidatesAccess(t *testing.T) {
 	}
 }
 
+func TestServiceCompleteUsesCurrentTimeAndActor(t *testing.T) {
+	issuedAt := time.Date(2026, 8, 20, 9, 15, 0, 0, time.UTC)
+	returnedAt := time.Date(2026, 8, 20, 12, 45, 0, 0, time.FixedZone("МСК", 3*60*60))
+	actor := user.User{ID: 7, Login: "operator", Role: user.RoleOperator, Active: true}
+	var gotActor user.User
+	var gotTime time.Time
+	repository := &serviceRepositoryStub{complete: func(
+		_ context.Context, value user.User, id int64, at time.Time,
+	) (Rental, error) {
+		gotActor = value
+		gotTime = at
+		rentalValue, err := Restore(
+			id, 18, serviceInterval(t), StatusActive, &issuedAt, nil,
+			[]Item{rentalItemFixture(1)},
+		)
+		if err != nil {
+			return Rental{}, err
+		}
+		if err := rentalValue.Complete(at); err != nil {
+			return Rental{}, err
+		}
+		return rentalValue, nil
+	}}
+	service := NewService(repository)
+	service.now = func() time.Time { return returnedAt }
+
+	completed, err := service.Complete(context.Background(), actor, 24)
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	if completed.Status != StatusCompleted || gotActor != actor ||
+		!gotTime.Equal(returnedAt.UTC()) || gotTime.Location() != time.UTC {
+		t.Fatalf("Complete() = %+v actor = %+v returnedAt = %v", completed, gotActor, gotTime)
+	}
+}
+
+func TestServiceCompleteRejectsAccessAndInvalidID(t *testing.T) {
+	service := NewService(&serviceRepositoryStub{})
+	for _, tt := range []struct {
+		name  string
+		actor user.User
+		id    int64
+		want  error
+	}{
+		{name: "admin", actor: user.User{ID: 1, Role: user.RoleAdmin, Active: true}, id: 24, want: user.ErrAccessDenied},
+		{name: "inactive", actor: user.User{ID: 7, Role: user.RoleOperator}, id: 24, want: user.ErrAccessDenied},
+		{name: "invalid ID", actor: user.User{ID: 7, Role: user.RoleOperator, Active: true}, want: ErrRentalNotFound},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := service.Complete(context.Background(), tt.actor, tt.id); !errors.Is(err, tt.want) {
+				t.Fatalf("Complete() error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestServiceBulkActionsValidateSelectionAndDelegate(t *testing.T) {
 	actor := user.User{ID: 7, Login: "operator", Role: user.RoleOperator, Active: true}
 	issuedAt := time.Date(2026, 8, 17, 12, 34, 56, 0, time.FixedZone("МСК", 3*60*60))
-	var issuedIDs, cancelledIDs []int64
-	var gotIssuedAt time.Time
+	var issuedIDs, cancelledIDs, completedIDs []int64
+	var gotIssuedAt, gotReturnedAt time.Time
 	repository := &serviceRepositoryStub{
 		issueMany: func(_ context.Context, gotActor user.User, ids []int64, at time.Time) ([]Rental, error) {
 			if gotActor != actor {
@@ -191,6 +247,14 @@ func TestServiceBulkActionsValidateSelectionAndDelegate(t *testing.T) {
 			cancelledIDs = append([]int64(nil), ids...)
 			return []Rental{{ID: ids[0], Status: StatusCancelled}}, nil
 		},
+		completeMany: func(_ context.Context, gotActor user.User, ids []int64, at time.Time) ([]Rental, error) {
+			if gotActor != actor {
+				t.Errorf("CompleteMany() actor = %+v", gotActor)
+			}
+			completedIDs = append([]int64(nil), ids...)
+			gotReturnedAt = at
+			return []Rental{{ID: ids[0], Status: StatusCompleted}}, nil
+		},
 	}
 	service := NewService(repository)
 	service.now = func() time.Time { return issuedAt }
@@ -201,12 +265,19 @@ func TestServiceBulkActionsValidateSelectionAndDelegate(t *testing.T) {
 	if _, err := service.CancelMany(context.Background(), actor, []int64{26, 27}); err != nil {
 		t.Fatalf("CancelMany() error = %v", err)
 	}
+	if _, err := service.CompleteMany(context.Background(), actor, []int64{28, 29}); err != nil {
+		t.Fatalf("CompleteMany() error = %v", err)
+	}
 	if len(issuedIDs) != 2 || issuedIDs[0] != 24 || issuedIDs[1] != 25 ||
 		!gotIssuedAt.Equal(issuedAt.UTC()) || gotIssuedAt.Location() != time.UTC {
 		t.Fatalf("IssueMany() ids = %v issuedAt = %v", issuedIDs, gotIssuedAt)
 	}
 	if len(cancelledIDs) != 2 || cancelledIDs[0] != 26 || cancelledIDs[1] != 27 {
 		t.Fatalf("CancelMany() ids = %v", cancelledIDs)
+	}
+	if len(completedIDs) != 2 || completedIDs[0] != 28 || completedIDs[1] != 29 ||
+		!gotReturnedAt.Equal(issuedAt.UTC()) || gotReturnedAt.Location() != time.UTC {
+		t.Fatalf("CompleteMany() ids = %v returnedAt = %v", completedIDs, gotReturnedAt)
 	}
 
 	tooMany := make([]int64, MaxBulkSelection+1)
@@ -221,6 +292,9 @@ func TestServiceBulkActionsValidateSelectionAndDelegate(t *testing.T) {
 		if _, err := service.CancelMany(context.Background(), actor, ids); !errors.Is(err, ErrInvalidBulkSelection) {
 			t.Errorf("CancelMany(%v) error = %v", ids, err)
 		}
+		if _, err := service.CompleteMany(context.Background(), actor, ids); !errors.Is(err, ErrInvalidBulkSelection) {
+			t.Errorf("CompleteMany(%v) error = %v", ids, err)
+		}
 	}
 	admin := user.User{ID: 1, Role: user.RoleAdmin, Active: true}
 	if _, err := service.IssueMany(context.Background(), admin, []int64{24}); !errors.Is(err, user.ErrAccessDenied) {
@@ -228,6 +302,9 @@ func TestServiceBulkActionsValidateSelectionAndDelegate(t *testing.T) {
 	}
 	if _, err := service.CancelMany(context.Background(), admin, []int64{24}); !errors.Is(err, user.ErrAccessDenied) {
 		t.Errorf("CancelMany(admin) error = %v", err)
+	}
+	if _, err := service.CompleteMany(context.Background(), admin, []int64{24}); !errors.Is(err, user.ErrAccessDenied) {
+		t.Errorf("CompleteMany(admin) error = %v", err)
 	}
 }
 
@@ -238,12 +315,16 @@ func TestServicePropagatesRepositoryErrors(t *testing.T) {
 		create: func(context.Context, user.User, int64, Interval, []ModelSelection) (Rental, error) {
 			return Rental{}, repositoryError
 		},
-		issue:  func(context.Context, user.User, int64, time.Time) (Rental, error) { return Rental{}, repositoryError },
-		cancel: func(context.Context, user.User, int64) (Rental, error) { return Rental{}, repositoryError },
+		issue:    func(context.Context, user.User, int64, time.Time) (Rental, error) { return Rental{}, repositoryError },
+		cancel:   func(context.Context, user.User, int64) (Rental, error) { return Rental{}, repositoryError },
+		complete: func(context.Context, user.User, int64, time.Time) (Rental, error) { return Rental{}, repositoryError },
 		issueMany: func(context.Context, user.User, []int64, time.Time) ([]Rental, error) {
 			return nil, repositoryError
 		},
 		cancelMany: func(context.Context, user.User, []int64) ([]Rental, error) {
+			return nil, repositoryError
+		},
+		completeMany: func(context.Context, user.User, []int64, time.Time) ([]Rental, error) {
 			return nil, repositoryError
 		},
 		get:  func(context.Context, int64) (Rental, error) { return Rental{}, repositoryError },
@@ -261,11 +342,17 @@ func TestServicePropagatesRepositoryErrors(t *testing.T) {
 	if _, err := service.Cancel(context.Background(), user.User{ID: 7, Role: user.RoleOperator, Active: true}, 1); !errors.Is(err, repositoryError) {
 		t.Errorf("Cancel() error = %v", err)
 	}
+	if _, err := service.Complete(context.Background(), user.User{ID: 7, Role: user.RoleOperator, Active: true}, 1); !errors.Is(err, repositoryError) {
+		t.Errorf("Complete() error = %v", err)
+	}
 	if _, err := service.IssueMany(context.Background(), user.User{ID: 7, Role: user.RoleOperator, Active: true}, []int64{1}); !errors.Is(err, repositoryError) {
 		t.Errorf("IssueMany() error = %v", err)
 	}
 	if _, err := service.CancelMany(context.Background(), user.User{ID: 7, Role: user.RoleOperator, Active: true}, []int64{1}); !errors.Is(err, repositoryError) {
 		t.Errorf("CancelMany() error = %v", err)
+	}
+	if _, err := service.CompleteMany(context.Background(), user.User{ID: 7, Role: user.RoleOperator, Active: true}, []int64{1}); !errors.Is(err, repositoryError) {
+		t.Errorf("CompleteMany() error = %v", err)
 	}
 	if _, err := service.Get(context.Background(), 1); !errors.Is(err, repositoryError) {
 		t.Errorf("Get() error = %v", err)
@@ -290,14 +377,16 @@ func TestServiceListPageValidation(t *testing.T) {
 }
 
 type serviceRepositoryStub struct {
-	create     func(context.Context, user.User, int64, Interval, []ModelSelection) (Rental, error)
-	issue      func(context.Context, user.User, int64, time.Time) (Rental, error)
-	issueMany  func(context.Context, user.User, []int64, time.Time) ([]Rental, error)
-	cancel     func(context.Context, user.User, int64) (Rental, error)
-	cancelMany func(context.Context, user.User, []int64) ([]Rental, error)
-	get        func(context.Context, int64) (Rental, error)
-	list       func(context.Context, []Status, int, int) (Page, error)
-	available  func(context.Context, Interval) ([]equipment.Item, error)
+	create       func(context.Context, user.User, int64, Interval, []ModelSelection) (Rental, error)
+	issue        func(context.Context, user.User, int64, time.Time) (Rental, error)
+	issueMany    func(context.Context, user.User, []int64, time.Time) ([]Rental, error)
+	cancel       func(context.Context, user.User, int64) (Rental, error)
+	cancelMany   func(context.Context, user.User, []int64) ([]Rental, error)
+	complete     func(context.Context, user.User, int64, time.Time) (Rental, error)
+	completeMany func(context.Context, user.User, []int64, time.Time) ([]Rental, error)
+	get          func(context.Context, int64) (Rental, error)
+	list         func(context.Context, []Status, int, int) (Page, error)
+	available    func(context.Context, Interval) ([]equipment.Item, error)
 }
 
 func (s *serviceRepositoryStub) CancelMany(ctx context.Context, actor user.User, ids []int64) ([]Rental, error) {
@@ -312,6 +401,20 @@ func (s *serviceRepositoryStub) Cancel(ctx context.Context, actor user.User, id 
 		return Rental{}, ErrRentalNotFound
 	}
 	return s.cancel(ctx, actor, id)
+}
+
+func (s *serviceRepositoryStub) Complete(ctx context.Context, actor user.User, id int64, returnedAt time.Time) (Rental, error) {
+	if s.complete == nil {
+		return Rental{}, ErrRentalNotFound
+	}
+	return s.complete(ctx, actor, id, returnedAt)
+}
+
+func (s *serviceRepositoryStub) CompleteMany(ctx context.Context, actor user.User, ids []int64, returnedAt time.Time) ([]Rental, error) {
+	if s.completeMany == nil {
+		return nil, ErrRentalNotFound
+	}
+	return s.completeMany(ctx, actor, ids, returnedAt)
 }
 
 func (s *serviceRepositoryStub) Issue(ctx context.Context, actor user.User, id int64, issuedAt time.Time) (Rental, error) {
@@ -330,7 +433,7 @@ func (s *serviceRepositoryStub) IssueMany(ctx context.Context, actor user.User, 
 
 func (s *serviceRepositoryStub) CreateConfirmed(ctx context.Context, actor user.User, clientID int64, interval Interval, selections []ModelSelection) (Rental, error) {
 	if s.create == nil {
-		return Restore(1, clientID, interval, StatusConfirmed, nil, []Item{rentalItemFixture(1)})
+		return Restore(1, clientID, interval, StatusConfirmed, nil, nil, []Item{rentalItemFixture(1)})
 	}
 	return s.create(ctx, actor, clientID, interval, selections)
 }

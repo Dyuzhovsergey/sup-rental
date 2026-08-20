@@ -58,7 +58,7 @@ func TestRestore(t *testing.T) {
 	interval := mustInterval(t, start, start.Add(time.Hour))
 	items := []Item{validRentalItem(1)}
 	issuedAt := start.Add(5 * time.Minute)
-	restored, err := Restore(7, 42, interval, StatusActive, &issuedAt, items)
+	restored, err := Restore(7, 42, interval, StatusActive, &issuedAt, nil, items)
 	if err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
@@ -77,14 +77,15 @@ func TestRestoreRejectsInvalidData(t *testing.T) {
 	interval := mustInterval(t, start, start.Add(time.Hour))
 	items := []Item{validRentalItem(1)}
 	tests := []struct {
-		name     string
-		id       int64
-		clientID int64
-		interval Interval
-		status   Status
-		issuedAt *time.Time
-		items    []Item
-		wantErr  error
+		name       string
+		id         int64
+		clientID   int64
+		interval   Interval
+		status     Status
+		issuedAt   *time.Time
+		returnedAt *time.Time
+		items      []Item
+		wantErr    error
 	}{
 		{name: "invalid ID", clientID: 42, interval: interval, status: StatusConfirmed, items: items, wantErr: ErrInvalidRentalID},
 		{name: "invalid client", id: 7, interval: interval, status: StatusConfirmed, items: items, wantErr: ErrInvalidClientID},
@@ -93,11 +94,14 @@ func TestRestoreRejectsInvalidData(t *testing.T) {
 		{name: "empty composition", id: 7, clientID: 42, interval: interval, status: StatusCancelled, wantErr: ErrRentalItemsRequired},
 		{name: "active without issued time", id: 7, clientID: 42, interval: interval, status: StatusActive, items: items, wantErr: ErrIssuedAtRequired},
 		{name: "confirmed with issued time", id: 7, clientID: 42, interval: interval, status: StatusConfirmed, issuedAt: &start, items: items, wantErr: ErrUnexpectedIssuedAt},
+		{name: "completed without returned time", id: 7, clientID: 42, interval: interval, status: StatusCompleted, issuedAt: &start, items: items, wantErr: ErrReturnedAtRequired},
+		{name: "active with returned time", id: 7, clientID: 42, interval: interval, status: StatusActive, issuedAt: &start, returnedAt: timePointer(start.Add(time.Hour)), items: items, wantErr: ErrUnexpectedReturnedAt},
+		{name: "returned before issued", id: 7, clientID: 42, interval: interval, status: StatusCompleted, issuedAt: &start, returnedAt: timePointer(start.Add(-time.Minute)), items: items, wantErr: ErrReturnedBeforeIssued},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			_, err := Restore(tt.id, tt.clientID, tt.interval, tt.status, tt.issuedAt, tt.items)
+			_, err := Restore(tt.id, tt.clientID, tt.interval, tt.status, tt.issuedAt, tt.returnedAt, tt.items)
 			if !errors.Is(err, tt.wantErr) {
 				t.Fatalf("Restore() error = %v, want %v", err, tt.wantErr)
 			}
@@ -138,6 +142,9 @@ func TestRentalChangeStatus(t *testing.T) {
 	issuedAt := time.Date(2026, 8, 14, 9, 55, 0, 0, time.UTC)
 	if err := value.Issue(issuedAt); err != nil || value.Status != StatusActive {
 		t.Fatalf("Issue() = %q, %v", value.Status, err)
+	}
+	if err := value.ChangeStatus(StatusCompleted); !errors.Is(err, ErrReturnedAtRequired) || value.Status != StatusActive {
+		t.Fatalf("ChangeStatus(completed) = %q, %v", value.Status, err)
 	}
 	if err := value.ChangeStatus(StatusCancelled); !errors.Is(err, ErrStatusTransitionNotAllowed) {
 		t.Fatalf("ChangeStatus(cancelled) error = %v", err)
@@ -185,3 +192,41 @@ func TestRentalCancel(t *testing.T) {
 		t.Fatalf("active Cancel() error = %v", err)
 	}
 }
+
+func TestRentalComplete(t *testing.T) {
+	t.Parallel()
+
+	issuedAt := time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)
+	returnedAt := issuedAt.Add(90 * time.Minute)
+	value := Rental{Status: StatusActive, issuedAt: &issuedAt, items: []Item{validRentalItem(1)}}
+	if err := value.Complete(returnedAt); err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+	gotReturnedAt, ok := value.ReturnedAt()
+	if value.Status != StatusCompleted || !ok || !gotReturnedAt.Equal(returnedAt) {
+		t.Fatalf("Complete() = status %q returned %v, %t", value.Status, gotReturnedAt, ok)
+	}
+
+	for _, tt := range []struct {
+		name   string
+		status Status
+		issued *time.Time
+		at     time.Time
+		want   error
+	}{
+		{name: "zero time", status: StatusActive, issued: &issuedAt, want: ErrReturnedAtRequired},
+		{name: "before issue", status: StatusActive, issued: &issuedAt, at: issuedAt.Add(-time.Minute), want: ErrReturnedBeforeIssued},
+		{name: "confirmed", status: StatusConfirmed, at: returnedAt, want: ErrStatusTransitionNotAllowed},
+		{name: "already completed", status: StatusCompleted, issued: &issuedAt, at: returnedAt, want: ErrStatusTransitionNotAllowed},
+		{name: "cancelled", status: StatusCancelled, at: returnedAt, want: ErrStatusTransitionNotAllowed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			candidate := Rental{Status: tt.status, issuedAt: tt.issued, items: []Item{validRentalItem(1)}}
+			if err := candidate.Complete(tt.at); !errors.Is(err, tt.want) {
+				t.Fatalf("Complete() error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+}
+
+func timePointer(value time.Time) *time.Time { return &value }

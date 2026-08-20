@@ -257,6 +257,12 @@ p {
     padding-left: 24px;
 }
 
+.main-content--wide {
+    padding-right: 24px;
+    padding-left: 24px;
+}
+
+.main-content--wide .content-container,
 .main-content--equipment .content-container {
     width: 100%;
     max-width: none;
@@ -593,6 +599,21 @@ select[aria-invalid="true"] {
 .rental-select-column {
     width: 44px;
     text-align: center;
+}
+
+.rental-table .rental-period-cell {
+    min-width: 190px;
+    white-space: nowrap;
+}
+
+.rental-table .rental-duration-cell {
+    min-width: 128px;
+    white-space: nowrap;
+}
+
+.rental-table .rental-composition-cell {
+    min-width: 104px;
+    white-space: nowrap;
 }
 
 .client-name-link {

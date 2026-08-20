@@ -188,6 +188,27 @@ func TestAuditPageShowsIssuedRentalTime(t *testing.T) {
 	}
 }
 
+func TestAuditPageShowsCompletedRentalTimes(t *testing.T) {
+	service := &auditServiceStub{list: func(context.Context, user.User, audit.Filter) (audit.Page, error) {
+		return audit.Page{Total: 1, Page: 1, Events: []audit.Event{{
+			Action: "rental.completed", TargetLabel: "Аренда №24", Result: audit.ResultSuccess,
+			Details: []byte(`{"client_id":18,"planned_start":"2026-08-15T07:08:00Z","planned_end":"2026-08-15T08:38:00Z","equipment_count":3,"issued_at":"2026-08-15T07:02:00Z","returned_at":"2026-08-15T08:42:00Z"}`),
+		}}}, nil
+	}}
+	response := httptest.NewRecorder()
+	newAuditTestHandler(t, service, authenticatedFixture()).ServeHTTP(
+		response, authenticatedRequest(http.MethodGet, "/admin/audit?category=rentals", ""),
+	)
+	for _, want := range []string{
+		"Аренда завершена", "фактическая выдача: 15.08.2026 10:02",
+		"фактический возврат: 15.08.2026 11:42", "оборудование: 3",
+	} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
 func TestAuditPageShowsCancelledRental(t *testing.T) {
 	service := &auditServiceStub{list: func(context.Context, user.User, audit.Filter) (audit.Page, error) {
 		return audit.Page{Total: 1, Page: 1, Events: []audit.Event{{
