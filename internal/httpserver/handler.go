@@ -27,8 +27,9 @@ var rentalScript []byte
 // предоставляет сценарии учёта оборудования. Auth service, session resolver и
 // cookie settings обеспечивают login/logout, а operator service — admin-only
 // управление учётными записями операторов. Client и rental services реализуют
-// пользовательские сценарии клиентов и аренд. Все зависимости должны быть
-// созданы точкой входа приложения. NewHandler возвращает ошибку, если
+// пользовательские сценарии клиентов и аренд, а dashboard service формирует
+// read-only панель администратора. Все зависимости должны быть созданы точкой
+// входа приложения. NewHandler возвращает ошибку, если
 // встроенные HTML-шаблоны невозможно разобрать.
 func NewHandler(
 	logger *slog.Logger,
@@ -39,6 +40,7 @@ func NewHandler(
 	auditLog auditService,
 	clients clientService,
 	rentals rentalService,
+	adminDashboard adminDashboardService,
 	cookieSettings CookieSettings,
 ) (http.Handler, error) {
 	pageTemplates, err := template.New("pages").Funcs(template.FuncMap{
@@ -80,6 +82,9 @@ func NewHandler(
 	}))))
 	mux.Handle("GET /operator", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		showOperatorDashboard(logger, rentals, pageTemplates, w, r)
+	})))
+	mux.Handle("GET /admin", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showAdminDashboard(logger, adminDashboard, pageTemplates, w, r)
 	})))
 	mux.Handle("GET /admin/operators", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		showOperatorsPage(logger, operators, pageTemplates, w, r)

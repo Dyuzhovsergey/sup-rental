@@ -69,7 +69,7 @@ func TestLoginSuccessSetsSessionCookie(t *testing.T) {
 
 	handler.ServeHTTP(response, request)
 
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/equipment" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin" {
 		t.Fatalf("response = %d Location %q", response.Code, response.Header().Get("Location"))
 	}
 	if got := response.Header().Get("Cache-Control"); got != "no-store" {
@@ -302,6 +302,7 @@ func newAuthenticationTestHandler(
 		&auditServiceStub{},
 		&clientServiceStub{},
 		&rentalServiceStub{},
+		&adminDashboardServiceStub{},
 		settings,
 	)
 	if err != nil {

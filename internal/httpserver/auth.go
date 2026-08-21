@@ -270,7 +270,7 @@ func authenticationForPage(r *http.Request) *authenticationView {
 		HomePath:           homePathForRole(authenticated.User.Role),
 		IsAdmin:            isAdmin,
 		IsOperator:         isOperator,
-		HomeActive:         r.URL.Path == "/operator",
+		HomeActive:         r.URL.Path == "/operator" || r.URL.Path == "/admin",
 		EquipmentActive:    strings.HasPrefix(r.URL.Path, "/equipment"),
 		ClientsActive:      strings.HasPrefix(r.URL.Path, "/clients"),
 		RentalsActive:      strings.HasPrefix(r.URL.Path, "/rentals"),
@@ -342,7 +342,7 @@ func homePathForRole(role user.Role) string {
 	if role == user.RoleOperator {
 		return "/operator"
 	}
-	return "/equipment"
+	return "/admin"
 }
 
 func roleLabel(role user.Role) string {

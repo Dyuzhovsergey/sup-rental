@@ -14,6 +14,7 @@ import (
 	"github.com/Dyuzhovsergey/sup-rental/internal/audit"
 	appauth "github.com/Dyuzhovsergey/sup-rental/internal/auth"
 	"github.com/Dyuzhovsergey/sup-rental/internal/client"
+	"github.com/Dyuzhovsergey/sup-rental/internal/dashboard"
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
 	"github.com/Dyuzhovsergey/sup-rental/internal/rental"
 	"github.com/Dyuzhovsergey/sup-rental/internal/session"
@@ -299,6 +300,7 @@ func newHandlerWithDependencies(
 		&auditServiceStub{},
 		&clientServiceStub{},
 		&rentalServiceStub{},
+		&adminDashboardServiceStub{},
 		CookieSettings{},
 	)
 	if err != nil {
@@ -315,6 +317,17 @@ type authServiceStub struct {
 
 type auditServiceStub struct {
 	list func(context.Context, user.User, audit.Filter) (audit.Page, error)
+}
+
+type adminDashboardServiceStub struct {
+	snapshot func(context.Context) (dashboard.Snapshot, error)
+}
+
+func (s *adminDashboardServiceStub) Snapshot(ctx context.Context) (dashboard.Snapshot, error) {
+	if s.snapshot == nil {
+		return dashboard.Snapshot{}, nil
+	}
+	return s.snapshot(ctx)
 }
 
 type clientServiceStub struct {

@@ -1351,6 +1351,93 @@ tbody tr:last-child td {
     gap: 24px;
 }
 
+.admin-dashboard {
+    display: grid;
+    gap: 24px;
+}
+
+.admin-dashboard__header {
+    margin-bottom: 0;
+}
+
+.admin-dashboard__grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px;
+    align-items: stretch;
+}
+
+.admin-dashboard__section {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    overflow: hidden;
+}
+
+.admin-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-auto-rows: minmax(102px, 1fr);
+    gap: 12px;
+    height: 100%;
+    padding: 20px;
+}
+
+.admin-metrics--equipment {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.admin-metrics--equipment .admin-metric:first-child {
+    grid-column: 1 / -1;
+}
+
+.admin-metric {
+    position: relative;
+    min-height: 102px;
+    padding: 18px;
+    overflow: hidden;
+    background: var(--color-surface-variant);
+    border: 1px solid var(--color-outline);
+    border-radius: 14px;
+}
+
+.admin-metric::before {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    content: "";
+    background: var(--color-primary);
+}
+
+.admin-metric--success::before {
+    background: var(--color-success);
+}
+
+.admin-metric--warning::before {
+    background: var(--color-warning);
+}
+
+.admin-metric--danger::before {
+    background: var(--color-danger);
+}
+
+.admin-metric--neutral::before {
+    background: var(--color-muted);
+}
+
+.admin-metric span {
+    display: block;
+    color: var(--color-muted);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.admin-metric strong {
+    display: block;
+    margin-top: 6px;
+    font-size: 30px;
+    line-height: 1.15;
+}
+
 .operator-dashboard__header {
     margin-bottom: 0;
 }
@@ -2063,6 +2150,10 @@ tbody tr:last-child td {
 
     .operator-metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .admin-dashboard__grid {
+        grid-template-columns: minmax(0, 1fr);
     }
 
     .form-grid--three {
