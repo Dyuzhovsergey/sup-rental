@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    {{template "theme-head" .}}
+</head>
+<body>
+    <a class="skip-link" href="#main-content">К содержанию</a>
+    <div class="app-shell">
+        {{template "equipment-sidebar" .}}
+        <main class="main-content" id="main-content" tabindex="-1">
+            <div class="content-container admin-dashboard">
+                <header class="page-header admin-dashboard__header">
+                    <div>
+                        <p class="page-eyebrow">Администрирование</p>
+                        <h1>Панель администратора</h1>
+                        <p class="page-description">Сводка оборудования и текущей работы проката.</p>
+                    </div>
+                </header>
+
+                <div class="admin-dashboard__grid">
+                    <section class="panel admin-dashboard__section" aria-labelledby="admin-equipment-heading">
+                        <div class="panel-header">
+                            <div>
+                                <h2 id="admin-equipment-heading">Оборудование</h2>
+                                <p>Текущее физическое состояние инвентаря</p>
+                            </div>
+                            <a class="button button--compact" href="/equipment">Открыть оборудование</a>
+                        </div>
+                        <div class="admin-metrics admin-metrics--equipment">
+                            {{range .Equipment}}
+                            <article class="admin-metric admin-metric--{{.Tone}}">
+                                <span>{{.Label}}</span>
+                                <strong>{{.Value}}</strong>
+                            </article>
+                            {{end}}
+                        </div>
+                    </section>
+
+                    <section class="panel admin-dashboard__section" aria-labelledby="admin-rentals-heading">
+                        <div class="panel-header">
+                            <div>
+                                <h2 id="admin-rentals-heading">Аренды</h2>
+                                <p>Активные аренды и плановые события сегодня</p>
+                            </div>
+                            <a class="button button--compact" href="/rentals">Открыть аренды</a>
+                        </div>
+                        <div class="admin-metrics">
+                            {{range .Rentals}}
+                            <article class="admin-metric admin-metric--{{.Tone}}">
+                                <span>{{.Label}}</span>
+                                <strong>{{.Value}}</strong>
+                            </article>
+                            {{end}}
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

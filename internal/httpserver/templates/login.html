@@ -4,10 +4,13 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{.Title}}</title>
-    <link rel="stylesheet" href="/static/app.css">
+    {{template "theme-head" .}}
 </head>
 <body>
     <main class="login-page" id="main-content">
+        <div class="login-theme-control">
+            {{template "theme-toggle" .}}
+        </div>
         <section class="login-panel" aria-labelledby="login-heading">
             <header class="login-header">
                 <span class="brand-mark login-brand-mark" aria-hidden="true">

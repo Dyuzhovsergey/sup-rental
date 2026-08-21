@@ -21,14 +21,18 @@ var appStyles []byte
 //go:embed static/rental.js
 var rentalScript []byte
 
+//go:embed static/theme.js
+var themeScript []byte
+
 // NewHandler создаёт HTTP-обработчик со всеми маршрутами приложения.
 //
 // Logger используется для записи ошибок HTTP-слоя, а equipmentService
 // предоставляет сценарии учёта оборудования. Auth service, session resolver и
 // cookie settings обеспечивают login/logout, а operator service — admin-only
 // управление учётными записями операторов. Client и rental services реализуют
-// пользовательские сценарии клиентов и аренд. Все зависимости должны быть
-// созданы точкой входа приложения. NewHandler возвращает ошибку, если
+// пользовательские сценарии клиентов и аренд, а dashboard service формирует
+// read-only панель администратора. Все зависимости должны быть созданы точкой
+// входа приложения. NewHandler возвращает ошибку, если
 // встроенные HTML-шаблоны невозможно разобрать.
 func NewHandler(
 	logger *slog.Logger,
@@ -39,6 +43,7 @@ func NewHandler(
 	auditLog auditService,
 	clients clientService,
 	rentals rentalService,
+	adminDashboard adminDashboardService,
 	cookieSettings CookieSettings,
 ) (http.Handler, error) {
 	pageTemplates, err := template.New("pages").Funcs(template.FuncMap{
@@ -69,6 +74,9 @@ func NewHandler(
 	mux.HandleFunc("GET /static/rental.js", func(w http.ResponseWriter, r *http.Request) {
 		javascript(logger, w, r)
 	})
+	mux.HandleFunc("GET /static/theme.js", func(w http.ResponseWriter, r *http.Request) {
+		writeJavaScript(logger, "write theme script", themeScript, w)
+	})
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
 		showLoginPage(logger, pageTemplates, w, r)
 	})
@@ -80,6 +88,9 @@ func NewHandler(
 	}))))
 	mux.Handle("GET /operator", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		showOperatorDashboard(logger, rentals, pageTemplates, w, r)
+	})))
+	mux.Handle("GET /admin", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showAdminDashboard(logger, adminDashboard, pageTemplates, w, r)
 	})))
 	mux.Handle("GET /admin/operators", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		showOperatorsPage(logger, operators, pageTemplates, w, r)
@@ -255,11 +266,15 @@ func stylesheet(logger *slog.Logger, w http.ResponseWriter, r *http.Request) {
 }
 
 func javascript(logger *slog.Logger, w http.ResponseWriter, r *http.Request) {
+	writeJavaScript(logger, "write rental script", rentalScript, w)
+}
+
+func writeJavaScript(logger *slog.Logger, logMessage string, script []byte, w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(rentalScript); err != nil {
-		logger.Error("write rental script", slog.Any("error", err))
+	if _, err := w.Write(script); err != nil {
+		logger.Error(logMessage, slog.Any("error", err))
 	}
 }
 

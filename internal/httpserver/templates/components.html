@@ -1,3 +1,21 @@
+{{define "theme-head"}}
+<script src="/static/theme.js"></script>
+<link rel="stylesheet" href="/static/app.css">
+{{end}}
+
+{{define "theme-toggle"}}
+<button class="theme-toggle" type="button" data-theme-toggle aria-pressed="false" aria-label="Включить тёмную тему" title="Включить тёмную тему">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-theme-icon="light" hidden>
+        <circle cx="12" cy="12" r="4"></circle>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"></path>
+    </svg>
+    <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-theme-icon="dark">
+        <path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path>
+    </svg>
+    <span data-theme-label>Тёмная тема</span>
+</button>
+{{end}}
+
 {{define "equipment-sidebar"}}
 <aside class="sidebar" aria-label="Основная навигация">
     <a class="brand" href="{{with .Authentication}}{{.HomePath}}{{else}}/login{{end}}" aria-label="SUP Rental — главная">
@@ -17,8 +35,7 @@
     <nav class="sidebar-nav" aria-label="Разделы">
         {{with .Authentication}}
         <p class="sidebar-label">{{if .IsAdmin}}Администрирование{{else}}Рабочее место{{end}}</p>
-        {{if .IsOperator}}
-        <a class="nav-item{{if .HomeActive}} is-active{{end}}" href="/operator"{{if .HomeActive}} aria-current="page"{{end}}>
+        <a class="nav-item{{if .HomeActive}} is-active{{end}}" href="{{.HomePath}}"{{if .HomeActive}} aria-current="page"{{end}}>
             <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                 <path d="M3 11.5 12 4l9 7.5"></path>
                 <path d="M5.5 10v10h13V10"></path>
@@ -26,7 +43,6 @@
             </svg>
             <span>Главная</span>
         </a>
-        {{end}}
 		<a class="nav-item{{if .RentalsActive}} is-active{{end}}" href="/rentals"{{if .RentalsActive}} aria-current="page"{{end}}>
 			<svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
 				<path d="M6 3h12v18H6z"></path>
@@ -53,9 +69,10 @@
 		{{if .IsAdmin}}
 		<a class="nav-item{{if .OperatorsActive}} is-active{{end}}" href="/admin/operators"{{if .OperatorsActive}} aria-current="page"{{end}}>
 			<svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-				<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"></path>
-				<circle cx="9" cy="7" r="4"></circle>
-				<path d="M19 8v6"></path><path d="M22 11h-6"></path>
+				<circle cx="12" cy="6" r="3"></circle>
+				<path d="M7 13a5 5 0 0 1 10 0"></path>
+				<rect x="3" y="12" width="18" height="8" rx="2"></rect>
+				<path d="M12 20v3M9 23h6"></path>
 			</svg>
 			<span>Операторы</span>
 		</a>
@@ -78,6 +95,7 @@
                 <span>{{.Role}}</span>
             </span>
         </div>
+        {{template "theme-toggle" .}}
         <form method="post" action="/logout">
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
             <button class="sidebar-logout" type="submit">

@@ -29,6 +29,9 @@ func TestLoginPage(t *testing.T) {
 	}
 	for _, want := range []string{
 		`<h1 id="login-heading">Вход в систему</h1>`,
+		`<script src="/static/theme.js"></script>`,
+		`data-theme-toggle`,
+		`aria-label="Включить тёмную тему"`,
 		`name="login"`,
 		`name="password"`,
 		`autocomplete="username"`,
@@ -37,6 +40,9 @@ func TestLoginPage(t *testing.T) {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("body does not contain %q", want)
 		}
+	}
+	if scriptIndex, styleIndex := strings.Index(response.Body.String(), `/static/theme.js`), strings.Index(response.Body.String(), `/static/app.css`); scriptIndex < 0 || styleIndex < 0 || scriptIndex > styleIndex {
+		t.Error("theme script must be loaded before the stylesheet")
 	}
 	if strings.Contains(response.Body.String(), `class="sidebar"`) {
 		t.Error("login page contains application sidebar")
@@ -69,7 +75,7 @@ func TestLoginSuccessSetsSessionCookie(t *testing.T) {
 
 	handler.ServeHTTP(response, request)
 
-	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/equipment" {
+	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/admin" {
 		t.Fatalf("response = %d Location %q", response.Code, response.Header().Get("Location"))
 	}
 	if got := response.Header().Get("Cache-Control"); got != "no-store" {
@@ -302,6 +308,7 @@ func newAuthenticationTestHandler(
 		&auditServiceStub{},
 		&clientServiceStub{},
 		&rentalServiceStub{},
+		&adminDashboardServiceStub{},
 		settings,
 	)
 	if err != nil {
