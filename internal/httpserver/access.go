@@ -7,11 +7,6 @@ import (
 	"net/http"
 )
 
-type operatorPageData struct {
-	Authentication *authenticationView
-	Title          string
-}
-
 type forbiddenPageData struct {
 	Authentication *authenticationView
 	Title          string
@@ -26,27 +21,6 @@ func redirectToRoleHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, homePathForRole(authenticated.User.Role), http.StatusFound)
-}
-
-func showOperatorPage(
-	logger *slog.Logger,
-	pageTemplates *template.Template,
-	w http.ResponseWriter,
-	r *http.Request,
-) {
-	renderPage(
-		logger,
-		pageTemplates,
-		w,
-		http.StatusOK,
-		"operator.html",
-		operatorPageData{
-			Authentication: authenticationForPage(r),
-			Title:          "Рабочее место оператора — SUP Rental",
-		},
-		"render operator page",
-		"write operator response",
-	)
 }
 
 func renderForbiddenPage(

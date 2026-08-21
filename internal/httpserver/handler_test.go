@@ -326,14 +326,17 @@ type clientServiceStub struct {
 }
 
 type rentalServiceStub struct {
-	available  func(context.Context, rental.Interval) ([]rental.AvailableModel, error)
-	create     func(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
-	issue      func(context.Context, user.User, int64) (rental.Rental, error)
-	issueMany  func(context.Context, user.User, []int64) ([]rental.Rental, error)
-	cancel     func(context.Context, user.User, int64) (rental.Rental, error)
-	cancelMany func(context.Context, user.User, []int64) ([]rental.Rental, error)
-	get        func(context.Context, int64) (rental.Rental, error)
-	list       func(context.Context, []rental.Status, int, int) (rental.Page, error)
+	available    func(context.Context, rental.Interval) ([]rental.AvailableModel, error)
+	create       func(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
+	issue        func(context.Context, user.User, int64) (rental.Rental, error)
+	issueMany    func(context.Context, user.User, []int64) ([]rental.Rental, error)
+	cancel       func(context.Context, user.User, int64) (rental.Rental, error)
+	cancelMany   func(context.Context, user.User, []int64) ([]rental.Rental, error)
+	complete     func(context.Context, user.User, int64) (rental.Rental, error)
+	completeMany func(context.Context, user.User, []int64) ([]rental.Rental, error)
+	get          func(context.Context, int64) (rental.Rental, error)
+	list         func(context.Context, []rental.Status, int, int) (rental.Page, error)
+	monitoring   func(context.Context) (rental.MonitoringSnapshot, error)
 }
 
 func (s *rentalServiceStub) CancelMany(ctx context.Context, actor user.User, ids []int64) ([]rental.Rental, error) {
@@ -348,6 +351,20 @@ func (s *rentalServiceStub) Cancel(ctx context.Context, actor user.User, id int6
 		return rental.Rental{}, rental.ErrRentalNotFound
 	}
 	return s.cancel(ctx, actor, id)
+}
+
+func (s *rentalServiceStub) Complete(ctx context.Context, actor user.User, id int64) (rental.Rental, error) {
+	if s.complete == nil {
+		return rental.Rental{}, rental.ErrRentalNotFound
+	}
+	return s.complete(ctx, actor, id)
+}
+
+func (s *rentalServiceStub) CompleteMany(ctx context.Context, actor user.User, ids []int64) ([]rental.Rental, error) {
+	if s.completeMany == nil {
+		return nil, rental.ErrRentalNotFound
+	}
+	return s.completeMany(ctx, actor, ids)
 }
 
 func (s *rentalServiceStub) Issue(ctx context.Context, actor user.User, id int64) (rental.Rental, error) {
@@ -373,7 +390,7 @@ func (s *rentalServiceStub) AvailableModels(ctx context.Context, interval rental
 
 func (s *rentalServiceStub) CreateConfirmed(ctx context.Context, actor user.User, clientID int64, interval rental.Interval, selections []rental.ModelSelection) (rental.Rental, error) {
 	if s.create == nil {
-		return rental.Restore(1, clientID, interval, rental.StatusConfirmed, nil, []rental.Item{{
+		return rental.Restore(1, clientID, interval, rental.StatusConfirmed, nil, nil, []rental.Item{{
 			EquipmentID: 1, InventoryNumber: "SUP-TEST-1", Kind: equipment.KindSUPBoard,
 			ModelCode: "TEST", HourlyRateKopecks: 100_000,
 		}})
@@ -393,6 +410,13 @@ func (s *rentalServiceStub) ListPage(ctx context.Context, statuses []rental.Stat
 		return rental.Page{Page: page, PageSize: pageSize}, nil
 	}
 	return s.list(ctx, statuses, page, pageSize)
+}
+
+func (s *rentalServiceStub) Monitoring(ctx context.Context) (rental.MonitoringSnapshot, error) {
+	if s.monitoring == nil {
+		return rental.MonitoringSnapshot{}, nil
+	}
+	return s.monitoring(ctx)
 }
 
 func (s *clientServiceStub) Create(ctx context.Context, actor user.User, fullName, phone string) (client.Client, error) {
