@@ -29,8 +29,11 @@ type rentalService interface {
 	IssueMany(context.Context, user.User, []int64) ([]rental.Rental, error)
 	Cancel(context.Context, user.User, int64) (rental.Rental, error)
 	CancelMany(context.Context, user.User, []int64) ([]rental.Rental, error)
+	Complete(context.Context, user.User, int64) (rental.Rental, error)
+	CompleteMany(context.Context, user.User, []int64) ([]rental.Rental, error)
 	Get(context.Context, int64) (rental.Rental, error)
 	ListPage(context.Context, []rental.Status, int, int) (rental.Page, error)
+	Monitoring(context.Context) (rental.MonitoringSnapshot, error)
 }
 
 type rentalWizardPageData struct {
@@ -128,17 +131,18 @@ type rentalsPageData struct {
 }
 
 type rentalSectionView struct {
-	ID          string
-	Heading     string
-	Description string
-	Rentals     []rentalSummaryView
-	TotalLabel  string
-	Pagination  paginationView
-	EmptyTitle  string
-	EmptyText   string
-	ShowActions bool
-	CanManage   bool
-	BulkActions bool
+	ID                string
+	Heading           string
+	Description       string
+	Rentals           []rentalSummaryView
+	TotalLabel        string
+	Pagination        paginationView
+	EmptyTitle        string
+	EmptyText         string
+	ShowActions       bool
+	CanManage         bool
+	BulkActions       bool
+	CompletionActions bool
 }
 
 type rentalPageNumbers struct {
@@ -151,6 +155,7 @@ type rentalSummaryView struct {
 	ID           int64
 	ClientName   string
 	Period       string
+	Duration     string
 	ItemCount    string
 	Status       string
 	PlannedTotal string
@@ -168,7 +173,9 @@ type rentalDetailPageData struct {
 	ItemCount      string
 	PlannedTotal   string
 	IssuedAt       string
+	ReturnedAt     string
 	CanIssue       bool
+	CanComplete    bool
 }
 
 type rentalItemView struct {
@@ -728,6 +735,7 @@ func showRentalsPage(
 			Rentals: rentalSummaryViews(active.Rentals), TotalLabel: rentalCountLabel(active.Total),
 			Pagination: rentalSectionPagination("active_page", pages.Active, active.Total, pages, pageSize),
 			EmptyTitle: "Активных аренд нет", EmptyText: "Выданные аренды появятся здесь.",
+			ShowActions: true, CanManage: canManage, BulkActions: canManage, CompletionActions: true,
 		},
 		History: rentalSectionView{
 			ID:      "rental-history-heading",
@@ -773,6 +781,9 @@ func showRentalsPage(
 	}
 	if count, parseErr := positiveOptionalID(r.URL.Query().Get("bulk_cancelled")); parseErr == nil && count > 0 {
 		data.Success = rentalBulkSuccessLabel(int(count), "Отменена", "Отменены", "Отменено")
+	}
+	if count, parseErr := positiveOptionalID(r.URL.Query().Get("bulk_completed")); parseErr == nil && count > 0 {
+		data.Success = rentalBulkSuccessLabel(int(count), "Завершена", "Завершены", "Завершено")
 	}
 	renderPage(logger, pageTemplates, w, http.StatusOK, "rentals.html", data, "render rentals page", "write rentals response")
 }
@@ -843,9 +854,13 @@ func showRentalDetailPage(
 		Items: rentalItemViews(value.Items()), ItemCount: rentalItemCountLabel(value.ItemCount()),
 		PlannedTotal: rentalMoneyLabel(total),
 		CanIssue:     authentication != nil && authentication.IsOperator && value.Status == rental.StatusConfirmed,
+		CanComplete:  authentication != nil && authentication.IsOperator && value.Status == rental.StatusActive,
 	}
 	if issuedAt, ok := value.IssuedAt(); ok {
 		data.IssuedAt = rentalDateTimeLabel(issuedAt)
+	}
+	if returnedAt, ok := value.ReturnedAt(); ok {
+		data.ReturnedAt = rentalDateTimeLabel(returnedAt)
 	}
 	renderPage(logger, pageTemplates, w, http.StatusOK, "rental_detail.html", data,
 		"render rental detail", "write rental detail response")
@@ -1284,8 +1299,9 @@ func rentalSummaryViews(values []rental.Summary) []rentalSummaryView {
 	for _, value := range values {
 		views = append(views, rentalSummaryView{
 			ID: value.ID, ClientName: value.ClientName,
-			Period: rentalPeriodLabel(value.Interval), ItemCount: rentalItemCountLabel(value.ItemCount),
-			Status: rentalStatusLabel(value.Status), PlannedTotal: rentalMoneyLabel(value.PlannedTotalKopecks),
+			Period: rentalPeriodLabel(value.Interval), Duration: rentalDurationLabel(value.Interval),
+			ItemCount: rentalItemCountLabel(value.ItemCount),
+			Status:    rentalStatusLabel(value.Status), PlannedTotal: rentalMoneyLabel(value.PlannedTotalKopecks),
 		})
 	}
 	return views
@@ -1385,9 +1401,19 @@ func rentalSlotsLabel(slots int) string {
 		return fmt.Sprintf("%d мин", remaining)
 	}
 	if remaining == 0 {
-		return fmt.Sprintf("%d ч", hours)
+		return fmt.Sprintf("%d %s", hours, russianHourWord(hours))
 	}
-	return fmt.Sprintf("%d ч %d мин", hours, remaining)
+	return fmt.Sprintf("%d %s %d мин", hours, russianHourWord(hours), remaining)
+}
+
+func russianHourWord(hours int) string {
+	if hours%10 == 1 && hours%100 != 11 {
+		return "час"
+	}
+	if hours%10 >= 2 && hours%10 <= 4 && (hours%100 < 12 || hours%100 > 14) {
+		return "часа"
+	}
+	return "часов"
 }
 
 func rentalEndLabel(interval rental.Interval) string {

@@ -25,6 +25,7 @@ const (
 	actionRentalConfirmed            = "rental.confirmed"
 	actionRentalIssued               = "rental.issued"
 	actionRentalCancelled            = "rental.cancelled"
+	actionRentalCompleted            = "rental.completed"
 )
 
 type rentalAuditDetails struct {
@@ -33,6 +34,114 @@ type rentalAuditDetails struct {
 	PlannedEnd     time.Time  `json:"planned_end"`
 	EquipmentCount int        `json:"equipment_count"`
 	IssuedAt       *time.Time `json:"issued_at,omitempty"`
+	ReturnedAt     *time.Time `json:"returned_at,omitempty"`
+}
+
+// Complete атомарно переводит активную аренду в completed, возвращает весь её
+// состав в available и сохраняет обязательный audit event.
+func (r *RentalRepository) Complete(
+	ctx context.Context,
+	actor user.User,
+	id int64,
+	returnedAt time.Time,
+) (rental.Rental, error) {
+	values, err := r.CompleteMany(ctx, actor, []int64{id}, returnedAt)
+	if err != nil {
+		return rental.Rental{}, err
+	}
+	return values[0], nil
+}
+
+// CompleteMany одной транзакцией завершает все выбранные активные аренды,
+// возвращает их оборудование в available и сохраняет отдельный audit event для
+// каждой аренды. Ошибка одной позиции откатывает всю группу.
+func (r *RentalRepository) CompleteMany(
+	ctx context.Context,
+	actor user.User,
+	ids []int64,
+	returnedAt time.Time,
+) ([]rental.Rental, error) {
+	orderedIDs, err := validatedBulkRentalIDs(ids)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin complete rental selection transaction: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
+	values := make([]rental.Rental, 0, len(orderedIDs))
+	equipmentIDs := make([]int64, 0)
+	seenEquipment := make(map[int64]struct{})
+	for _, id := range orderedIDs {
+		value, err := lockRental(ctx, tx, id)
+		if err != nil {
+			return nil, err
+		}
+		if value.Status != rental.StatusActive {
+			return nil, fmt.Errorf(
+				"%w: %s -> %s", rental.ErrStatusTransitionNotAllowed, value.Status, rental.StatusCompleted,
+			)
+		}
+		for _, item := range value.Items() {
+			if _, exists := seenEquipment[item.EquipmentID]; exists {
+				return nil, rental.ErrEquipmentUnavailable
+			}
+			seenEquipment[item.EquipmentID] = struct{}{}
+			equipmentIDs = append(equipmentIDs, item.EquipmentID)
+		}
+		if err := value.Complete(returnedAt); err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	if err := lockIssuedEquipment(ctx, tx, equipmentIDs); err != nil {
+		return nil, err
+	}
+
+	for _, value := range values {
+		result, err := tx.Exec(
+			ctx,
+			"UPDATE rentals SET status = 'completed', returned_at = $2 WHERE id = $1 AND status = 'active'",
+			value.ID,
+			returnedAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("mark rental %d completed: %w", value.ID, err)
+		}
+		if result.RowsAffected() != 1 {
+			return nil, rental.ErrStatusTransitionNotAllowed
+		}
+	}
+	result, err := tx.Exec(
+		ctx,
+		"UPDATE equipment SET status = 'available' WHERE id = ANY($1) AND status = 'issued'",
+		equipmentIDs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("mark selected returned equipment available: %w", err)
+	}
+	if result.RowsAffected() != int64(len(equipmentIDs)) {
+		return nil, rental.ErrEquipmentUnavailable
+	}
+
+	for _, value := range values {
+		issuedAt, _ := value.IssuedAt()
+		if err := r.writeAudit(
+			ctx, tx, actionRentalCompleted, actor, value,
+			rentalAuditDetails{
+				ClientID: value.ClientID, PlannedStart: value.Interval.Start(), PlannedEnd: value.Interval.End(),
+				EquipmentCount: value.ItemCount(), IssuedAt: &issuedAt, ReturnedAt: &returnedAt,
+			},
+		); err != nil {
+			return nil, fmt.Errorf("write completed rental %d audit event: %w", value.ID, err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit complete rental selection transaction: %w", err)
+	}
+	return values, nil
 }
 
 // Issue атомарно переводит подтверждённую аренду в active, отмечает весь её
@@ -237,7 +346,7 @@ func validatedBulkRentalIDs(ids []int64) ([]int64, error) {
 
 func lockRental(ctx context.Context, tx pgx.Tx, id int64) (rental.Rental, error) {
 	const rentalQuery = `
-		SELECT client_id, planned_start_at, planned_end_at, status, issued_at
+		SELECT client_id, planned_start_at, planned_end_at, status, issued_at, returned_at
 		FROM rentals
 		WHERE id = $1
 		FOR UPDATE
@@ -248,9 +357,10 @@ func lockRental(ctx context.Context, tx pgx.Tx, id int64) (rental.Rental, error)
 		plannedEnd   time.Time
 		status       rental.Status
 		issuedAt     *time.Time
+		returnedAt   *time.Time
 	)
 	if err := tx.QueryRow(ctx, rentalQuery, id).Scan(
-		&clientID, &plannedStart, &plannedEnd, &status, &issuedAt,
+		&clientID, &plannedStart, &plannedEnd, &status, &issuedAt, &returnedAt,
 	); errors.Is(err, pgx.ErrNoRows) {
 		return rental.Rental{}, rental.ErrRentalNotFound
 	} else if err != nil {
@@ -290,7 +400,7 @@ func lockRental(ctx context.Context, tx pgx.Tx, id int64) (rental.Rental, error)
 	if err != nil {
 		return rental.Rental{}, fmt.Errorf("restore rental %d interval: %w", id, err)
 	}
-	value, err := rental.Restore(id, clientID, interval, status, issuedAt, items)
+	value, err := rental.Restore(id, clientID, interval, status, issuedAt, returnedAt, items)
 	if err != nil {
 		return rental.Rental{}, fmt.Errorf("restore rental %d: %w", id, err)
 	}
@@ -323,6 +433,39 @@ func lockAvailableEquipment(ctx context.Context, tx pgx.Tx, ids []int64) error {
 	}
 	if err := rows.Err(); err != nil {
 		return fmt.Errorf("iterate selected rental equipment: %w", err)
+	}
+	if count != len(ordered) {
+		return rental.ErrEquipmentUnavailable
+	}
+	return nil
+}
+
+func lockIssuedEquipment(ctx context.Context, tx pgx.Tx, ids []int64) error {
+	ordered := append([]int64(nil), ids...)
+	sort.Slice(ordered, func(i, j int) bool { return ordered[i] < ordered[j] })
+	rows, err := tx.Query(
+		ctx,
+		"SELECT id, status FROM equipment WHERE id = ANY($1) ORDER BY id FOR UPDATE",
+		ordered,
+	)
+	if err != nil {
+		return fmt.Errorf("lock returned rental equipment: %w", err)
+	}
+	defer rows.Close()
+	count := 0
+	for rows.Next() {
+		var id int64
+		var status equipment.Status
+		if err := rows.Scan(&id, &status); err != nil {
+			return fmt.Errorf("scan returned rental equipment: %w", err)
+		}
+		if status != equipment.StatusIssued {
+			return rental.ErrEquipmentUnavailable
+		}
+		count++
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate returned rental equipment: %w", err)
 	}
 	if count != len(ordered) {
 		return rental.ErrEquipmentUnavailable
@@ -398,7 +541,7 @@ func (r *RentalRepository) CreateConfirmed(
 		return rental.Rental{}, err
 	}
 	created, err := rental.Restore(
-		id, value.ClientID, value.Interval, value.Status, nil, value.Items(),
+		id, value.ClientID, value.Interval, value.Status, nil, nil, value.Items(),
 	)
 	if err != nil {
 		return rental.Rental{}, fmt.Errorf("restore confirmed rental: %w", err)
@@ -430,7 +573,7 @@ func (r *RentalRepository) Get(ctx context.Context, id int64) (rental.Rental, er
 
 	const query = `
 		SELECT r.id, r.client_id, r.planned_start_at, r.planned_end_at, r.status,
-		       r.issued_at,
+		       r.issued_at, r.returned_at,
 		       ri.equipment_id,
 		       COALESCE(ri.inventory_number, ''),
 		       COALESCE(ri.kind, ''),
@@ -448,13 +591,14 @@ func (r *RentalRepository) Get(ctx context.Context, id int64) (rental.Rental, er
 	defer rows.Close()
 
 	var (
-		found    bool
-		clientID int64
-		start    time.Time
-		end      time.Time
-		status   rental.Status
-		issuedAt *time.Time
-		items    []rental.Item
+		found      bool
+		clientID   int64
+		start      time.Time
+		end        time.Time
+		status     rental.Status
+		issuedAt   *time.Time
+		returnedAt *time.Time
+		items      []rental.Item
 	)
 	for rows.Next() {
 		var (
@@ -472,6 +616,7 @@ func (r *RentalRepository) Get(ctx context.Context, id int64) (rental.Rental, er
 			&end,
 			&status,
 			&issuedAt,
+			&returnedAt,
 			&equipmentID,
 			&inventoryNumber,
 			&kind,
@@ -502,7 +647,7 @@ func (r *RentalRepository) Get(ctx context.Context, id int64) (rental.Rental, er
 	if err != nil {
 		return rental.Rental{}, fmt.Errorf("restore rental interval: %w", err)
 	}
-	restored, err := rental.Restore(id, clientID, interval, status, issuedAt, items)
+	restored, err := rental.Restore(id, clientID, interval, status, issuedAt, returnedAt, items)
 	if err != nil {
 		return rental.Rental{}, fmt.Errorf("restore rental: %w", err)
 	}

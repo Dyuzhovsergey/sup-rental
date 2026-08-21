@@ -39,7 +39,7 @@ func TestPublicRoutesRemainAvailableWithoutSession(t *testing.T) {
 func TestProtectedRoutesRedirectWithoutSession(t *testing.T) {
 	handler := newUnauthenticatedTestHandler(t, discardLogger())
 	for _, path := range []string{
-		"/", "/operator", "/equipment", "/equipment/17",
+		"/", "/operator", "/admin", "/equipment", "/equipment/17",
 		"/clients", "/clients/23", "/clients/23/edit",
 	} {
 		t.Run(path, func(t *testing.T) {
@@ -65,7 +65,7 @@ func TestRootRedirectsAccordingToRole(t *testing.T) {
 		role     user.Role
 		wantPath string
 	}{
-		{role: user.RoleAdmin, wantPath: "/equipment"},
+		{role: user.RoleAdmin, wantPath: "/admin"},
 		{role: user.RoleOperator, wantPath: "/operator"},
 	}
 

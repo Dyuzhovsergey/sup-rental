@@ -12,7 +12,15 @@ import (
 	"github.com/Dyuzhovsergey/sup-rental/internal/user"
 )
 
-const bulkSelectionMessage = "Выберите от 1 до 15 подтверждённых аренд."
+const bulkSelectionMessage = "Выберите от 1 до 15 аренд."
+
+type rentalBulkAction string
+
+const (
+	rentalBulkIssue    rentalBulkAction = "issue"
+	rentalBulkCancel   rentalBulkAction = "cancel"
+	rentalBulkComplete rentalBulkAction = "complete"
+)
 
 type rentalBulkPageData struct {
 	Authentication *authenticationView
@@ -44,7 +52,7 @@ func showBulkRentalIssuePage(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	showRentalBulkPage(logger, rentals, clients, pageTemplates, w, r, false)
+	showRentalBulkPage(logger, rentals, clients, pageTemplates, w, r, rentalBulkIssue)
 }
 
 func showBulkRentalCancelPage(
@@ -55,7 +63,18 @@ func showBulkRentalCancelPage(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	showRentalBulkPage(logger, rentals, clients, pageTemplates, w, r, true)
+	showRentalBulkPage(logger, rentals, clients, pageTemplates, w, r, rentalBulkCancel)
+}
+
+func showBulkRentalCompletePage(
+	logger *slog.Logger,
+	rentals rentalService,
+	clients clientService,
+	pageTemplates *template.Template,
+	w http.ResponseWriter,
+	r *http.Request,
+) {
+	showRentalBulkPage(logger, rentals, clients, pageTemplates, w, r, rentalBulkComplete)
 }
 
 func showRentalBulkPage(
@@ -65,7 +84,7 @@ func showRentalBulkPage(
 	pageTemplates *template.Template,
 	w http.ResponseWriter,
 	r *http.Request,
-	isCancellation bool,
+	action rentalBulkAction,
 ) {
 	ids, err := rentalIDsFromValues(r.URL.Query())
 	if err != nil {
@@ -84,7 +103,7 @@ func showRentalBulkPage(
 			logger.Error("get rental for bulk action", slog.Int64("rental_id", id), slog.Any("error", err))
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
-		case value.Status != rental.StatusConfirmed:
+		case value.Status != rentalBulkExpectedStatus(action):
 			http.Error(w, "Выбранные аренды изменились. Вернитесь к списку и повторите выбор.", http.StatusConflict)
 			return
 		}
@@ -111,7 +130,8 @@ func showRentalBulkPage(
 		Authentication: authenticationForPage(r), Rentals: views,
 		RentalCount: rentalCountLabel(len(views)), EquipmentCount: rentalItemCountLabel(totalEquipment),
 	}
-	if isCancellation {
+	switch action {
+	case rentalBulkCancel:
 		data.Title = "Массовая отмена аренд — SUP Rental"
 		data.Heading = "Отменить выбранные аренды?"
 		data.Description = "Проверьте список перед снятием резервирования оборудования."
@@ -119,7 +139,14 @@ func showRentalBulkPage(
 		data.SubmitLabel = "Подтвердить отмену"
 		data.Action = "/rentals/bulk/cancel"
 		data.IsCancellation = true
-	} else {
+	case rentalBulkComplete:
+		data.Title = "Массовый возврат аренд — SUP Rental"
+		data.Heading = "Принять возврат по выбранным арендам?"
+		data.Description = "Проверьте клиентов, периоды и состав перед завершением аренд."
+		data.Warning = "Все выбранные аренды будут завершены с одним временем возврата, а всё оборудование станет доступным. Если одну аренду или единицу оборудования нельзя вернуть, вся операция будет отменена."
+		data.SubmitLabel = "Подтвердить возврат"
+		data.Action = "/rentals/bulk/complete"
+	default:
 		data.Title = "Массовая выдача аренд — SUP Rental"
 		data.Heading = "Выдать оборудование по выбранным арендам?"
 		data.Description = "Проверьте клиентов, периоды и состав перед фактической выдачей."
@@ -131,6 +158,13 @@ func showRentalBulkPage(
 		logger, pageTemplates, w, http.StatusOK, "rental_bulk.html", data,
 		"render bulk rental confirmation", "write bulk rental confirmation response",
 	)
+}
+
+func rentalBulkExpectedStatus(action rentalBulkAction) rental.Status {
+	if action == rentalBulkComplete {
+		return rental.StatusActive
+	}
+	return rental.StatusConfirmed
 }
 
 func issueSelectedRentals(logger *slog.Logger, rentals rentalService, w http.ResponseWriter, r *http.Request) {
@@ -155,6 +189,18 @@ func cancelSelectedRentals(logger *slog.Logger, rentals rentalService, w http.Re
 		return
 	}
 	http.Redirect(w, r, "/rentals?bulk_cancelled="+strconv.Itoa(len(values)), http.StatusSeeOther)
+}
+
+func completeSelectedRentals(logger *slog.Logger, rentals rentalService, w http.ResponseWriter, r *http.Request) {
+	ids, ok := bulkRentalIDsFromPost(w, r)
+	if !ok {
+		return
+	}
+	values, err := rentals.CompleteMany(r.Context(), currentUser(r), ids)
+	if writeBulkRentalError(logger, w, r, err, "complete selected rentals") {
+		return
+	}
+	http.Redirect(w, r, "/rentals?bulk_completed="+strconv.Itoa(len(values)), http.StatusSeeOther)
 }
 
 func bulkRentalIDsFromPost(w http.ResponseWriter, r *http.Request) ([]int64, bool) {

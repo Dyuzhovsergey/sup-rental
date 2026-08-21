@@ -44,14 +44,11 @@ prefix_rule(
     pattern = [
         "docker",
         "compose",
-        ["build", "up", "down", "run", "exec", "start", "stop", "restart", "pull"],
+        ["down", "run", "exec", "start", "stop", "restart", "pull"],
     ],
     decision = "prompt",
     justification = "Docker Compose operations may create, start, stop, or change local containers",
     match = [
-        "docker compose build",
-        "docker compose up",
-        "docker compose up --build",
         "docker compose down",
         "docker compose exec app sh",
     ],
@@ -265,4 +262,87 @@ prefix_rule(
         "go env",
         "go env GOPATH",
     ],
+)
+# Commands explicitly pre-approved for routine SUP Rental verification.
+
+prefix_rule(
+    pattern = ["go", "build"],
+    decision = "allow",
+    justification = "Сборка проекта SUP Rental разрешена без подтверждения",
+)
+
+prefix_rule(
+    pattern = ["docker", "ps"],
+    decision = "allow",
+    justification = "Просмотр контейнеров разрешён без подтверждения",
+)
+
+prefix_rule(
+    pattern = ["docker", "images"],
+    decision = "allow",
+    justification = "Просмотр Docker-образов разрешён без подтверждения",
+)
+
+prefix_rule(
+    pattern = ["docker", "image", "ls"],
+    decision = "allow",
+    justification = "Просмотр Docker-образов разрешён без подтверждения",
+)
+
+prefix_rule(
+    pattern = ["docker", "container", "ls"],
+    decision = "allow",
+    justification = "Просмотр контейнеров разрешён без подтверждения",
+)
+
+prefix_rule(
+    pattern = ["docker", "compose", "ps"],
+    decision = "allow",
+    justification = "Проверка Compose-контейнеров разрешена без подтверждения",
+)
+
+prefix_rule(
+    pattern = ["docker", "compose", "build"],
+    decision = "allow",
+    justification = "Сборка Compose-приложения разрешена без подтверждения",
+)
+
+prefix_rule(
+    pattern = ["docker", "compose", "up"],
+    decision = "allow",
+    justification = "Технический запуск SUP Rental разрешён без подтверждения",
+)
+
+# Codex Desktop may present a command to execpolicy as an exact bash wrapper.
+# Keep these rules command-specific: allowing arbitrary `bash -lc` would bypass
+# the project safety boundaries for destructive shell commands.
+
+prefix_rule(
+    pattern = ["/bin/bash", "-lc", "go build ./..."],
+    decision = "allow",
+    justification = "Сборка проекта SUP Rental разрешена без подтверждения",
+)
+
+prefix_rule(
+    pattern = ["/bin/bash", "-lc", "docker compose build"],
+    decision = "allow",
+    justification = "Сборка Compose-приложения разрешена без подтверждения",
+)
+
+prefix_rule(
+    pattern = ["/bin/bash", "-lc", "docker compose up -d"],
+    decision = "allow",
+    justification = "Технический запуск SUP Rental разрешён без подтверждения",
+)
+
+prefix_rule(
+    pattern = ["/bin/bash", "-lc", "docker compose up --build -d"],
+    decision = "allow",
+    justification = "Сборка и технический запуск SUP Rental разрешены без подтверждения",
+)
+
+prefix_rule(
+    pattern = ["/bin/bash", "-lc", "docker compose ps -a"],
+    decision = "allow",
+    justification = "Проверка Compose-контейнеров разрешена без подтверждения",
 )

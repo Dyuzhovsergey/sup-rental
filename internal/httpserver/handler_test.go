@@ -14,6 +14,7 @@ import (
 	"github.com/Dyuzhovsergey/sup-rental/internal/audit"
 	appauth "github.com/Dyuzhovsergey/sup-rental/internal/auth"
 	"github.com/Dyuzhovsergey/sup-rental/internal/client"
+	"github.com/Dyuzhovsergey/sup-rental/internal/dashboard"
 	"github.com/Dyuzhovsergey/sup-rental/internal/equipment"
 	"github.com/Dyuzhovsergey/sup-rental/internal/rental"
 	"github.com/Dyuzhovsergey/sup-rental/internal/session"
@@ -140,7 +141,15 @@ func TestStylesheet(t *testing.T) {
 
 	for _, want := range []string{
 		"--color-primary: #4f46e5;",
+		`:root[data-theme="dark"]`,
+		"--color-background: #0f172a;",
+		"--color-placeholder:",
+		"--color-disabled-surface:",
 		".app-shell",
+		".mobile-app-bar",
+		".mobile-nav-backdrop",
+		".theme-toggle",
+		".app-theme-control",
 		".equipment-layout",
 		".equipment-list-column",
 		".button--compact",
@@ -153,7 +162,46 @@ func TestStylesheet(t *testing.T) {
 		".rental-equipment-group",
 		".quantity-stepper",
 		":focus-visible",
+		"prefers-color-scheme: dark",
+		"max-width: 1023px",
+		"max-width: 767px",
+		"max-width: 479px",
 		"prefers-reduced-motion",
+	} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestThemeScript(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/static/theme.js", nil)
+	response := httptest.NewRecorder()
+
+	newUnauthenticatedTestHandler(t, discardLogger()).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+	if got := response.Header().Get("Content-Type"); got != "text/javascript; charset=utf-8" {
+		t.Errorf("Content-Type = %q", got)
+	}
+	if got := response.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control = %q, want no-cache", got)
+	}
+	for _, want := range []string{
+		`"sup-rental-theme"`,
+		`matchMedia("(prefers-color-scheme: dark)")`,
+		"window.localStorage.getItem",
+		"window.localStorage.setItem",
+		"root.dataset.theme = theme",
+		`toggle.setAttribute("aria-pressed"`,
+		`initializeMobileNavigation`,
+		`openButton.setAttribute("aria-expanded"`,
+		`event.key === "Escape"`,
+		`main.inert = inert`,
+		`document.addEventListener("DOMContentLoaded"`,
+		`window.addEventListener("storage"`,
 	} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("body does not contain %q", want)
@@ -299,6 +347,7 @@ func newHandlerWithDependencies(
 		&auditServiceStub{},
 		&clientServiceStub{},
 		&rentalServiceStub{},
+		&adminDashboardServiceStub{},
 		CookieSettings{},
 		ClientIPSettings{},
 	)
@@ -318,6 +367,17 @@ type auditServiceStub struct {
 	list func(context.Context, user.User, audit.Filter) (audit.Page, error)
 }
 
+type adminDashboardServiceStub struct {
+	snapshot func(context.Context) (dashboard.Snapshot, error)
+}
+
+func (s *adminDashboardServiceStub) Snapshot(ctx context.Context) (dashboard.Snapshot, error) {
+	if s.snapshot == nil {
+		return dashboard.Snapshot{}, nil
+	}
+	return s.snapshot(ctx)
+}
+
 type clientServiceStub struct {
 	create func(context.Context, user.User, string, string) (client.Client, error)
 	update func(context.Context, user.User, int64, string, string) (client.Client, error)
@@ -327,14 +387,17 @@ type clientServiceStub struct {
 }
 
 type rentalServiceStub struct {
-	available  func(context.Context, rental.Interval) ([]rental.AvailableModel, error)
-	create     func(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
-	issue      func(context.Context, user.User, int64) (rental.Rental, error)
-	issueMany  func(context.Context, user.User, []int64) ([]rental.Rental, error)
-	cancel     func(context.Context, user.User, int64) (rental.Rental, error)
-	cancelMany func(context.Context, user.User, []int64) ([]rental.Rental, error)
-	get        func(context.Context, int64) (rental.Rental, error)
-	list       func(context.Context, []rental.Status, int, int) (rental.Page, error)
+	available    func(context.Context, rental.Interval) ([]rental.AvailableModel, error)
+	create       func(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
+	issue        func(context.Context, user.User, int64) (rental.Rental, error)
+	issueMany    func(context.Context, user.User, []int64) ([]rental.Rental, error)
+	cancel       func(context.Context, user.User, int64) (rental.Rental, error)
+	cancelMany   func(context.Context, user.User, []int64) ([]rental.Rental, error)
+	complete     func(context.Context, user.User, int64) (rental.Rental, error)
+	completeMany func(context.Context, user.User, []int64) ([]rental.Rental, error)
+	get          func(context.Context, int64) (rental.Rental, error)
+	list         func(context.Context, []rental.Status, int, int) (rental.Page, error)
+	monitoring   func(context.Context) (rental.MonitoringSnapshot, error)
 }
 
 func (s *rentalServiceStub) CancelMany(ctx context.Context, actor user.User, ids []int64) ([]rental.Rental, error) {
@@ -349,6 +412,20 @@ func (s *rentalServiceStub) Cancel(ctx context.Context, actor user.User, id int6
 		return rental.Rental{}, rental.ErrRentalNotFound
 	}
 	return s.cancel(ctx, actor, id)
+}
+
+func (s *rentalServiceStub) Complete(ctx context.Context, actor user.User, id int64) (rental.Rental, error) {
+	if s.complete == nil {
+		return rental.Rental{}, rental.ErrRentalNotFound
+	}
+	return s.complete(ctx, actor, id)
+}
+
+func (s *rentalServiceStub) CompleteMany(ctx context.Context, actor user.User, ids []int64) ([]rental.Rental, error) {
+	if s.completeMany == nil {
+		return nil, rental.ErrRentalNotFound
+	}
+	return s.completeMany(ctx, actor, ids)
 }
 
 func (s *rentalServiceStub) Issue(ctx context.Context, actor user.User, id int64) (rental.Rental, error) {
@@ -374,7 +451,7 @@ func (s *rentalServiceStub) AvailableModels(ctx context.Context, interval rental
 
 func (s *rentalServiceStub) CreateConfirmed(ctx context.Context, actor user.User, clientID int64, interval rental.Interval, selections []rental.ModelSelection) (rental.Rental, error) {
 	if s.create == nil {
-		return rental.Restore(1, clientID, interval, rental.StatusConfirmed, nil, []rental.Item{{
+		return rental.Restore(1, clientID, interval, rental.StatusConfirmed, nil, nil, []rental.Item{{
 			EquipmentID: 1, InventoryNumber: "SUP-TEST-1", Kind: equipment.KindSUPBoard,
 			ModelCode: "TEST", HourlyRateKopecks: 100_000,
 		}})
@@ -394,6 +471,13 @@ func (s *rentalServiceStub) ListPage(ctx context.Context, statuses []rental.Stat
 		return rental.Page{Page: page, PageSize: pageSize}, nil
 	}
 	return s.list(ctx, statuses, page, pageSize)
+}
+
+func (s *rentalServiceStub) Monitoring(ctx context.Context) (rental.MonitoringSnapshot, error) {
+	if s.monitoring == nil {
+		return rental.MonitoringSnapshot{}, nil
+	}
+	return s.monitoring(ctx)
 }
 
 func (s *clientServiceStub) Create(ctx context.Context, actor user.User, fullName, phone string) (client.Client, error) {

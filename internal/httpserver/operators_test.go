@@ -192,8 +192,8 @@ func newOperatorTestHandler(t *testing.T, operators operatorService, authenticat
 	handler, err := NewHandler(
 		slog.New(slog.NewTextHandler(io.Discard, nil)),
 		&equipmentServiceStub{}, &authServiceStub{}, resolver, operators,
-		&auditServiceStub{}, &clientServiceStub{}, &rentalServiceStub{}, CookieSettings{},
-		ClientIPSettings{},
+		&auditServiceStub{}, &clientServiceStub{}, &rentalServiceStub{},
+		&adminDashboardServiceStub{}, CookieSettings{}, ClientIPSettings{},
 	)
 	if err != nil {
 		t.Fatalf("NewHandler() error = %v", err)

@@ -117,6 +117,175 @@ func TestRentalRepositoryIssuesRentalWithEquipmentAndAudit(t *testing.T) {
 	}
 }
 
+func TestRentalRepositoryCompletesRentalAndReturnsEquipment(t *testing.T) {
+	pool, ctx := rentalTestPool(t)
+	fixture := newRentalRepositoryFixture(t, ctx, pool, 2)
+	repository := NewRentalRepository(pool)
+	created, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.firstClientID,
+		rentalTestInterval(t, time.Date(2026, 9, 1, 12, 8, 0, 0, time.UTC)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 2}},
+	)
+	if err != nil {
+		t.Fatalf("CreateConfirmed() error = %v", err)
+	}
+	issuedAt := time.Date(2026, 9, 1, 11, 57, 0, 0, time.UTC)
+	if _, err := repository.Issue(ctx, fixture.actor, created.ID, issuedAt); err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+	returnedAt := time.Date(2026, 9, 1, 13, 14, 0, 0, time.UTC)
+	completed, err := repository.Complete(ctx, fixture.actor, created.ID, returnedAt)
+	if err != nil {
+		t.Fatalf("Complete() error = %v; apply migration 014 to TEST_DATABASE_URL first", err)
+	}
+	if completed.Status != rental.StatusCompleted {
+		t.Fatalf("Complete() status = %q", completed.Status)
+	}
+	gotReturnedAt, ok := completed.ReturnedAt()
+	if !ok || !gotReturnedAt.Equal(returnedAt) {
+		t.Fatalf("Complete() returnedAt = %v, %v", gotReturnedAt, ok)
+	}
+	stored, err := repository.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	assertRentalEqual(t, stored, completed)
+
+	var availableEquipment int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM equipment
+		WHERE id = ANY($1) AND status = 'available'`, fixture.equipmentIDs).Scan(&availableEquipment); err != nil {
+		t.Fatalf("count available equipment: %v", err)
+	}
+	if availableEquipment != 2 {
+		t.Fatalf("available equipment = %d", availableEquipment)
+	}
+	var details string
+	if err := pool.QueryRow(ctx, `SELECT details::text FROM audit_events
+		WHERE action = 'rental.completed' AND target_id = $1`, created.ID).Scan(&details); err != nil {
+		t.Fatalf("query completed audit: %v", err)
+	}
+	if !containsAll(details, `"equipment_count": 2`, `"issued_at":`, `"returned_at":`) &&
+		!containsAll(details, `"equipment_count":2`, `"issued_at":`, `"returned_at":`) {
+		t.Fatalf("completed audit details = %s", details)
+	}
+}
+
+func TestRentalRepositoryCompletionIsConcurrentAndTransactional(t *testing.T) {
+	pool, ctx := rentalTestPool(t)
+	fixture := newRentalRepositoryFixture(t, ctx, pool, 1)
+	repository := NewRentalRepository(pool)
+	created, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.firstClientID,
+		rentalTestInterval(t, time.Date(2026, 9, 1, 14, 8, 0, 0, time.UTC)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("CreateConfirmed() error = %v", err)
+	}
+	issuedAt := time.Date(2026, 9, 1, 13, 58, 0, 0, time.UTC)
+	if _, err := repository.Issue(ctx, fixture.actor, created.ID, issuedAt); err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+
+	start := make(chan struct{})
+	errorsCh := make(chan error, 2)
+	var wait sync.WaitGroup
+	for range 2 {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			_, completeErr := repository.Complete(ctx, fixture.actor, created.ID, issuedAt.Add(time.Hour))
+			errorsCh <- completeErr
+		}()
+	}
+	close(start)
+	wait.Wait()
+	close(errorsCh)
+	successes, conflicts := 0, 0
+	for completeErr := range errorsCh {
+		switch {
+		case completeErr == nil:
+			successes++
+		case errors.Is(completeErr, rental.ErrStatusTransitionNotAllowed):
+			conflicts++
+		default:
+			t.Fatalf("concurrent Complete() error = %v", completeErr)
+		}
+	}
+	if successes != 1 || conflicts != 1 {
+		t.Fatalf("successes = %d conflicts = %d", successes, conflicts)
+	}
+
+	rollbackFixture := newRentalRepositoryFixture(t, ctx, pool, 1)
+	rollbackRepository := NewRentalRepository(pool)
+	rollbackRental, err := rollbackRepository.CreateConfirmed(
+		ctx, rollbackFixture.actor, rollbackFixture.firstClientID,
+		rentalTestInterval(t, time.Date(2026, 9, 1, 16, 8, 0, 0, time.UTC)),
+		[]rental.ModelSelection{{ModelID: rollbackFixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("rollback CreateConfirmed() error = %v", err)
+	}
+	if _, err := rollbackRepository.Issue(ctx, rollbackFixture.actor, rollbackRental.ID, issuedAt); err != nil {
+		t.Fatalf("rollback Issue() error = %v", err)
+	}
+	rollbackRepository.writeAudit = func(context.Context, pgx.Tx, string, user.User, rental.Rental, rentalAuditDetails) error {
+		return errors.New("audit unavailable")
+	}
+	if _, err := rollbackRepository.Complete(ctx, rollbackFixture.actor, rollbackRental.ID, issuedAt.Add(time.Hour)); err == nil || !strings.Contains(err.Error(), "audit unavailable") {
+		t.Fatalf("Complete() audit error = %v", err)
+	}
+	var rentalStatus rental.Status
+	var returnedAt *time.Time
+	var equipmentStatus equipment.Status
+	if err := pool.QueryRow(ctx, "SELECT status, returned_at FROM rentals WHERE id = $1", rollbackRental.ID).Scan(&rentalStatus, &returnedAt); err != nil {
+		t.Fatalf("query rolled back rental: %v", err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT status FROM equipment WHERE id = $1", rollbackFixture.equipmentIDs[0]).Scan(&equipmentStatus); err != nil {
+		t.Fatalf("query rolled back equipment: %v", err)
+	}
+	if rentalStatus != rental.StatusActive || returnedAt != nil || equipmentStatus != equipment.StatusIssued {
+		t.Fatalf("rollback state = %q, returned %v, equipment %q", rentalStatus, returnedAt, equipmentStatus)
+	}
+}
+
+func TestRentalRepositoryRejectsCompletionWithNonIssuedEquipment(t *testing.T) {
+	pool, ctx := rentalTestPool(t)
+	fixture := newRentalRepositoryFixture(t, ctx, pool, 1)
+	repository := NewRentalRepository(pool)
+	created, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.firstClientID,
+		rentalTestInterval(t, time.Date(2026, 9, 1, 18, 8, 0, 0, time.UTC)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("CreateConfirmed() error = %v", err)
+	}
+	issuedAt := time.Date(2026, 9, 1, 18, 0, 0, 0, time.UTC)
+	if _, err := repository.Issue(ctx, fixture.actor, created.ID, issuedAt); err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+	if _, err := pool.Exec(ctx, "UPDATE equipment SET status = 'maintenance' WHERE id = $1", fixture.equipmentIDs[0]); err != nil {
+		t.Fatalf("mark equipment maintenance: %v", err)
+	}
+	if _, err := repository.Complete(ctx, fixture.actor, created.ID, issuedAt.Add(time.Hour)); !errors.Is(err, rental.ErrEquipmentUnavailable) {
+		t.Fatalf("Complete() error = %v, want ErrEquipmentUnavailable", err)
+	}
+	var status rental.Status
+	var returnedAt *time.Time
+	if err := pool.QueryRow(ctx, "SELECT status, returned_at FROM rentals WHERE id = $1", created.ID).Scan(&status, &returnedAt); err != nil {
+		t.Fatalf("query rental after conflict: %v", err)
+	}
+	var auditCount int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM audit_events WHERE action = 'rental.completed' AND target_id = $1", created.ID).Scan(&auditCount); err != nil {
+		t.Fatalf("count completed audit: %v", err)
+	}
+	if status != rental.StatusActive || returnedAt != nil || auditCount != 0 {
+		t.Fatalf("state after conflict = %q, returned %v, audit %d", status, returnedAt, auditCount)
+	}
+}
+
 func TestRentalRepositoryIssuesSelectedRentalsAtomically(t *testing.T) {
 	pool, ctx := rentalTestPool(t)
 	fixture := newRentalRepositoryFixture(t, ctx, pool, 2)
@@ -157,6 +326,119 @@ func TestRentalRepositoryIssuesSelectedRentalsAtomically(t *testing.T) {
 	}
 	if activeRentals != 2 || issuedEquipment != 2 || auditEvents != 2 {
 		t.Fatalf("active = %d issued equipment = %d audits = %d", activeRentals, issuedEquipment, auditEvents)
+	}
+}
+
+func TestRentalRepositoryCompletesSelectedRentalsAtomically(t *testing.T) {
+	pool, ctx := rentalTestPool(t)
+	fixture := newRentalRepositoryFixture(t, ctx, pool, 2)
+	repository := NewRentalRepository(pool)
+	interval := rentalTestInterval(t, time.Date(2026, 9, 5, 11, 8, 0, 0, time.UTC))
+	selection := []rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}}
+	first, err := repository.CreateConfirmed(ctx, fixture.actor, fixture.firstClientID, interval, selection)
+	if err != nil {
+		t.Fatalf("first CreateConfirmed() error = %v", err)
+	}
+	second, err := repository.CreateConfirmed(ctx, fixture.actor, fixture.secondClientID, interval, selection)
+	if err != nil {
+		t.Fatalf("second CreateConfirmed() error = %v", err)
+	}
+	issuedAt := time.Date(2026, 9, 5, 10, 55, 0, 0, time.UTC)
+	if _, err := repository.Issue(ctx, fixture.actor, first.ID, issuedAt); err != nil {
+		t.Fatalf("Issue(first) error = %v", err)
+	}
+
+	returnedAt := time.Date(2026, 9, 5, 13, 12, 0, 0, time.UTC)
+	if _, err := repository.CompleteMany(ctx, fixture.actor, []int64{first.ID, second.ID}, returnedAt); !errors.Is(err, rental.ErrStatusTransitionNotAllowed) {
+		t.Fatalf("CompleteMany() mixed statuses error = %v", err)
+	}
+	var firstStatus rental.Status
+	var firstReturnedAt *time.Time
+	if err := pool.QueryRow(ctx, "SELECT status, returned_at FROM rentals WHERE id = $1", first.ID).Scan(&firstStatus, &firstReturnedAt); err != nil {
+		t.Fatalf("query first rental after rollback: %v", err)
+	}
+	if firstStatus != rental.StatusActive || firstReturnedAt != nil {
+		t.Fatalf("first rental after rollback = %q returnedAt %v", firstStatus, firstReturnedAt)
+	}
+
+	if _, err := repository.Issue(ctx, fixture.actor, second.ID, issuedAt); err != nil {
+		t.Fatalf("Issue(second) error = %v", err)
+	}
+	completed, err := repository.CompleteMany(ctx, fixture.actor, []int64{second.ID, first.ID}, returnedAt)
+	if err != nil {
+		t.Fatalf("CompleteMany() error = %v", err)
+	}
+	if len(completed) != 2 || completed[0].ID != first.ID || completed[1].ID != second.ID {
+		t.Fatalf("CompleteMany() = %+v", completed)
+	}
+	for _, value := range completed {
+		gotReturnedAt, ok := value.ReturnedAt()
+		if value.Status != rental.StatusCompleted || !ok || !gotReturnedAt.Equal(returnedAt) {
+			t.Errorf("completed rental = %+v returnedAt = %v, %v", value, gotReturnedAt, ok)
+		}
+	}
+	var completedRentals, availableEquipment, auditEvents int
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM rentals WHERE id = ANY($1) AND status = 'completed'", []int64{first.ID, second.ID}).Scan(&completedRentals); err != nil {
+		t.Fatalf("count completed rentals: %v", err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM equipment WHERE id = ANY($1) AND status = 'available'", fixture.equipmentIDs).Scan(&availableEquipment); err != nil {
+		t.Fatalf("count available equipment: %v", err)
+	}
+	if err := pool.QueryRow(ctx, "SELECT count(*) FROM audit_events WHERE action = 'rental.completed' AND target_id = ANY($1)", []int64{first.ID, second.ID}).Scan(&auditEvents); err != nil {
+		t.Fatalf("count completed audit events: %v", err)
+	}
+	if completedRentals != 2 || availableEquipment != 2 || auditEvents != 2 {
+		t.Fatalf("completed = %d available equipment = %d audits = %d", completedRentals, availableEquipment, auditEvents)
+	}
+
+	rollbackFixture := newRentalRepositoryFixture(t, ctx, pool, 2)
+	rollbackRepository := NewRentalRepository(pool)
+	rollbackInterval := rentalTestInterval(t, time.Date(2026, 9, 5, 15, 8, 0, 0, time.UTC))
+	rollbackFirst, err := rollbackRepository.CreateConfirmed(
+		ctx, rollbackFixture.actor, rollbackFixture.firstClientID, rollbackInterval,
+		[]rental.ModelSelection{{ModelID: rollbackFixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("rollback first CreateConfirmed() error = %v", err)
+	}
+	rollbackSecond, err := rollbackRepository.CreateConfirmed(
+		ctx, rollbackFixture.actor, rollbackFixture.secondClientID, rollbackInterval,
+		[]rental.ModelSelection{{ModelID: rollbackFixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("rollback second CreateConfirmed() error = %v", err)
+	}
+	if _, err := rollbackRepository.IssueMany(
+		ctx, rollbackFixture.actor, []int64{rollbackFirst.ID, rollbackSecond.ID}, issuedAt,
+	); err != nil {
+		t.Fatalf("rollback IssueMany() error = %v", err)
+	}
+	auditCalls := 0
+	rollbackRepository.writeAudit = func(context.Context, pgx.Tx, string, user.User, rental.Rental, rentalAuditDetails) error {
+		auditCalls++
+		if auditCalls == 2 {
+			return errors.New("audit unavailable")
+		}
+		return nil
+	}
+	if _, err := rollbackRepository.CompleteMany(
+		ctx, rollbackFixture.actor, []int64{rollbackFirst.ID, rollbackSecond.ID}, returnedAt,
+	); err == nil || !strings.Contains(err.Error(), "audit unavailable") {
+		t.Fatalf("CompleteMany() audit error = %v", err)
+	}
+	if err := pool.QueryRow(
+		ctx, "SELECT count(*) FROM rentals WHERE id = ANY($1) AND status = 'active' AND returned_at IS NULL",
+		[]int64{rollbackFirst.ID, rollbackSecond.ID},
+	).Scan(&completedRentals); err != nil {
+		t.Fatalf("count active rentals after audit rollback: %v", err)
+	}
+	if err := pool.QueryRow(
+		ctx, "SELECT count(*) FROM equipment WHERE id = ANY($1) AND status = 'issued'", rollbackFixture.equipmentIDs,
+	).Scan(&availableEquipment); err != nil {
+		t.Fatalf("count issued equipment after audit rollback: %v", err)
+	}
+	if completedRentals != 2 || availableEquipment != 2 {
+		t.Fatalf("after audit rollback active = %d issued equipment = %d", completedRentals, availableEquipment)
 	}
 }
 
@@ -621,6 +903,106 @@ func TestRentalRepositoryAvailabilityAndList(t *testing.T) {
 	}
 }
 
+func TestRentalRepositoryMonitoringReturnsOperationalSnapshot(t *testing.T) {
+	pool, ctx := rentalTestPool(t)
+	fixture := newRentalRepositoryFixture(t, ctx, pool, 4)
+	repository := NewRentalRepository(pool)
+	now := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	dayStart := now.Truncate(24 * time.Hour)
+	query := rental.MonitoringQuery{
+		Now: now, DayStart: dayStart, DayEnd: dayStart.Add(24 * time.Hour), Limit: 1000,
+	}
+	baseline, err := repository.Monitoring(ctx, query)
+	if err != nil {
+		t.Fatalf("baseline Monitoring() error = %v", err)
+	}
+
+	confirmed, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.firstClientID,
+		rentalTestInterval(t, now.Add(30*time.Minute)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("create confirmed rental: %v", err)
+	}
+	active, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.firstClientID,
+		rentalTestInterval(t, now.Add(-30*time.Minute)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("create active rental: %v", err)
+	}
+	if _, err := repository.Issue(ctx, fixture.actor, active.ID, now.Add(-20*time.Minute)); err != nil {
+		t.Fatalf("issue active rental: %v", err)
+	}
+	overdue, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.secondClientID,
+		rentalTestInterval(t, now.Add(-2*time.Hour)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("create overdue rental: %v", err)
+	}
+	if _, err := repository.Issue(ctx, fixture.actor, overdue.ID, now.Add(-2*time.Hour)); err != nil {
+		t.Fatalf("issue overdue rental: %v", err)
+	}
+	cancelled, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.secondClientID,
+		rentalTestInterval(t, now.Add(3*time.Hour)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("create cancelled rental: %v", err)
+	}
+	if _, err := repository.Cancel(ctx, fixture.actor, cancelled.ID); err != nil {
+		t.Fatalf("cancel rental: %v", err)
+	}
+	completed, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.secondClientID,
+		rentalTestInterval(t, now.Add(-4*time.Hour)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("create completed rental: %v", err)
+	}
+	if _, err := repository.Issue(ctx, fixture.actor, completed.ID, now.Add(-4*time.Hour)); err != nil {
+		t.Fatalf("issue completed rental: %v", err)
+	}
+	if _, err := repository.Complete(ctx, fixture.actor, completed.ID, now.Add(-3*time.Hour)); err != nil {
+		t.Fatalf("complete rental: %v", err)
+	}
+
+	data, err := repository.Monitoring(ctx, query)
+	if err != nil {
+		t.Fatalf("Monitoring() error = %v", err)
+	}
+	if data.TodayTotal != baseline.TodayTotal+3 ||
+		data.ConfirmedTotal != baseline.ConfirmedTotal+1 ||
+		data.ActiveTotal != baseline.ActiveTotal+2 ||
+		data.OverdueTotal != baseline.OverdueTotal+1 {
+		t.Fatalf("monitoring counts = %+v", data)
+	}
+	confirmedIndex := rentalSummaryIndex(data.Confirmed, confirmed.ID)
+	if confirmedIndex < 0 {
+		t.Fatalf("confirmed = %+v", data.Confirmed)
+	}
+	overdueIndex := rentalSummaryIndex(data.Active, overdue.ID)
+	activeIndex := rentalSummaryIndex(data.Active, active.ID)
+	if overdueIndex < 0 || activeIndex < 0 || overdueIndex >= activeIndex {
+		t.Fatalf("active order = %+v", data.Active)
+	}
+}
+
+func rentalSummaryIndex(summaries []rental.Summary, id int64) int {
+	for index, summary := range summaries {
+		if summary.ID == id {
+			return index
+		}
+	}
+	return -1
+}
+
 func TestRentalsTableRejectsRemovedDraftStatus(t *testing.T) {
 	pool, ctx := rentalTestPool(t)
 	fixture := newRentalRepositoryFixture(t, ctx, pool, 1)
@@ -630,7 +1012,7 @@ func TestRentalsTableRejectsRemovedDraftStatus(t *testing.T) {
 	assertPostgresCode(t, err, "23514")
 }
 
-func TestRentalsTableChecksIssuedAtAgainstStatus(t *testing.T) {
+func TestRentalsTableChecksLifecycleTimesAgainstStatus(t *testing.T) {
 	pool, ctx := rentalTestPool(t)
 	fixture := newRentalRepositoryFixture(t, ctx, pool, 1)
 	start := time.Date(2026, 9, 6, 12, 8, 0, 0, time.UTC)
@@ -639,6 +1021,13 @@ func TestRentalsTableChecksIssuedAtAgainstStatus(t *testing.T) {
 	assertPostgresCode(t, err, "23514")
 	_, err = pool.Exec(ctx, `INSERT INTO rentals (client_id, planned_start_at, planned_end_at, status, issued_at)
 		VALUES ($1, $2, $3, 'confirmed', $2)`, fixture.firstClientID, start, start.Add(time.Hour))
+	assertPostgresCode(t, err, "23514")
+	_, err = pool.Exec(ctx, `INSERT INTO rentals (client_id, planned_start_at, planned_end_at, status, issued_at)
+		VALUES ($1, $2, $3, 'completed', $2)`, fixture.firstClientID, start, start.Add(time.Hour))
+	assertPostgresCode(t, err, "23514")
+	_, err = pool.Exec(ctx, `INSERT INTO rentals (
+		client_id, planned_start_at, planned_end_at, status, issued_at, returned_at
+	) VALUES ($1, $2, $3, 'completed', $3, $2)`, fixture.firstClientID, start, start.Add(time.Hour))
 	assertPostgresCode(t, err, "23514")
 }
 
@@ -725,9 +1114,15 @@ func assertRentalEqual(t *testing.T, got, want rental.Rental) {
 	t.Helper()
 	if got.ID != want.ID || got.ClientID != want.ClientID || got.Status != want.Status ||
 		!got.Interval.Start().Equal(want.Interval.Start()) || !got.Interval.End().Equal(want.Interval.End()) ||
-		fmt.Sprint(got.Items()) != fmt.Sprint(want.Items()) || !sameIssuedAt(got, want) {
+		fmt.Sprint(got.Items()) != fmt.Sprint(want.Items()) || !sameIssuedAt(got, want) || !sameReturnedAt(got, want) {
 		t.Errorf("rental = %#v items %#v, want %#v items %#v", got, got.Items(), want, want.Items())
 	}
+}
+
+func sameReturnedAt(first, second rental.Rental) bool {
+	firstTime, firstOK := first.ReturnedAt()
+	secondTime, secondOK := second.ReturnedAt()
+	return firstOK == secondOK && (!firstOK || firstTime.Equal(secondTime))
 }
 
 func sameIssuedAt(first, second rental.Rental) bool {

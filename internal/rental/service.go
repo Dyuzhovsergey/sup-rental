@@ -27,9 +27,9 @@ var (
 	// ErrInsufficientEquipment означает, что доступных единиц выбранной модели
 	// меньше запрошенного количества.
 	ErrInsufficientEquipment = errors.New("insufficient available equipment")
-	// ErrEquipmentUnavailable означает, что зарезервированную физическую
-	// единицу нельзя выдать в её текущем состоянии.
-	ErrEquipmentUnavailable = errors.New("rental equipment is unavailable for issue")
+	// ErrEquipmentUnavailable означает, что физическую единицу состава нельзя
+	// выдать или принять обратно в её текущем состоянии.
+	ErrEquipmentUnavailable = errors.New("rental equipment is unavailable for lifecycle operation")
 	// ErrInvalidBulkSelection означает пустой, слишком большой или содержащий
 	// некорректные либо повторяющиеся ID набор аренд.
 	ErrInvalidBulkSelection = errors.New("invalid bulk rental selection")
@@ -51,8 +51,11 @@ type Repository interface {
 	IssueMany(ctx context.Context, actor user.User, ids []int64, issuedAt time.Time) ([]Rental, error)
 	Cancel(ctx context.Context, actor user.User, id int64) (Rental, error)
 	CancelMany(ctx context.Context, actor user.User, ids []int64) ([]Rental, error)
+	Complete(ctx context.Context, actor user.User, id int64, returnedAt time.Time) (Rental, error)
+	CompleteMany(ctx context.Context, actor user.User, ids []int64, returnedAt time.Time) ([]Rental, error)
 	Get(ctx context.Context, id int64) (Rental, error)
 	ListPage(ctx context.Context, statuses []Status, page, pageSize int) (Page, error)
+	Monitoring(ctx context.Context, query MonitoringQuery) (MonitoringData, error)
 	AvailableEquipment(ctx context.Context, interval Interval) ([]equipment.Item, error)
 }
 
@@ -232,6 +235,42 @@ func (s *Service) CancelMany(ctx context.Context, actor user.User, ids []int64) 
 		return nil, fmt.Errorf("cancel rental selection: %w", err)
 	}
 	return cancelled, nil
+}
+
+// Complete фиксирует полный возврат активной аренды от имени активного
+// оператора. Repository атомарно завершает аренду, освобождает оборудование и
+// сохраняет обязательный audit event.
+func (s *Service) Complete(ctx context.Context, actor user.User, id int64) (Rental, error) {
+	if actor.ID <= 0 || actor.Role != user.RoleOperator || !actor.Active {
+		return Rental{}, user.ErrAccessDenied
+	}
+	if id <= 0 {
+		return Rental{}, ErrRentalNotFound
+	}
+
+	completed, err := s.repository.Complete(ctx, actor, id, s.now().UTC())
+	if err != nil {
+		return Rental{}, fmt.Errorf("complete rental: %w", err)
+	}
+	return completed, nil
+}
+
+// CompleteMany атомарно фиксирует полный возврат выбранных активных аренд от
+// имени активного оператора. Все аренды используют один момент возврата.
+func (s *Service) CompleteMany(ctx context.Context, actor user.User, ids []int64) ([]Rental, error) {
+	if actor.ID <= 0 || actor.Role != user.RoleOperator || !actor.Active {
+		return nil, user.ErrAccessDenied
+	}
+	validated, err := validateBulkSelection(ids)
+	if err != nil {
+		return nil, err
+	}
+
+	completed, err := s.repository.CompleteMany(ctx, actor, validated, s.now().UTC())
+	if err != nil {
+		return nil, fmt.Errorf("complete rental selection: %w", err)
+	}
+	return completed, nil
 }
 
 // Get возвращает аренду по положительному идентификатору.
