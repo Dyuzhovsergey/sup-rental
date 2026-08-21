@@ -21,6 +21,9 @@ var appStyles []byte
 //go:embed static/rental.js
 var rentalScript []byte
 
+//go:embed static/theme.js
+var themeScript []byte
+
 // NewHandler создаёт HTTP-обработчик со всеми маршрутами приложения.
 //
 // Logger используется для записи ошибок HTTP-слоя, а equipmentService
@@ -70,6 +73,9 @@ func NewHandler(
 	})
 	mux.HandleFunc("GET /static/rental.js", func(w http.ResponseWriter, r *http.Request) {
 		javascript(logger, w, r)
+	})
+	mux.HandleFunc("GET /static/theme.js", func(w http.ResponseWriter, r *http.Request) {
+		writeJavaScript(logger, "write theme script", themeScript, w)
 	})
 	mux.HandleFunc("GET /login", func(w http.ResponseWriter, r *http.Request) {
 		showLoginPage(logger, pageTemplates, w, r)
@@ -260,11 +266,15 @@ func stylesheet(logger *slog.Logger, w http.ResponseWriter, r *http.Request) {
 }
 
 func javascript(logger *slog.Logger, w http.ResponseWriter, r *http.Request) {
+	writeJavaScript(logger, "write rental script", rentalScript, w)
+}
+
+func writeJavaScript(logger *slog.Logger, logMessage string, script []byte, w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(http.StatusOK)
-	if _, err := w.Write(rentalScript); err != nil {
-		logger.Error("write rental script", slog.Any("error", err))
+	if _, err := w.Write(script); err != nil {
+		logger.Error(logMessage, slog.Any("error", err))
 	}
 }
 

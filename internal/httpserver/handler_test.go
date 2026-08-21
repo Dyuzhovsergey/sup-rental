@@ -141,7 +141,12 @@ func TestStylesheet(t *testing.T) {
 
 	for _, want := range []string{
 		"--color-primary: #4f46e5;",
+		`:root[data-theme="dark"]`,
+		"--color-background: #0f172a;",
+		"--color-placeholder:",
+		"--color-disabled-surface:",
 		".app-shell",
+		".theme-toggle",
 		".equipment-layout",
 		".equipment-list-column",
 		".button--compact",
@@ -154,7 +159,39 @@ func TestStylesheet(t *testing.T) {
 		".rental-equipment-group",
 		".quantity-stepper",
 		":focus-visible",
+		"prefers-color-scheme: dark",
 		"prefers-reduced-motion",
+	} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestThemeScript(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "/static/theme.js", nil)
+	response := httptest.NewRecorder()
+
+	newUnauthenticatedTestHandler(t, discardLogger()).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+	if got := response.Header().Get("Content-Type"); got != "text/javascript; charset=utf-8" {
+		t.Errorf("Content-Type = %q", got)
+	}
+	if got := response.Header().Get("Cache-Control"); got != "no-cache" {
+		t.Errorf("Cache-Control = %q, want no-cache", got)
+	}
+	for _, want := range []string{
+		`"sup-rental-theme"`,
+		`matchMedia("(prefers-color-scheme: dark)")`,
+		"window.localStorage.getItem",
+		"window.localStorage.setItem",
+		"root.dataset.theme = theme",
+		`toggle.setAttribute("aria-pressed"`,
+		`document.addEventListener("DOMContentLoaded"`,
+		`window.addEventListener("storage"`,
 	} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("body does not contain %q", want)

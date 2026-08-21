@@ -1,3 +1,21 @@
+{{define "theme-head"}}
+<script src="/static/theme.js"></script>
+<link rel="stylesheet" href="/static/app.css">
+{{end}}
+
+{{define "theme-toggle"}}
+<button class="theme-toggle" type="button" data-theme-toggle aria-pressed="false" aria-label="Включить тёмную тему" title="Включить тёмную тему">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-theme-icon="light" hidden>
+        <circle cx="12" cy="12" r="4"></circle>
+        <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"></path>
+    </svg>
+    <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-theme-icon="dark">
+        <path d="M20.5 14.2A8.5 8.5 0 0 1 9.8 3.5 8.5 8.5 0 1 0 20.5 14.2Z"></path>
+    </svg>
+    <span data-theme-label>Тёмная тема</span>
+</button>
+{{end}}
+
 {{define "equipment-sidebar"}}
 <aside class="sidebar" aria-label="Основная навигация">
     <a class="brand" href="{{with .Authentication}}{{.HomePath}}{{else}}/login{{end}}" aria-label="SUP Rental — главная">
@@ -77,6 +95,7 @@
                 <span>{{.Role}}</span>
             </span>
         </div>
+        {{template "theme-toggle" .}}
         <form method="post" action="/logout">
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
             <button class="sidebar-logout" type="submit">
