@@ -79,7 +79,7 @@ func NewHandler(
 		logout(logger, authenticationService, cookieSettings, w, r)
 	}))))
 	mux.Handle("GET /operator", operatorOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		showOperatorPage(logger, pageTemplates, w, r)
+		showOperatorDashboard(logger, rentals, pageTemplates, w, r)
 	})))
 	mux.Handle("GET /admin/operators", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		showOperatorsPage(logger, operators, pageTemplates, w, r)

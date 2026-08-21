@@ -903,6 +903,106 @@ func TestRentalRepositoryAvailabilityAndList(t *testing.T) {
 	}
 }
 
+func TestRentalRepositoryMonitoringReturnsOperationalSnapshot(t *testing.T) {
+	pool, ctx := rentalTestPool(t)
+	fixture := newRentalRepositoryFixture(t, ctx, pool, 4)
+	repository := NewRentalRepository(pool)
+	now := time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC)
+	dayStart := now.Truncate(24 * time.Hour)
+	query := rental.MonitoringQuery{
+		Now: now, DayStart: dayStart, DayEnd: dayStart.Add(24 * time.Hour), Limit: 1000,
+	}
+	baseline, err := repository.Monitoring(ctx, query)
+	if err != nil {
+		t.Fatalf("baseline Monitoring() error = %v", err)
+	}
+
+	confirmed, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.firstClientID,
+		rentalTestInterval(t, now.Add(30*time.Minute)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("create confirmed rental: %v", err)
+	}
+	active, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.firstClientID,
+		rentalTestInterval(t, now.Add(-30*time.Minute)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("create active rental: %v", err)
+	}
+	if _, err := repository.Issue(ctx, fixture.actor, active.ID, now.Add(-20*time.Minute)); err != nil {
+		t.Fatalf("issue active rental: %v", err)
+	}
+	overdue, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.secondClientID,
+		rentalTestInterval(t, now.Add(-2*time.Hour)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("create overdue rental: %v", err)
+	}
+	if _, err := repository.Issue(ctx, fixture.actor, overdue.ID, now.Add(-2*time.Hour)); err != nil {
+		t.Fatalf("issue overdue rental: %v", err)
+	}
+	cancelled, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.secondClientID,
+		rentalTestInterval(t, now.Add(3*time.Hour)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("create cancelled rental: %v", err)
+	}
+	if _, err := repository.Cancel(ctx, fixture.actor, cancelled.ID); err != nil {
+		t.Fatalf("cancel rental: %v", err)
+	}
+	completed, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.secondClientID,
+		rentalTestInterval(t, now.Add(-4*time.Hour)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("create completed rental: %v", err)
+	}
+	if _, err := repository.Issue(ctx, fixture.actor, completed.ID, now.Add(-4*time.Hour)); err != nil {
+		t.Fatalf("issue completed rental: %v", err)
+	}
+	if _, err := repository.Complete(ctx, fixture.actor, completed.ID, now.Add(-3*time.Hour)); err != nil {
+		t.Fatalf("complete rental: %v", err)
+	}
+
+	data, err := repository.Monitoring(ctx, query)
+	if err != nil {
+		t.Fatalf("Monitoring() error = %v", err)
+	}
+	if data.TodayTotal != baseline.TodayTotal+3 ||
+		data.ConfirmedTotal != baseline.ConfirmedTotal+1 ||
+		data.ActiveTotal != baseline.ActiveTotal+2 ||
+		data.OverdueTotal != baseline.OverdueTotal+1 {
+		t.Fatalf("monitoring counts = %+v", data)
+	}
+	confirmedIndex := rentalSummaryIndex(data.Confirmed, confirmed.ID)
+	if confirmedIndex < 0 {
+		t.Fatalf("confirmed = %+v", data.Confirmed)
+	}
+	overdueIndex := rentalSummaryIndex(data.Active, overdue.ID)
+	activeIndex := rentalSummaryIndex(data.Active, active.ID)
+	if overdueIndex < 0 || activeIndex < 0 || overdueIndex >= activeIndex {
+		t.Fatalf("active order = %+v", data.Active)
+	}
+}
+
+func rentalSummaryIndex(summaries []rental.Summary, id int64) int {
+	for index, summary := range summaries {
+		if summary.ID == id {
+			return index
+		}
+	}
+	return -1
+}
+
 func TestRentalsTableRejectsRemovedDraftStatus(t *testing.T) {
 	pool, ctx := rentalTestPool(t)
 	fixture := newRentalRepositoryFixture(t, ctx, pool, 1)

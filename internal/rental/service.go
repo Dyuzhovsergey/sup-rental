@@ -55,6 +55,7 @@ type Repository interface {
 	CompleteMany(ctx context.Context, actor user.User, ids []int64, returnedAt time.Time) ([]Rental, error)
 	Get(ctx context.Context, id int64) (Rental, error)
 	ListPage(ctx context.Context, statuses []Status, page, pageSize int) (Page, error)
+	Monitoring(ctx context.Context, query MonitoringQuery) (MonitoringData, error)
 	AvailableEquipment(ctx context.Context, interval Interval) ([]equipment.Item, error)
 }
 

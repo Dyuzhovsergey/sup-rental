@@ -1346,6 +1346,173 @@ tbody tr:last-child td {
     color: var(--color-muted);
 }
 
+.operator-dashboard {
+    display: grid;
+    gap: 24px;
+}
+
+.operator-dashboard__header {
+    margin-bottom: 0;
+}
+
+.operator-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+}
+
+.operator-metric {
+    position: relative;
+    min-height: 112px;
+    padding: 20px;
+    overflow: hidden;
+    background: var(--color-surface);
+    border: 1px solid var(--color-outline);
+    border-radius: var(--radius-panel);
+    box-shadow: var(--shadow-surface);
+}
+
+.operator-metric::before {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    content: "";
+    background: var(--color-primary);
+}
+
+.operator-metric--warning::before {
+    background: var(--color-warning);
+}
+
+.operator-metric--success::before {
+    background: var(--color-success);
+}
+
+.operator-metric--danger::before {
+    background: var(--color-danger);
+}
+
+.operator-metric span {
+    display: block;
+    color: var(--color-muted);
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.operator-metric strong {
+    display: block;
+    margin-top: 6px;
+    font-size: 30px;
+    line-height: 1.15;
+}
+
+.operator-monitoring-stack {
+    gap: 18px;
+}
+
+.operator-monitoring-panel {
+    overflow: hidden;
+}
+
+.operator-monitoring-table {
+    min-width: 980px;
+}
+
+.operator-monitoring-table th:first-child,
+.operator-monitoring-table td:first-child {
+    width: 74px;
+}
+
+.operator-monitoring-table th:last-child,
+.operator-monitoring-table td:last-child {
+    width: 96px;
+    text-align: right;
+}
+
+.operator-monitoring-table__period {
+    white-space: nowrap;
+}
+
+.operator-timing {
+    display: grid;
+    min-width: 220px;
+    gap: 7px;
+}
+
+.operator-timing span {
+    color: var(--color-muted);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.operator-timing--warning span {
+    color: var(--color-warning);
+}
+
+.operator-timing--success span {
+    color: var(--color-success);
+}
+
+.operator-timing--danger span {
+    color: var(--color-danger);
+}
+
+.operator-timing progress {
+    width: 100%;
+    height: 7px;
+    overflow: hidden;
+    appearance: none;
+    background: var(--color-surface-variant);
+    border: 0;
+    border-radius: 999px;
+}
+
+.operator-timing progress::-webkit-progress-bar {
+    background: var(--color-surface-variant);
+    border-radius: 999px;
+}
+
+.operator-timing progress::-webkit-progress-value {
+    background: var(--color-primary);
+    border-radius: 999px;
+}
+
+.operator-timing progress::-moz-progress-bar {
+    background: var(--color-primary);
+    border-radius: 999px;
+}
+
+.operator-timing--warning progress::-webkit-progress-value {
+    background: var(--color-warning);
+}
+
+.operator-timing--warning progress::-moz-progress-bar {
+    background: var(--color-warning);
+}
+
+.operator-timing--success progress::-webkit-progress-value {
+    background: var(--color-success);
+}
+
+.operator-timing--success progress::-moz-progress-bar {
+    background: var(--color-success);
+}
+
+.operator-timing--danger progress::-webkit-progress-value {
+    background: var(--color-danger);
+}
+
+.operator-timing--danger progress::-moz-progress-bar {
+    background: var(--color-danger);
+}
+
+.operator-monitoring-footer {
+    justify-content: flex-end;
+    gap: 12px;
+    color: var(--color-muted);
+    font-size: 13px;
+}
+
 .rental-wizard {
     max-width: 1040px;
     margin: 0 auto;
@@ -1894,6 +2061,10 @@ tbody tr:last-child td {
         padding: 24px;
     }
 
+    .operator-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .form-grid--three {
         grid-template-columns: minmax(0, 1fr);
     }
@@ -1961,6 +2132,10 @@ tbody tr:last-child td {
 
     .page-header {
         display: block;
+    }
+
+    .operator-metrics {
+        grid-template-columns: minmax(0, 1fr);
     }
 
     .operator-entry {

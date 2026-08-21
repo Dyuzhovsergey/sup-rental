@@ -33,6 +33,7 @@ type rentalService interface {
 	CompleteMany(context.Context, user.User, []int64) ([]rental.Rental, error)
 	Get(context.Context, int64) (rental.Rental, error)
 	ListPage(context.Context, []rental.Status, int, int) (rental.Page, error)
+	Monitoring(context.Context) (rental.MonitoringSnapshot, error)
 }
 
 type rentalWizardPageData struct {

@@ -336,6 +336,7 @@ type rentalServiceStub struct {
 	completeMany func(context.Context, user.User, []int64) ([]rental.Rental, error)
 	get          func(context.Context, int64) (rental.Rental, error)
 	list         func(context.Context, []rental.Status, int, int) (rental.Page, error)
+	monitoring   func(context.Context) (rental.MonitoringSnapshot, error)
 }
 
 func (s *rentalServiceStub) CancelMany(ctx context.Context, actor user.User, ids []int64) ([]rental.Rental, error) {
@@ -409,6 +410,13 @@ func (s *rentalServiceStub) ListPage(ctx context.Context, statuses []rental.Stat
 		return rental.Page{Page: page, PageSize: pageSize}, nil
 	}
 	return s.list(ctx, statuses, page, pageSize)
+}
+
+func (s *rentalServiceStub) Monitoring(ctx context.Context) (rental.MonitoringSnapshot, error) {
+	if s.monitoring == nil {
+		return rental.MonitoringSnapshot{}, nil
+	}
+	return s.monitoring(ctx)
 }
 
 func (s *clientServiceStub) Create(ctx context.Context, actor user.User, fullName, phone string) (client.Client, error) {

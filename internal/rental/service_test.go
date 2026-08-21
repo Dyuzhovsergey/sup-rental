@@ -386,6 +386,7 @@ type serviceRepositoryStub struct {
 	completeMany func(context.Context, user.User, []int64, time.Time) ([]Rental, error)
 	get          func(context.Context, int64) (Rental, error)
 	list         func(context.Context, []Status, int, int) (Page, error)
+	monitoring   func(context.Context, MonitoringQuery) (MonitoringData, error)
 	available    func(context.Context, Interval) ([]equipment.Item, error)
 }
 
@@ -448,6 +449,12 @@ func (s *serviceRepositoryStub) ListPage(ctx context.Context, statuses []Status,
 		return Page{Page: page, PageSize: pageSize}, nil
 	}
 	return s.list(ctx, statuses, page, pageSize)
+}
+func (s *serviceRepositoryStub) Monitoring(ctx context.Context, query MonitoringQuery) (MonitoringData, error) {
+	if s.monitoring == nil {
+		return MonitoringData{}, nil
+	}
+	return s.monitoring(ctx, query)
 }
 func (s *serviceRepositoryStub) AvailableEquipment(ctx context.Context, interval Interval) ([]equipment.Item, error) {
 	if s.available == nil {
