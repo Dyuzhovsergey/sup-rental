@@ -146,7 +146,10 @@ func TestStylesheet(t *testing.T) {
 		"--color-placeholder:",
 		"--color-disabled-surface:",
 		".app-shell",
+		".mobile-app-bar",
+		".mobile-nav-backdrop",
 		".theme-toggle",
+		".app-theme-control",
 		".equipment-layout",
 		".equipment-list-column",
 		".button--compact",
@@ -160,6 +163,9 @@ func TestStylesheet(t *testing.T) {
 		".quantity-stepper",
 		":focus-visible",
 		"prefers-color-scheme: dark",
+		"max-width: 1023px",
+		"max-width: 767px",
+		"max-width: 479px",
 		"prefers-reduced-motion",
 	} {
 		if !strings.Contains(response.Body.String(), want) {
@@ -190,6 +196,10 @@ func TestThemeScript(t *testing.T) {
 		"window.localStorage.setItem",
 		"root.dataset.theme = theme",
 		`toggle.setAttribute("aria-pressed"`,
+		`initializeMobileNavigation`,
+		`openButton.setAttribute("aria-expanded"`,
+		`event.key === "Escape"`,
+		`main.inert = inert`,
 		`document.addEventListener("DOMContentLoaded"`,
 		`window.addEventListener("storage"`,
 	} {

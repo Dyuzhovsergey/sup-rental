@@ -5,7 +5,7 @@
 
 {{define "theme-toggle"}}
 <button class="theme-toggle" type="button" data-theme-toggle aria-pressed="false" aria-label="Включить тёмную тему" title="Включить тёмную тему">
-    <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-theme-icon="light" hidden>
+    <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true" data-theme-icon="light">
         <circle cx="12" cy="12" r="4"></circle>
         <path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.65 17.65l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.65 6.35l1.42-1.42"></path>
     </svg>
@@ -17,7 +17,40 @@
 {{end}}
 
 {{define "equipment-sidebar"}}
-<aside class="sidebar" aria-label="Основная навигация">
+<header class="mobile-app-bar">
+    <button
+        class="mobile-menu-button"
+        type="button"
+        data-mobile-nav-open
+        aria-controls="app-navigation"
+        aria-expanded="false"
+        aria-label="Открыть меню"
+    >
+        <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M4 7h16M4 12h16M4 17h16"></path>
+        </svg>
+    </button>
+    <a class="mobile-brand" href="{{with .Authentication}}{{.HomePath}}{{else}}/login{{end}}" aria-label="SUP Rental — главная">
+        <span class="brand-mark" aria-hidden="true">
+            <svg class="icon icon--brand" viewBox="0 0 24 24" fill="none">
+                <path d="M4 8.5c2.7-2.3 5.4-2.3 8 0s5.3 2.3 8 0"></path>
+                <path d="M4 13c2.7-2.3 5.4-2.3 8 0s5.3 2.3 8 0"></path>
+                <path d="M4 17.5c2.7-2.3 5.4-2.3 8 0s5.3 2.3 8 0"></path>
+            </svg>
+        </span>
+        <strong>SUP Rental</strong>
+    </a>
+</header>
+<div class="mobile-nav-backdrop" data-mobile-nav-close hidden></div>
+<aside class="sidebar" id="app-navigation" data-mobile-nav aria-label="Основная навигация">
+    <div class="sidebar-mobile-header">
+        <strong>Навигация</strong>
+        <button class="mobile-menu-button" type="button" data-mobile-nav-close aria-label="Закрыть меню">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M6 6l12 12M18 6 6 18"></path>
+            </svg>
+        </button>
+    </div>
     <a class="brand" href="{{with .Authentication}}{{.HomePath}}{{else}}/login{{end}}" aria-label="SUP Rental — главная">
         <span class="brand-mark" aria-hidden="true">
             <svg class="icon icon--brand" viewBox="0 0 24 24" fill="none">
@@ -95,7 +128,6 @@
                 <span>{{.Role}}</span>
             </span>
         </div>
-        {{template "theme-toggle" .}}
         <form method="post" action="/logout">
             <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
             <button class="sidebar-logout" type="submit">
@@ -118,6 +150,9 @@
     </div>
     {{end}}
 </aside>
+<div class="app-theme-control">
+    {{template "theme-toggle" .}}
+</div>
 {{end}}
 
 {{define "rental-status-chip"}}
