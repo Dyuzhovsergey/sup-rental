@@ -17,11 +17,15 @@ import (
 func TestEquipmentPageShowsBatchFormAndModelData(t *testing.T) {
 	service := &equipmentServiceStub{list: func(context.Context) ([]equipment.Item, error) {
 		active := equipmentHTTPFixture(equipment.StatusAvailable)
+		issued := equipmentHTTPFixture(equipment.StatusIssued)
+		issued.ID = 19
+		issued.InventoryNumber = "PADDLE-CARBON-3"
+		issued.SequenceNumber = 3
 		retired := equipmentHTTPFixture(equipment.StatusRetired)
 		retired.ID = 18
 		retired.InventoryNumber = "PADDLE-CARBON-2"
 		retired.SequenceNumber = 2
-		return []equipment.Item{active, retired}, nil
+		return []equipment.Item{active, issued, retired}, nil
 	}}
 	response := httptest.NewRecorder()
 	newTestHandler(t, discardLogger(), service).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/equipment", nil))
@@ -34,7 +38,9 @@ func TestEquipmentPageShowsBatchFormAndModelData(t *testing.T) {
 		`PADDLE-CARBON-1`, "Весло", "Доступен", `href="/equipment/17/edit"`,
 		`class="navigable-row"`, `data-row-href="/equipment/17"`,
 		`aria-label="Открыть карточку оборудования PADDLE-CARBON-1"`,
+		`data-row-href="/equipment/19"`, `aria-label="Открыть карточку оборудования PADDLE-CARBON-3"`,
 		`data-row-href="/equipment/18"`, `aria-label="Открыть карточку оборудования PADDLE-CARBON-2"`,
+		`href="/equipment/18/delete"`,
 	} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("body does not contain %q", want)
@@ -42,6 +48,15 @@ func TestEquipmentPageShowsBatchFormAndModelData(t *testing.T) {
 	}
 	if strings.Contains(response.Body.String(), `name="inventory_number"`) {
 		t.Error("batch form still contains manual inventory number")
+	}
+	for _, unwanted := range []string{
+		`href="/equipment/19/edit"`,
+		`href="/equipment/19/retire"`,
+		`href="/equipment/19/delete"`,
+	} {
+		if strings.Contains(response.Body.String(), unwanted) {
+			t.Errorf("body contains action %q for issued equipment", unwanted)
+		}
 	}
 }
 
