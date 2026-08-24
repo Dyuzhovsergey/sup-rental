@@ -1184,12 +1184,12 @@ tbody tr:last-child td {
 .inventory-link {
     color: var(--color-text);
     font-weight: 700;
-    text-decoration-color: var(--color-outline);
+    text-decoration: none;
 }
 
-.inventory-link:hover {
+.inventory-link:hover,
+.inventory-link:focus-visible {
     color: var(--color-primary);
-    text-decoration-color: currentColor;
 }
 
 .table-actions {
