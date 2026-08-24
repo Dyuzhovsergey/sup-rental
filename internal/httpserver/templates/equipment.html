@@ -178,7 +178,12 @@
                                     </thead>
                                     <tbody>
                                         {{range .ActiveItems}}
-                                        <tr>
+                                        <tr
+                                            class="navigable-row"
+                                            data-row-href="/equipment/{{.ID}}"
+                                            tabindex="0"
+                                            aria-label="Открыть карточку оборудования {{.InventoryNumber}}"
+                                        >
                                             <td class="table-id">{{.ID}}</td>
                                             <td>
                                                 <a class="inventory-link" href="/equipment/{{.ID}}">{{.InventoryNumber}}</a>
@@ -293,7 +298,12 @@
                                     </thead>
                                     <tbody>
                                         {{range .RetiredItems}}
-                                        <tr>
+                                        <tr
+                                            class="navigable-row"
+                                            data-row-href="/equipment/{{.ID}}"
+                                            tabindex="0"
+                                            aria-label="Открыть карточку оборудования {{.InventoryNumber}}"
+                                        >
                                             <td class="table-id">{{.ID}}</td>
                                             <td>
                                                 <a class="inventory-link" href="/equipment/{{.ID}}">{{.InventoryNumber}}</a>

@@ -48,7 +48,12 @@
                                 <thead><tr><th scope="col">№</th><th scope="col">Клиент</th><th scope="col">Период</th><th scope="col">Состав</th><th scope="col">Плановое время</th><th scope="col"><span class="visually-hidden">Переход</span></th></tr></thead>
                                 <tbody>
                                     {{range .Confirmed.Rentals}}
-                                    <tr>
+                                    <tr
+                                        class="navigable-row"
+                                        data-row-href="/rentals/{{.ID}}"
+                                        tabindex="0"
+                                        aria-label="Открыть аренду №{{.ID}}"
+                                    >
                                         <td><a class="table-primary-link" href="/rentals/{{.ID}}">№{{.ID}}</a></td>
                                         <td>{{.ClientName}}</td>
                                         <td class="operator-monitoring-table__period">{{.Period}}</td>
@@ -85,7 +90,12 @@
                                 <thead><tr><th scope="col">№</th><th scope="col">Клиент</th><th scope="col">Плановое завершение</th><th scope="col">Состав</th><th scope="col">Прогресс</th><th scope="col"><span class="visually-hidden">Переход</span></th></tr></thead>
                                 <tbody>
                                     {{range .Active.Rentals}}
-                                    <tr>
+                                    <tr
+                                        class="navigable-row"
+                                        data-row-href="/rentals/{{.ID}}"
+                                        tabindex="0"
+                                        aria-label="Открыть аренду №{{.ID}}"
+                                    >
                                         <td><a class="table-primary-link" href="/rentals/{{.ID}}">№{{.ID}}</a></td>
                                         <td>{{.ClientName}}</td>
                                         <td class="operator-monitoring-table__period">{{.End}}</td>

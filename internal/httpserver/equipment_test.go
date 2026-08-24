@@ -16,7 +16,12 @@ import (
 
 func TestEquipmentPageShowsBatchFormAndModelData(t *testing.T) {
 	service := &equipmentServiceStub{list: func(context.Context) ([]equipment.Item, error) {
-		return []equipment.Item{equipmentHTTPFixture(equipment.StatusAvailable)}, nil
+		active := equipmentHTTPFixture(equipment.StatusAvailable)
+		retired := equipmentHTTPFixture(equipment.StatusRetired)
+		retired.ID = 18
+		retired.InventoryNumber = "PADDLE-CARBON-2"
+		retired.SequenceNumber = 2
+		return []equipment.Item{active, retired}, nil
 	}}
 	response := httptest.NewRecorder()
 	newTestHandler(t, discardLogger(), service).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/equipment", nil))
@@ -27,6 +32,9 @@ func TestEquipmentPageShowsBatchFormAndModelData(t *testing.T) {
 		`name="kind"`, `name="model_code"`, `name="hourly_rate_rubles"`, `name="quantity"`,
 		`name="csrf_token" value="csrf-token"`, "Модель", "Тариф", "CARBON", "350 ₽/час",
 		`PADDLE-CARBON-1`, "Весло", "Доступен", `href="/equipment/17/edit"`,
+		`class="navigable-row"`, `data-row-href="/equipment/17"`,
+		`aria-label="Открыть карточку оборудования PADDLE-CARBON-1"`,
+		`data-row-href="/equipment/18"`, `aria-label="Открыть карточку оборудования PADDLE-CARBON-2"`,
 	} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("body does not contain %q", want)
