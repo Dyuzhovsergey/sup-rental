@@ -72,7 +72,7 @@ func NewHandler(
 		stylesheet(logger, w, r)
 	})
 	mux.HandleFunc("GET /static/rental.js", func(w http.ResponseWriter, r *http.Request) {
-		javascript(logger, w, r)
+		javascript(logger, w)
 	})
 	mux.HandleFunc("GET /static/theme.js", func(w http.ResponseWriter, r *http.Request) {
 		writeJavaScript(logger, "write theme script", themeScript, w)
@@ -265,7 +265,7 @@ func stylesheet(logger *slog.Logger, w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func javascript(logger *slog.Logger, w http.ResponseWriter, r *http.Request) {
+func javascript(logger *slog.Logger, w http.ResponseWriter) {
 	writeJavaScript(logger, "write rental script", rentalScript, w)
 }
 
