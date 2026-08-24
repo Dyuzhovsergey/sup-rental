@@ -85,6 +85,63 @@
         applyTheme(storedTheme() || preferredTheme(), false);
     });
 
+    function initializeNavigableRows() {
+        const interactiveSelector = [
+            "a",
+            "button",
+            "input",
+            "select",
+            "textarea",
+            "label",
+            "summary",
+            "[contenteditable]",
+            "[data-no-row-navigation]",
+            "[role='button']",
+            "[role='link']",
+            "[role='menuitem']",
+            "[role='checkbox']",
+            "[role='radio']",
+            "[role='switch']",
+            "[role='tab']",
+        ].join(",");
+
+        function hasInteractiveTarget(event, row) {
+            const interactive = event.target.closest(interactiveSelector);
+            return interactive && interactive !== row;
+        }
+
+        function navigate(row) {
+            const href = row.dataset.rowHref;
+            if (href) {
+                window.location.assign(href);
+            }
+        }
+
+        document.querySelectorAll("[data-row-href]").forEach(function (row) {
+            row.addEventListener("click", function (event) {
+                if (event.defaultPrevented || event.button !== 0 || hasInteractiveTarget(event, row)) {
+                    return;
+                }
+
+                const selection = window.getSelection();
+                if (selection && !selection.isCollapsed) {
+                    return;
+                }
+
+                navigate(row);
+            });
+
+            row.addEventListener("keydown", function (event) {
+                if (event.key !== "Enter" || event.target !== row) {
+                    return;
+                }
+
+                event.preventDefault();
+                navigate(row);
+            });
+        });
+    }
+
     function initializeMobileNavigation() {
         const navigation = document.querySelector("[data-mobile-nav]");
         const openButton = document.querySelector("[data-mobile-nav-open]");
@@ -167,4 +224,5 @@
     }
 
     document.addEventListener("DOMContentLoaded", initializeMobileNavigation);
+    document.addEventListener("DOMContentLoaded", initializeNavigableRows);
 })();

@@ -1150,6 +1150,23 @@ tbody tr:hover {
     background: var(--color-row-hover);
 }
 
+.navigable-row {
+    cursor: pointer;
+}
+
+.navigable-row:focus-visible {
+    outline: 3px solid var(--color-focus);
+    outline-offset: -3px;
+}
+
+.navigable-row:focus-visible > td {
+    background: var(--color-row-hover);
+}
+
+.navigable-row:active > td {
+    background: var(--color-primary-container);
+}
+
 tbody tr:has(input[type="checkbox"]:checked) {
     background: var(--color-primary-container);
 }

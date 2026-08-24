@@ -55,6 +55,9 @@ func TestOperatorDashboardShowsMetricsRentalsAndProgress(t *testing.T) {
 		"№43", "Ольга Смирнова", "Просрочена на 30 мин",
 		"value=\"50\"", "aria-label=\"Плановый период аренды №43: 100%\"",
 		"href=\"/rentals/new\"", "href=\"/rentals\"",
+		`data-row-href="/rentals/41"`, `aria-label="Открыть аренду №41"`,
+		`data-row-href="/rentals/42"`, `aria-label="Открыть аренду №42"`,
+		`data-row-href="/rentals/43"`, `aria-label="Открыть аренду №43"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q", want)

@@ -458,7 +458,11 @@ func TestRentalsListAndDetail(t *testing.T) {
 	if list.Code != http.StatusOK {
 		t.Fatalf("list status = %d", list.Code)
 	}
-	for _, want := range []string{"Аренда №24 создана и подтверждена", "Подтверждена", "Анна Петрова", "1 позиция", "1500 ₽", `href="/rentals/24"`} {
+	for _, want := range []string{
+		"Аренда №24 создана и подтверждена", "Подтверждена", "Анна Петрова", "1 позиция", "1500 ₽",
+		`href="/rentals/24"`, `data-row-href="/rentals/24"`, `tabindex="0"`,
+		`aria-label="Открыть аренду №24"`,
+	} {
 		if !strings.Contains(list.Body.String(), want) {
 			t.Errorf("list does not contain %q", want)
 		}
@@ -563,6 +567,9 @@ func TestRentalsListSeparatesStatusesAndShowsConfirmedActions(t *testing.T) {
 		`formaction="/rentals/bulk/cancel"`, "Выбрать все на странице",
 		`name="rental_id" value="25"`, `formaction="/rentals/bulk/complete"`,
 		"Принять возврат выбранных",
+		`data-row-href="/rentals/24"`, `aria-label="Открыть аренду №24"`,
+		`data-row-href="/rentals/25"`, `aria-label="Открыть аренду №25"`,
+		`data-row-href="/rentals/26"`, `aria-label="Открыть аренду №26"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("list does not contain %q", want)
