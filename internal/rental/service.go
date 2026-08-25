@@ -33,6 +33,12 @@ var (
 	// ErrInvalidBulkSelection означает пустой, слишком большой или содержащий
 	// некорректные либо повторяющиеся ID набор аренд.
 	ErrInvalidBulkSelection = errors.New("invalid bulk rental selection")
+	// ErrIssueConflict означает, что фактический период выдачи пересекается с
+	// резервом другой подтверждённой или активной аренды.
+	ErrIssueConflict = errors.New("rental issue conflicts with another reservation")
+	// ErrInvalidReplacement означает некорректную или устаревшую замену
+	// конфликтующей физической единицы.
+	ErrInvalidReplacement = errors.New("invalid rental equipment replacement")
 )
 
 var allowedPageSizes = [...]int{5, 10, 15}
@@ -47,7 +53,9 @@ type Repository interface {
 		interval Interval,
 		selections []ModelSelection,
 	) (Rental, error)
+	PreviewIssue(ctx context.Context, id int64, issuedAt time.Time) (IssuePreview, error)
 	Issue(ctx context.Context, actor user.User, id int64, issuedAt time.Time) (Rental, error)
+	IssueWithReplacements(ctx context.Context, actor user.User, id int64, issuedAt time.Time, replacements []EquipmentReplacement) (Rental, error)
 	IssueMany(ctx context.Context, actor user.User, ids []int64, issuedAt time.Time) ([]Rental, error)
 	Cancel(ctx context.Context, actor user.User, id int64) (Rental, error)
 	CancelMany(ctx context.Context, actor user.User, ids []int64) ([]Rental, error)
@@ -94,10 +102,61 @@ type Summary struct {
 	Interval Interval
 	// Status — текущее состояние аренды.
 	Status Status
+	// IssuedAt — фактическое время выдачи для активной или завершённой аренды.
+	IssuedAt *time.Time
+	// ExpectedReturnAt — ожидаемое время возврата, зафиксированное при выдаче.
+	ExpectedReturnAt *time.Time
+	// ReturnedAt — фактическое время возврата завершённой аренды.
+	ReturnedAt *time.Time
 	// ItemCount — число физических единиц в составе.
 	ItemCount int
 	// PlannedTotalKopecks — предварительная стоимость в копейках.
 	PlannedTotalKopecks int64
+	// FinalTotalKopecks — сохранённая итоговая стоимость завершённой аренды.
+	// Для остальных состояний значение отсутствует.
+	FinalTotalKopecks *int64
+	// WaitingForIssue означает, что плановое начало подтверждённой аренды уже
+	// наступило, но оборудование ещё не выдано.
+	WaitingForIssue bool
+}
+
+// SettlementPreview содержит расчёт возврата на единый серверный момент времени.
+type SettlementPreview struct {
+	// Rental — активная аренда, для которой выполнен расчёт.
+	Rental Rental
+	// ReturnedAt — момент, использованный как предполагаемое время возврата.
+	ReturnedAt time.Time
+	// Settlement — предварительный окончательный расчёт.
+	Settlement Settlement
+}
+
+// EquipmentReplacement задаёт выбранную оператором замену конфликтующей
+// физической единицы на другую единицу той же модели.
+type EquipmentReplacement struct {
+	// OriginalEquipmentID — ID единицы из исходного состава аренды.
+	OriginalEquipmentID int64
+	// ReplacementEquipmentID — ID выбранной свободной единицы той же модели.
+	ReplacementEquipmentID int64
+}
+
+// IssueConflict описывает конфликт одной единицы состава и допустимые замены.
+type IssueConflict struct {
+	// Item — сохранённая позиция аренды, которую нельзя выдать на фактический период.
+	Item Item
+	// Replacements — доступные физические единицы той же модели.
+	Replacements []equipment.Item
+}
+
+// IssuePreview содержит фактический период предполагаемой выдачи и конфликты.
+type IssuePreview struct {
+	// Rental — подтверждённая аренда.
+	Rental Rental
+	// IssuedAt — единый момент предполагаемой фактической выдачи.
+	IssuedAt time.Time
+	// ExpectedReturnAt — окончание выбранной длительности от IssuedAt.
+	ExpectedReturnAt time.Time
+	// Conflicts — позиции, требующие ручной замены перед выдачей.
+	Conflicts []IssueConflict
 }
 
 // Page содержит одну страницу аренд и общее количество записей.
@@ -169,7 +228,29 @@ func (s *Service) CreateConfirmed(
 
 // Issue выдаёт весь состав подтверждённой аренды от имени активного оператора.
 // Repository атомарно меняет аренду, оборудование и обязательный audit event.
+func (s *Service) PreviewIssue(ctx context.Context, id int64) (IssuePreview, error) {
+	if id <= 0 {
+		return IssuePreview{}, ErrRentalNotFound
+	}
+	preview, err := s.repository.PreviewIssue(ctx, id, s.now().UTC().Truncate(time.Microsecond))
+	if err != nil {
+		return IssuePreview{}, fmt.Errorf("preview rental issue: %w", err)
+	}
+	return preview, nil
+}
+
 func (s *Service) Issue(ctx context.Context, actor user.User, id int64) (Rental, error) {
+	return s.IssueWithReplacements(ctx, actor, id, nil)
+}
+
+// IssueWithReplacements выдаёт весь состав подтверждённой аренды от имени
+// активного оператора и применяет явные замены конфликтующих единиц.
+func (s *Service) IssueWithReplacements(
+	ctx context.Context,
+	actor user.User,
+	id int64,
+	replacements []EquipmentReplacement,
+) (Rental, error) {
 	if actor.ID <= 0 || actor.Role != user.RoleOperator || !actor.Active {
 		return Rental{}, user.ErrAccessDenied
 	}
@@ -177,11 +258,36 @@ func (s *Service) Issue(ctx context.Context, actor user.User, id int64) (Rental,
 		return Rental{}, ErrRentalNotFound
 	}
 
-	issued, err := s.repository.Issue(ctx, actor, id, s.now().UTC())
+	if err := validateReplacements(replacements); err != nil {
+		return Rental{}, err
+	}
+	issued, err := s.repository.IssueWithReplacements(
+		ctx, actor, id, s.now().UTC().Truncate(time.Microsecond), replacements,
+	)
 	if err != nil {
 		return Rental{}, fmt.Errorf("issue rental: %w", err)
 	}
 	return issued, nil
+}
+
+func validateReplacements(values []EquipmentReplacement) error {
+	originals := make(map[int64]struct{}, len(values))
+	targets := make(map[int64]struct{}, len(values))
+	for _, value := range values {
+		if value.OriginalEquipmentID <= 0 || value.ReplacementEquipmentID <= 0 ||
+			value.OriginalEquipmentID == value.ReplacementEquipmentID {
+			return ErrInvalidReplacement
+		}
+		if _, exists := originals[value.OriginalEquipmentID]; exists {
+			return ErrInvalidReplacement
+		}
+		if _, exists := targets[value.ReplacementEquipmentID]; exists {
+			return ErrInvalidReplacement
+		}
+		originals[value.OriginalEquipmentID] = struct{}{}
+		targets[value.ReplacementEquipmentID] = struct{}{}
+	}
+	return nil
 }
 
 // IssueMany атомарно выдаёт выбранные подтверждённые аренды от имени активного
@@ -273,6 +379,49 @@ func (s *Service) CompleteMany(ctx context.Context, actor user.User, ids []int64
 	return completed, nil
 }
 
+// PreviewSettlement рассчитывает итог активной аренды на текущий серверный момент,
+// не изменяя состояние и данные в постоянном хранилище.
+func (s *Service) PreviewSettlement(ctx context.Context, id int64) (SettlementPreview, error) {
+	if id <= 0 {
+		return SettlementPreview{}, ErrRentalNotFound
+	}
+	value, err := s.repository.Get(ctx, id)
+	if err != nil {
+		return SettlementPreview{}, fmt.Errorf("get rental for settlement preview: %w", err)
+	}
+	returnedAt := s.now().UTC()
+	settlement, err := value.SettlementAt(returnedAt)
+	if err != nil {
+		return SettlementPreview{}, err
+	}
+	return SettlementPreview{Rental: value, ReturnedAt: returnedAt, Settlement: settlement}, nil
+}
+
+// PreviewSettlements рассчитывает итоги выбранных активных аренд на один
+// серверный момент времени без изменения хранилища.
+func (s *Service) PreviewSettlements(ctx context.Context, ids []int64) ([]SettlementPreview, error) {
+	validated, err := validateBulkSelection(ids)
+	if err != nil {
+		return nil, err
+	}
+	returnedAt := s.now().UTC()
+	previews := make([]SettlementPreview, 0, len(validated))
+	for _, id := range validated {
+		value, err := s.repository.Get(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("get rental %d for settlement preview: %w", id, err)
+		}
+		settlement, err := value.SettlementAt(returnedAt)
+		if err != nil {
+			return nil, err
+		}
+		previews = append(previews, SettlementPreview{
+			Rental: value, ReturnedAt: returnedAt, Settlement: settlement,
+		})
+	}
+	return previews, nil
+}
+
 // Get возвращает аренду по положительному идентификатору.
 func (s *Service) Get(ctx context.Context, id int64) (Rental, error) {
 	if id <= 0 {
@@ -293,6 +442,11 @@ func (s *Service) ListPage(ctx context.Context, statuses []Status, page, pageSiz
 	result, err := s.repository.ListPage(ctx, statuses, page, pageSize)
 	if err != nil {
 		return Page{}, fmt.Errorf("list rentals: %w", err)
+	}
+	now := s.now()
+	for index := range result.Rentals {
+		value := &result.Rentals[index]
+		value.WaitingForIssue = value.Status == StatusConfirmed && !now.Before(value.Interval.Start())
 	}
 	return result, nil
 }

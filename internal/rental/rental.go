@@ -39,6 +39,11 @@ var (
 	ErrIssuedAtRequired = errors.New("rental issued time is required")
 	// ErrUnexpectedIssuedAt означает, что время выдачи задано до фактической выдачи.
 	ErrUnexpectedIssuedAt = errors.New("rental issued time is not allowed")
+	// ErrExpectedReturnAtRequired означает отсутствие ожидаемого времени возврата
+	// у активной или завершённой аренды.
+	ErrExpectedReturnAtRequired = errors.New("rental expected return time is required")
+	// ErrUnexpectedExpectedReturnAt означает ожидаемый возврат до выдачи аренды.
+	ErrUnexpectedExpectedReturnAt = errors.New("rental expected return time is not allowed")
 	// ErrReturnedAtRequired означает, что завершённая аренда не имеет
 	// фактического времени возврата.
 	ErrReturnedAtRequired = errors.New("rental returned time is required")
@@ -80,10 +85,12 @@ type Rental struct {
 	// Interval — планируемый полуоткрытый интервал аренды.
 	Interval Interval
 	// Status — текущее состояние аренды.
-	Status     Status
-	items      []Item
-	issuedAt   *time.Time
-	returnedAt *time.Time
+	Status           Status
+	items            []Item
+	issuedAt         *time.Time
+	expectedReturnAt *time.Time
+	returnedAt       *time.Time
+	settlement       *Settlement
 }
 
 // New создаёт ещё не сохранённую подтверждённую аренду с неизменяемым составом.
@@ -120,6 +127,29 @@ func Restore(
 	returnedAt *time.Time,
 	items []Item,
 ) (Rental, error) {
+	var expectedReturnAt *time.Time
+	if status == StatusActive || status == StatusCompleted {
+		value := interval.End()
+		expectedReturnAt = &value
+	}
+	return RestoreWithExpectedReturn(
+		id, clientID, interval, status, issuedAt, expectedReturnAt, returnedAt, items,
+	)
+}
+
+// RestoreWithExpectedReturn проверяет и восстанавливает аренду с отдельно
+// сохранённым ожидаемым временем возврата. Функция используется хранилищем для
+// различения планового бронирования и фактического периода после выдачи.
+func RestoreWithExpectedReturn(
+	id int64,
+	clientID int64,
+	interval Interval,
+	status Status,
+	issuedAt *time.Time,
+	expectedReturnAt *time.Time,
+	returnedAt *time.Time,
+	items []Item,
+) (Rental, error) {
 	if id <= 0 {
 		return Rental{}, ErrInvalidRentalID
 	}
@@ -132,7 +162,9 @@ func Restore(
 	if !status.Valid() {
 		return Rental{}, ErrInvalidStatus
 	}
-	validatedIssuedAt, validatedReturnedAt, err := validateLifecycleTimes(status, issuedAt, returnedAt)
+	validatedIssuedAt, validatedExpectedReturnAt, validatedReturnedAt, err := validateLifecycleTimes(
+		status, issuedAt, expectedReturnAt, returnedAt,
+	)
 	if err != nil {
 		return Rental{}, err
 	}
@@ -142,13 +174,14 @@ func Restore(
 	}
 
 	return Rental{
-		ID:         id,
-		ClientID:   clientID,
-		Interval:   interval,
-		Status:     status,
-		items:      restoredItems,
-		issuedAt:   validatedIssuedAt,
-		returnedAt: validatedReturnedAt,
+		ID:               id,
+		ClientID:         clientID,
+		Interval:         interval,
+		Status:           status,
+		items:            restoredItems,
+		issuedAt:         validatedIssuedAt,
+		expectedReturnAt: validatedExpectedReturnAt,
+		returnedAt:       validatedReturnedAt,
 	}, nil
 }
 
@@ -166,8 +199,10 @@ func (r *Rental) Issue(issuedAt time.Time) error {
 		return fmt.Errorf("%w: %s -> %s", ErrStatusTransitionNotAllowed, r.Status, StatusActive)
 	}
 	r.Status = StatusActive
-	value := issuedAt
-	r.issuedAt = &value
+	issuedValue := issuedAt
+	expectedReturnValue := issuedAt.Add(r.Interval.End().Sub(r.Interval.Start()))
+	r.issuedAt = &issuedValue
+	r.expectedReturnAt = &expectedReturnValue
 	return nil
 }
 
@@ -195,9 +230,14 @@ func (r *Rental) Complete(returnedAt time.Time) error {
 	if returnedAt.Before(*r.issuedAt) {
 		return ErrReturnedBeforeIssued
 	}
+	settlement, err := r.calculateSettlement(returnedAt)
+	if err != nil {
+		return err
+	}
 	r.Status = StatusCompleted
 	value := returnedAt
 	r.returnedAt = &value
+	r.settlement = &settlement
 	return nil
 }
 
@@ -226,6 +266,15 @@ func (r Rental) IssuedAt() (time.Time, bool) {
 		return time.Time{}, false
 	}
 	return *r.issuedAt, true
+}
+
+// ExpectedReturnAt возвращает ожидаемое время возврата, рассчитанное при
+// фактической выдаче, и признак его наличия.
+func (r Rental) ExpectedReturnAt() (time.Time, bool) {
+	if r.expectedReturnAt == nil {
+		return time.Time{}, false
+	}
+	return *r.expectedReturnAt, true
 }
 
 // ReturnedAt возвращает фактическое время полного возврата и признак его наличия.
@@ -266,35 +315,50 @@ func validateItems(items []Item) ([]Item, error) {
 	return validated, nil
 }
 
-func validateLifecycleTimes(status Status, issuedAt, returnedAt *time.Time) (*time.Time, *time.Time, error) {
+func validateLifecycleTimes(
+	status Status,
+	issuedAt, expectedReturnAt, returnedAt *time.Time,
+) (*time.Time, *time.Time, *time.Time, error) {
 	requiresIssuedAt := status == StatusActive || status == StatusCompleted
 	if requiresIssuedAt {
 		if issuedAt == nil || issuedAt.IsZero() {
-			return nil, nil, ErrIssuedAtRequired
+			return nil, nil, nil, ErrIssuedAtRequired
 		}
 	} else if issuedAt != nil {
-		return nil, nil, ErrUnexpectedIssuedAt
+		return nil, nil, nil, ErrUnexpectedIssuedAt
+	}
+
+	if requiresIssuedAt {
+		if expectedReturnAt == nil || expectedReturnAt.IsZero() {
+			return nil, nil, nil, ErrExpectedReturnAtRequired
+		}
+	} else if expectedReturnAt != nil {
+		return nil, nil, nil, ErrUnexpectedExpectedReturnAt
 	}
 
 	if status == StatusCompleted {
 		if returnedAt == nil || returnedAt.IsZero() {
-			return nil, nil, ErrReturnedAtRequired
+			return nil, nil, nil, ErrReturnedAtRequired
 		}
 		if returnedAt.Before(*issuedAt) {
-			return nil, nil, ErrReturnedBeforeIssued
+			return nil, nil, nil, ErrReturnedBeforeIssued
 		}
 	} else if returnedAt != nil {
-		return nil, nil, ErrUnexpectedReturnedAt
+		return nil, nil, nil, ErrUnexpectedReturnedAt
 	}
 
-	var issuedCopy, returnedCopy *time.Time
+	var issuedCopy, expectedReturnCopy, returnedCopy *time.Time
 	if issuedAt != nil {
 		value := *issuedAt
 		issuedCopy = &value
+	}
+	if expectedReturnAt != nil {
+		value := *expectedReturnAt
+		expectedReturnCopy = &value
 	}
 	if returnedAt != nil {
 		value := *returnedAt
 		returnedCopy = &value
 	}
-	return issuedCopy, returnedCopy, nil
+	return issuedCopy, expectedReturnCopy, returnedCopy, nil
 }

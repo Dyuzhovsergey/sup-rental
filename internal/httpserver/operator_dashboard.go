@@ -96,13 +96,18 @@ func operatorMonitoringViews(entries []rental.MonitoringEntry) []operatorMonitor
 	views := make([]operatorMonitoringRentalView, 0, len(entries))
 	for _, entry := range entries {
 		label, tone := operatorTimingLabel(entry.Timing)
+		period, _ := rentalSummaryPeriod(entry.Summary)
+		end := entry.Summary.Interval.End()
+		if entry.Summary.Status == rental.StatusActive && entry.Summary.ExpectedReturnAt != nil {
+			end = *entry.Summary.ExpectedReturnAt
+		}
 		views = append(views, operatorMonitoringRentalView{
 			ID: entry.Summary.ID, ClientName: entry.Summary.ClientName,
-			Period:      rentalPeriodLabel(entry.Summary.Interval),
-			End:         entry.Summary.Interval.End().In(moscowTimeZone).Format("02.01 15:04"),
+			Period:      period,
+			End:         end.In(moscowTimeZone).Format("02.01 15:04"),
 			ItemCount:   rentalItemCountLabel(entry.Summary.ItemCount),
 			TimingLabel: label, TimingTone: tone, Progress: entry.Timing.Percent,
-			ProgressLabel: fmt.Sprintf("Плановый период аренды №%d: %d%%", entry.Summary.ID, entry.Timing.Percent),
+			ProgressLabel: fmt.Sprintf("Период аренды №%d: %d%%", entry.Summary.ID, entry.Timing.Percent),
 		})
 	}
 	return views

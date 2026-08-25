@@ -25,12 +25,16 @@ const rentalDateTimeLayout = "2006-01-02T15:04"
 type rentalService interface {
 	AvailableModels(context.Context, rental.Interval) ([]rental.AvailableModel, error)
 	CreateConfirmed(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
+	PreviewIssue(context.Context, int64) (rental.IssuePreview, error)
 	Issue(context.Context, user.User, int64) (rental.Rental, error)
+	IssueWithReplacements(context.Context, user.User, int64, []rental.EquipmentReplacement) (rental.Rental, error)
 	IssueMany(context.Context, user.User, []int64) ([]rental.Rental, error)
 	Cancel(context.Context, user.User, int64) (rental.Rental, error)
 	CancelMany(context.Context, user.User, []int64) ([]rental.Rental, error)
 	Complete(context.Context, user.User, int64) (rental.Rental, error)
 	CompleteMany(context.Context, user.User, []int64) ([]rental.Rental, error)
+	PreviewSettlement(context.Context, int64) (rental.SettlementPreview, error)
+	PreviewSettlements(context.Context, []int64) ([]rental.SettlementPreview, error)
 	Get(context.Context, int64) (rental.Rental, error)
 	ListPage(context.Context, []rental.Status, int, int) (rental.Page, error)
 	Monitoring(context.Context) (rental.MonitoringSnapshot, error)
@@ -152,30 +156,36 @@ type rentalPageNumbers struct {
 }
 
 type rentalSummaryView struct {
-	ID           int64
-	ClientName   string
-	Period       string
-	Duration     string
-	ItemCount    string
-	Status       string
-	PlannedTotal string
+	ID         int64
+	ClientName string
+	Period     string
+	Duration   string
+	ItemCount  string
+	Status     string
+	Total      string
 }
 
 type rentalDetailPageData struct {
-	Authentication *authenticationView
-	Title          string
-	RentalID       int64
-	Client         client.Client
-	Period         string
-	Duration       string
-	Status         string
-	Items          []rentalItemView
-	ItemCount      string
-	PlannedTotal   string
-	IssuedAt       string
-	ReturnedAt     string
-	CanIssue       bool
-	CanComplete    bool
+	Authentication   *authenticationView
+	Title            string
+	RentalID         int64
+	Client           client.Client
+	Period           string
+	Duration         string
+	Status           string
+	Items            []rentalItemView
+	ItemCount        string
+	PlannedTotal     string
+	HasSettlement    bool
+	Overdue          string
+	BillableOverdue  string
+	OverdueTotal     string
+	FinalTotal       string
+	IssuedAt         string
+	ExpectedReturnAt string
+	ReturnedAt       string
+	CanIssue         bool
+	CanComplete      bool
 }
 
 type rentalItemView struct {
@@ -859,8 +869,18 @@ func showRentalDetailPage(
 	if issuedAt, ok := value.IssuedAt(); ok {
 		data.IssuedAt = rentalDateTimeLabel(issuedAt)
 	}
+	if expectedReturnAt, ok := value.ExpectedReturnAt(); ok {
+		data.ExpectedReturnAt = rentalDateTimeLabel(expectedReturnAt)
+	}
 	if returnedAt, ok := value.ReturnedAt(); ok {
 		data.ReturnedAt = rentalDateTimeLabel(returnedAt)
+	}
+	if settlement, ok := value.Settlement(); ok {
+		data.HasSettlement = true
+		data.Overdue = rentalOverdueLabel(settlement.OverdueDuration)
+		data.BillableOverdue = rentalBillableOverdueLabel(settlement.OverdueSlots)
+		data.OverdueTotal = rentalMoneyLabel(settlement.OverdueTotalKopecks)
+		data.FinalTotal = rentalMoneyLabel(settlement.FinalTotalKopecks)
 	}
 	renderPage(logger, pageTemplates, w, http.StatusOK, "rental_detail.html", data,
 		"render rental detail", "write rental detail response")
@@ -1297,14 +1317,38 @@ func rentalModelGroups(
 func rentalSummaryViews(values []rental.Summary) []rentalSummaryView {
 	views := make([]rentalSummaryView, 0, len(values))
 	for _, value := range values {
+		total := value.PlannedTotalKopecks
+		if value.FinalTotalKopecks != nil {
+			total = *value.FinalTotalKopecks
+		}
+		period, duration := rentalSummaryPeriod(value)
+		status := rentalStatusLabel(value.Status)
+		if value.WaitingForIssue {
+			status = "Ожидает выдачи"
+		}
 		views = append(views, rentalSummaryView{
 			ID: value.ID, ClientName: value.ClientName,
-			Period: rentalPeriodLabel(value.Interval), Duration: rentalDurationLabel(value.Interval),
+			Period: period, Duration: duration,
 			ItemCount: rentalItemCountLabel(value.ItemCount),
-			Status:    rentalStatusLabel(value.Status), PlannedTotal: rentalMoneyLabel(value.PlannedTotalKopecks),
+			Status:    status, Total: rentalMoneyLabel(total),
 		})
 	}
 	return views
+}
+
+func rentalSummaryPeriod(value rental.Summary) (string, string) {
+	start, end := value.Interval.Start(), value.Interval.End()
+	switch value.Status {
+	case rental.StatusActive:
+		if value.IssuedAt != nil && value.ExpectedReturnAt != nil {
+			start, end = *value.IssuedAt, *value.ExpectedReturnAt
+		}
+	case rental.StatusCompleted:
+		if value.IssuedAt != nil && value.ReturnedAt != nil {
+			start, end = *value.IssuedAt, *value.ReturnedAt
+		}
+	}
+	return rentalTimeRangeLabel(start, end), rentalDurationValueLabel(end.Sub(start))
 }
 
 func rentalItemViews(items []rental.Item) []rentalItemView {
@@ -1377,12 +1421,35 @@ func rentalSectionPagination(pageKey string, page, total int, pages rentalPageNu
 }
 
 func rentalPeriodLabel(interval rental.Interval) string {
-	start := interval.Start().In(moscowTimeZone)
-	end := interval.End().In(moscowTimeZone)
+	return rentalTimeRangeLabel(interval.Start(), interval.End())
+}
+
+func rentalTimeRangeLabel(startValue, endValue time.Time) string {
+	start := startValue.In(moscowTimeZone)
+	end := endValue.In(moscowTimeZone)
 	if start.YearDay() == end.YearDay() && start.Year() == end.Year() {
 		return start.Format("02.01.2006 15:04") + " — " + end.Format("15:04")
 	}
 	return start.Format("02.01.2006 15:04") + " — " + end.Format("02.01.2006 15:04")
+}
+
+func rentalDurationValueLabel(duration time.Duration) string {
+	if duration <= 0 {
+		return "0 мин"
+	}
+	minutes := int(duration / time.Minute)
+	if duration%time.Minute != 0 {
+		minutes++
+	}
+	hours := minutes / 60
+	remaining := minutes % 60
+	if hours == 0 {
+		return fmt.Sprintf("%d мин", remaining)
+	}
+	if remaining == 0 {
+		return fmt.Sprintf("%d %s", hours, russianHourWord(hours))
+	}
+	return fmt.Sprintf("%d %s %d мин", hours, russianHourWord(hours), remaining)
 }
 
 func rentalDateTimeLabel(value time.Time) string {
@@ -1404,6 +1471,21 @@ func rentalSlotsLabel(slots int) string {
 		return fmt.Sprintf("%d %s", hours, russianHourWord(hours))
 	}
 	return fmt.Sprintf("%d %s %d мин", hours, russianHourWord(hours), remaining)
+}
+
+func rentalOverdueLabel(duration time.Duration) string {
+	if duration <= 0 {
+		return "Нет"
+	}
+	minutes := int(duration / time.Minute)
+	if duration%time.Minute != 0 {
+		minutes++
+	}
+	return fmt.Sprintf("%d мин", minutes)
+}
+
+func rentalBillableOverdueLabel(slots int) string {
+	return rentalSlotsLabel(slots)
 }
 
 func russianHourWord(hours int) string {

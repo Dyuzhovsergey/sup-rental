@@ -53,7 +53,7 @@ func TestOperatorDashboardShowsMetricsRentalsAndProgress(t *testing.T) {
 		"№41", "Анна Петрова", "Выдача задерживается на 30 мин",
 		"№42", "Иван Сидоров", "Осталось 1 час 30 мин",
 		"№43", "Ольга Смирнова", "Просрочена на 30 мин",
-		"value=\"50\"", "aria-label=\"Плановый период аренды №43: 100%\"",
+		"value=\"50\"", "aria-label=\"Период аренды №43: 100%\"",
 		"href=\"/rentals/new\"", "href=\"/rentals\"",
 		`data-row-href="/rentals/41"`, `aria-label="Открыть аренду №41"`,
 		`data-row-href="/rentals/42"`, `aria-label="Открыть аренду №42"`,

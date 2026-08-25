@@ -34,7 +34,7 @@ func (r *AdminDashboardRepository) Snapshot(ctx context.Context, query dashboard
 			FROM equipment
 		), rental_counts AS (
 			SELECT count(*) FILTER (WHERE status = 'active') AS active,
-			       count(*) FILTER (WHERE status = 'active' AND planned_end_at < $3) AS overdue,
+			       count(*) FILTER (WHERE status = 'active' AND expected_return_at < $3) AS overdue,
 			       count(*) FILTER (
 			           WHERE status IN ('confirmed', 'active')
 			             AND planned_start_at >= $1 AND planned_start_at < $2

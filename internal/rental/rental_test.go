@@ -143,6 +143,10 @@ func TestRentalChangeStatus(t *testing.T) {
 	if err := value.Issue(issuedAt); err != nil || value.Status != StatusActive {
 		t.Fatalf("Issue() = %q, %v", value.Status, err)
 	}
+	expectedReturnAt, ok := value.ExpectedReturnAt()
+	if !ok || !expectedReturnAt.Equal(issuedAt.Add(value.Interval.End().Sub(value.Interval.Start()))) {
+		t.Fatalf("ExpectedReturnAt() = %v, %t", expectedReturnAt, ok)
+	}
 	if err := value.ChangeStatus(StatusCompleted); !errors.Is(err, ErrReturnedAtRequired) || value.Status != StatusActive {
 		t.Fatalf("ChangeStatus(completed) = %q, %v", value.Status, err)
 	}
@@ -198,7 +202,12 @@ func TestRentalComplete(t *testing.T) {
 
 	issuedAt := time.Date(2026, 8, 20, 10, 0, 0, 0, time.UTC)
 	returnedAt := issuedAt.Add(90 * time.Minute)
-	value := Rental{Status: StatusActive, issuedAt: &issuedAt, items: []Item{validRentalItem(1)}}
+	interval := mustInterval(t, issuedAt, issuedAt.Add(time.Hour))
+	expectedReturnAt := interval.End()
+	value := Rental{
+		Interval: interval, Status: StatusActive, issuedAt: &issuedAt,
+		expectedReturnAt: &expectedReturnAt, items: []Item{validRentalItem(1)},
+	}
 	if err := value.Complete(returnedAt); err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
@@ -221,7 +230,10 @@ func TestRentalComplete(t *testing.T) {
 		{name: "cancelled", status: StatusCancelled, at: returnedAt, want: ErrStatusTransitionNotAllowed},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			candidate := Rental{Status: tt.status, issuedAt: tt.issued, items: []Item{validRentalItem(1)}}
+			candidate := Rental{
+				Interval: interval, Status: tt.status, issuedAt: tt.issued,
+				expectedReturnAt: &expectedReturnAt, items: []Item{validRentalItem(1)},
+			}
 			if err := candidate.Complete(tt.at); !errors.Is(err, tt.want) {
 				t.Fatalf("Complete() error = %v, want %v", err, tt.want)
 			}

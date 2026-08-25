@@ -13,15 +13,21 @@ import (
 )
 
 type rentalCompletePageData struct {
-	Authentication *authenticationView
-	Title          string
-	RentalID       int64
-	Client         client.Client
-	Period         string
-	Duration       string
-	IssuedAt       string
-	Items          []rentalItemView
-	ItemCount      string
+	Authentication  *authenticationView
+	Title           string
+	RentalID        int64
+	Client          client.Client
+	Period          string
+	Duration        string
+	IssuedAt        string
+	Items           []rentalItemView
+	ItemCount       string
+	ReturnedAt      string
+	PlannedTotal    string
+	Overdue         string
+	BillableOverdue string
+	OverdueTotal    string
+	FinalTotal      string
 }
 
 func showRentalCompletePage(
@@ -36,9 +42,13 @@ func showRentalCompletePage(
 	if !ok {
 		return
 	}
-	value, err := rentals.Get(r.Context(), id)
+	preview, err := rentals.PreviewSettlement(r.Context(), id)
 	if errors.Is(err, rental.ErrRentalNotFound) || errors.Is(err, rental.ErrInvalidRentalID) {
 		http.NotFound(w, r)
+		return
+	}
+	if errors.Is(err, rental.ErrSettlementNotAvailable) || errors.Is(err, rental.ErrStatusTransitionNotAllowed) {
+		http.Error(w, "Принять возврат можно только по активной аренде.", http.StatusConflict)
 		return
 	}
 	if err != nil {
@@ -46,10 +56,7 @@ func showRentalCompletePage(
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
-	if value.Status != rental.StatusActive {
-		http.Error(w, "Принять возврат можно только по активной аренде.", http.StatusConflict)
-		return
-	}
+	value := preview.Rental
 	customer, err := clients.Get(r.Context(), value.ClientID)
 	if err != nil {
 		logger.Error("get rental client for completion", slog.Any("error", err))
@@ -63,15 +70,21 @@ func showRentalCompletePage(
 		return
 	}
 	renderPage(logger, pageTemplates, w, http.StatusOK, "rental_complete.html", rentalCompletePageData{
-		Authentication: authenticationForPage(r),
-		Title:          fmt.Sprintf("Возврат аренды №%d — SUP Rental", id),
-		RentalID:       id,
-		Client:         customer,
-		Period:         rentalPeriodLabel(value.Interval),
-		Duration:       rentalDurationLabel(value.Interval),
-		IssuedAt:       rentalDateTimeLabel(issuedAt),
-		Items:          rentalItemViews(value.Items()),
-		ItemCount:      rentalItemCountLabel(value.ItemCount()),
+		Authentication:  authenticationForPage(r),
+		Title:           fmt.Sprintf("Возврат аренды №%d — SUP Rental", id),
+		RentalID:        id,
+		Client:          customer,
+		Period:          rentalPeriodLabel(value.Interval),
+		Duration:        rentalDurationLabel(value.Interval),
+		IssuedAt:        rentalDateTimeLabel(issuedAt),
+		Items:           rentalItemViews(value.Items()),
+		ItemCount:       rentalItemCountLabel(value.ItemCount()),
+		ReturnedAt:      rentalDateTimeLabel(preview.ReturnedAt),
+		PlannedTotal:    rentalMoneyLabel(preview.Settlement.PlannedTotalKopecks),
+		Overdue:         rentalOverdueLabel(preview.Settlement.OverdueDuration),
+		BillableOverdue: rentalBillableOverdueLabel(preview.Settlement.OverdueSlots),
+		OverdueTotal:    rentalMoneyLabel(preview.Settlement.OverdueTotalKopecks),
+		FinalTotal:      rentalMoneyLabel(preview.Settlement.FinalTotalKopecks),
 	}, "render rental completion", "write rental completion response")
 }
 

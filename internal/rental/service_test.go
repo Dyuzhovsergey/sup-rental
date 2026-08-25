@@ -226,6 +226,51 @@ func TestServiceCompleteRejectsAccessAndInvalidID(t *testing.T) {
 	}
 }
 
+func TestServicePreviewsSettlementAtOneServerTime(t *testing.T) {
+	interval := serviceInterval(t)
+	issuedAt := interval.Start()
+	returnedAt := interval.End().Add(11 * time.Minute)
+	repository := &serviceRepositoryStub{get: func(_ context.Context, id int64) (Rental, error) {
+		return Restore(id, 18, interval, StatusActive, &issuedAt, nil, []Item{rentalItemFixture(id)})
+	}}
+	service := NewService(repository)
+	service.now = func() time.Time { return returnedAt }
+
+	preview, err := service.PreviewSettlement(context.Background(), 24)
+	if err != nil {
+		t.Fatalf("PreviewSettlement() error = %v", err)
+	}
+	if preview.Rental.ID != 24 || !preview.ReturnedAt.Equal(returnedAt.UTC()) ||
+		preview.Settlement.OverdueSlots != 1 || preview.Settlement.FinalTotalKopecks != 200_000 {
+		t.Fatalf("PreviewSettlement() = %+v", preview)
+	}
+
+	previews, err := service.PreviewSettlements(context.Background(), []int64{25, 26})
+	if err != nil {
+		t.Fatalf("PreviewSettlements() error = %v", err)
+	}
+	if len(previews) != 2 || !previews[0].ReturnedAt.Equal(previews[1].ReturnedAt) ||
+		previews[0].Rental.ID != 25 || previews[1].Rental.ID != 26 {
+		t.Fatalf("PreviewSettlements() = %+v", previews)
+	}
+}
+
+func TestServiceSettlementPreviewRejectsInvalidSelectionAndRepositoryError(t *testing.T) {
+	repositoryError := errors.New("repository unavailable")
+	service := NewService(&serviceRepositoryStub{get: func(context.Context, int64) (Rental, error) {
+		return Rental{}, repositoryError
+	}})
+	if _, err := service.PreviewSettlement(context.Background(), 0); !errors.Is(err, ErrRentalNotFound) {
+		t.Fatalf("PreviewSettlement(0) error = %v", err)
+	}
+	if _, err := service.PreviewSettlement(context.Background(), 1); !errors.Is(err, repositoryError) {
+		t.Fatalf("PreviewSettlement(repository) error = %v", err)
+	}
+	if _, err := service.PreviewSettlements(context.Background(), nil); !errors.Is(err, ErrInvalidBulkSelection) {
+		t.Fatalf("PreviewSettlements(nil) error = %v", err)
+	}
+}
+
 func TestServiceBulkActionsValidateSelectionAndDelegate(t *testing.T) {
 	actor := user.User{ID: 7, Login: "operator", Role: user.RoleOperator, Active: true}
 	issuedAt := time.Date(2026, 8, 17, 12, 34, 56, 0, time.FixedZone("МСК", 3*60*60))
@@ -377,17 +422,19 @@ func TestServiceListPageValidation(t *testing.T) {
 }
 
 type serviceRepositoryStub struct {
-	create       func(context.Context, user.User, int64, Interval, []ModelSelection) (Rental, error)
-	issue        func(context.Context, user.User, int64, time.Time) (Rental, error)
-	issueMany    func(context.Context, user.User, []int64, time.Time) ([]Rental, error)
-	cancel       func(context.Context, user.User, int64) (Rental, error)
-	cancelMany   func(context.Context, user.User, []int64) ([]Rental, error)
-	complete     func(context.Context, user.User, int64, time.Time) (Rental, error)
-	completeMany func(context.Context, user.User, []int64, time.Time) ([]Rental, error)
-	get          func(context.Context, int64) (Rental, error)
-	list         func(context.Context, []Status, int, int) (Page, error)
-	monitoring   func(context.Context, MonitoringQuery) (MonitoringData, error)
-	available    func(context.Context, Interval) ([]equipment.Item, error)
+	create                func(context.Context, user.User, int64, Interval, []ModelSelection) (Rental, error)
+	issue                 func(context.Context, user.User, int64, time.Time) (Rental, error)
+	issueWithReplacements func(context.Context, user.User, int64, time.Time, []EquipmentReplacement) (Rental, error)
+	previewIssue          func(context.Context, int64, time.Time) (IssuePreview, error)
+	issueMany             func(context.Context, user.User, []int64, time.Time) ([]Rental, error)
+	cancel                func(context.Context, user.User, int64) (Rental, error)
+	cancelMany            func(context.Context, user.User, []int64) ([]Rental, error)
+	complete              func(context.Context, user.User, int64, time.Time) (Rental, error)
+	completeMany          func(context.Context, user.User, []int64, time.Time) ([]Rental, error)
+	get                   func(context.Context, int64) (Rental, error)
+	list                  func(context.Context, []Status, int, int) (Page, error)
+	monitoring            func(context.Context, MonitoringQuery) (MonitoringData, error)
+	available             func(context.Context, Interval) ([]equipment.Item, error)
 }
 
 func (s *serviceRepositoryStub) CancelMany(ctx context.Context, actor user.User, ids []int64) ([]Rental, error) {
@@ -423,6 +470,28 @@ func (s *serviceRepositoryStub) Issue(ctx context.Context, actor user.User, id i
 		return Rental{}, ErrRentalNotFound
 	}
 	return s.issue(ctx, actor, id, issuedAt)
+}
+
+func (s *serviceRepositoryStub) IssueWithReplacements(ctx context.Context, actor user.User, id int64, issuedAt time.Time, replacements []EquipmentReplacement) (Rental, error) {
+	if s.issueWithReplacements != nil {
+		return s.issueWithReplacements(ctx, actor, id, issuedAt, replacements)
+	}
+	return s.Issue(ctx, actor, id, issuedAt)
+}
+
+func (s *serviceRepositoryStub) PreviewIssue(ctx context.Context, id int64, issuedAt time.Time) (IssuePreview, error) {
+	if s.previewIssue != nil {
+		return s.previewIssue(ctx, id, issuedAt)
+	}
+	value, err := s.Get(ctx, id)
+	if err != nil {
+		return IssuePreview{}, err
+	}
+	if err := value.Issue(issuedAt); err != nil {
+		return IssuePreview{}, err
+	}
+	expected, _ := value.ExpectedReturnAt()
+	return IssuePreview{Rental: value, IssuedAt: issuedAt, ExpectedReturnAt: expected}, nil
 }
 
 func (s *serviceRepositoryStub) IssueMany(ctx context.Context, actor user.User, ids []int64, issuedAt time.Time) ([]Rental, error) {

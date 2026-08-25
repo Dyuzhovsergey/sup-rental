@@ -359,6 +359,24 @@ func TestRentalSlotsLabelUsesFullHourWord(t *testing.T) {
 	}
 }
 
+func TestRentalBillableOverdueLabelUsesReadableDuration(t *testing.T) {
+	tests := []struct {
+		slots int
+		want  string
+	}{
+		{slots: 0, want: "0 мин"},
+		{slots: 1, want: "30 мин"},
+		{slots: 2, want: "1 час"},
+		{slots: 3, want: "1 час 30 мин"},
+		{slots: 6, want: "3 часа"},
+	}
+	for _, tt := range tests {
+		if got := rentalBillableOverdueLabel(tt.slots); got != tt.want {
+			t.Errorf("rentalBillableOverdueLabel(%d) = %q, want %q", tt.slots, got, tt.want)
+		}
+	}
+}
+
 func TestCreateConfirmedRentalRedirectsToList(t *testing.T) {
 	var gotActor user.User
 	var gotSelections []rental.ModelSelection
@@ -524,10 +542,11 @@ func TestRentalMutationsRequireOperatorAndCSRF(t *testing.T) {
 
 func TestRentalsListSeparatesStatusesAndShowsConfirmedActions(t *testing.T) {
 	interval := rentalHTTPInterval(t)
+	completedTotal := int64(350_000)
 	rentalByStatus := map[rental.Status]rental.Summary{
 		rental.StatusConfirmed: {ID: 24, ClientName: "Подтверждённый клиент", Interval: interval, Status: rental.StatusConfirmed, ItemCount: 1, PlannedTotalKopecks: 100_000},
 		rental.StatusActive:    {ID: 25, ClientName: "Активный клиент", Interval: interval, Status: rental.StatusActive, ItemCount: 2, PlannedTotalKopecks: 200_000},
-		rental.StatusCompleted: {ID: 26, ClientName: "Завершённый клиент", Interval: interval, Status: rental.StatusCompleted, ItemCount: 3, PlannedTotalKopecks: 300_000},
+		rental.StatusCompleted: {ID: 26, ClientName: "Завершённый клиент", Interval: interval, Status: rental.StatusCompleted, ItemCount: 3, PlannedTotalKopecks: 300_000, FinalTotalKopecks: &completedTotal},
 	}
 	rentals := &rentalServiceStub{list: func(_ context.Context, statuses []rental.Status, page, pageSize int) (rental.Page, error) {
 		status := statuses[0]
@@ -570,6 +589,7 @@ func TestRentalsListSeparatesStatusesAndShowsConfirmedActions(t *testing.T) {
 		`data-row-href="/rentals/24"`, `aria-label="Открыть аренду №24"`,
 		`data-row-href="/rentals/25"`, `aria-label="Открыть аренду №25"`,
 		`data-row-href="/rentals/26"`, `aria-label="Открыть аренду №26"`,
+		"3500 ₽",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("list does not contain %q", want)
@@ -666,6 +686,13 @@ func TestRentalBulkConfirmationAndRedirects(t *testing.T) {
 		for _, want := range append([]string{"Выбранные аренды", "Анна Петрова", `name="csrf_token" value="csrf-token"`}, tt.ids...) {
 			if !strings.Contains(response.Body.String(), want) {
 				t.Errorf("GET %s body does not contain %q", tt.path, want)
+			}
+		}
+		if strings.Contains(tt.path, "/complete") {
+			for _, want := range []string{"Плановая стоимость", "Доплата", "Предварительный итог", "3000 ₽"} {
+				if !strings.Contains(response.Body.String(), want) {
+					t.Errorf("GET %s body does not contain %q", tt.path, want)
+				}
 			}
 		}
 	}
@@ -833,7 +860,7 @@ func TestRentalIssueErrorsAreMappedSafely(t *testing.T) {
 	}{
 		{name: "missing", err: rental.ErrRentalNotFound, wantStatus: http.StatusNotFound, wantText: "404 page not found"},
 		{name: "wrong status", err: rental.ErrStatusTransitionNotAllowed, wantStatus: http.StatusConflict, wantText: "только подтверждённую"},
-		{name: "equipment", err: rental.ErrEquipmentUnavailable, wantStatus: http.StatusConflict, wantText: "недоступно для выдачи"},
+		{name: "equipment", err: rental.ErrEquipmentUnavailable, wantStatus: http.StatusSeeOther, wantText: ""},
 		{name: "internal", err: errors.New("database secret detail"), wantStatus: http.StatusInternalServerError, wantText: "Internal Server Error"},
 	}
 	for _, tt := range tests {
@@ -848,7 +875,46 @@ func TestRentalIssueErrorsAreMappedSafely(t *testing.T) {
 			if response.Code != tt.wantStatus || !strings.Contains(response.Body.String(), tt.wantText) || strings.Contains(response.Body.String(), "database secret detail") {
 				t.Fatalf("response = %d body %q", response.Code, response.Body.String())
 			}
+			if tt.name == "equipment" && response.Header().Get("Location") != "/rentals/24/issue?changed=1" {
+				t.Fatalf("Location = %q", response.Header().Get("Location"))
+			}
 		})
+	}
+}
+
+func TestRentalIssueShowsSameModelReplacementForConflict(t *testing.T) {
+	interval := rentalHTTPInterval(t)
+	confirmed, err := rental.Restore(24, 18, interval, rental.StatusConfirmed, nil, nil, []rental.Item{{
+		EquipmentID: 94, InventoryNumber: "SUP-TOURING-1", Kind: equipment.KindSUPBoard,
+		ModelCode: "TOURING", HourlyRateKopecks: 100_000,
+	}})
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	issuedAt := interval.Start().Add(20 * time.Minute)
+	rentals := &rentalServiceStub{previewIssue: func(context.Context, int64) (rental.IssuePreview, error) {
+		return rental.IssuePreview{
+			Rental: confirmed, IssuedAt: issuedAt, ExpectedReturnAt: issuedAt.Add(interval.End().Sub(interval.Start())),
+			Conflicts: []rental.IssueConflict{{Item: confirmed.Items()[0], Replacements: []equipment.Item{{
+				ID: 95, InventoryNumber: "SUP-TOURING-2", ModelCode: "TOURING",
+			}}}},
+		}, nil
+	}}
+	response := httptest.NewRecorder()
+	newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub()).ServeHTTP(
+		response, rentalRequest(http.MethodGet, "/rentals/24/issue", nil),
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body %q", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{
+		"Фактический период пересекается", `name="replacement_94"`,
+		"SUP-TOURING-1", "SUP-TOURING-2", "Заменить и выдать", "Ожидаемый возврат",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body does not contain %q", want)
+		}
 	}
 }
 
@@ -862,7 +928,7 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
-	returnedAt := time.Date(2026, time.August, 15, 11, 26, 0, 0, moscowTimeZone)
+	returnedAt := time.Date(2026, time.August, 15, 11, 41, 0, 0, moscowTimeZone)
 	completed := active
 	if err := completed.Complete(returnedAt); err != nil {
 		t.Fatalf("Complete() error = %v", err)
@@ -870,6 +936,12 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 	var gotActor user.User
 	rentals := &rentalServiceStub{
 		get: func(context.Context, int64) (rental.Rental, error) { return active, nil },
+		preview: func(context.Context, int64) (rental.SettlementPreview, error) {
+			settlement, previewErr := active.SettlementAt(returnedAt)
+			return rental.SettlementPreview{
+				Rental: active, ReturnedAt: returnedAt, Settlement: settlement,
+			}, previewErr
+		},
 		complete: func(_ context.Context, actor user.User, id int64) (rental.Rental, error) {
 			gotActor = actor
 			if id != 24 {
@@ -889,6 +961,8 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 		"Подтверждение возврата", "Анна Петрова", "SUP-TOURING-1",
 		"15.08.2026 10:02", `name="csrf_token" value="csrf-token"`,
 		"Подтвердить возврат и завершить", "всё оборудование станет доступным",
+		"Плановая стоимость", "1500 ₽", "Оплачиваемое время просрочки", "30 мин", "Доплата за просрочку", "500 ₽",
+		"Предварительный итог", "2000 ₽", "Первые 10 минут",
 		`class="button button--secondary" href="/rentals">Отмена</a>`,
 	} {
 		if !strings.Contains(page.Body.String(), want) {
@@ -911,7 +985,10 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 	}, rentalClientsStub()).ServeHTTP(detail, rentalRequest(http.MethodGet, "/rentals/24", nil))
 	if detail.Code != http.StatusOK ||
 		!strings.Contains(detail.Body.String(), "Фактический возврат") ||
-		!strings.Contains(detail.Body.String(), "15.08.2026 11:26") ||
+		!strings.Contains(detail.Body.String(), "15.08.2026 11:41") ||
+		!strings.Contains(detail.Body.String(), "Итоговая стоимость") ||
+		!strings.Contains(detail.Body.String(), "Оплачиваемое время просрочки") ||
+		!strings.Contains(detail.Body.String(), "2000 ₽") ||
 		strings.Contains(detail.Body.String(), `href="/rentals/24/complete"`) {
 		t.Fatalf("completed detail = %d body %q", detail.Code, detail.Body.String())
 	}

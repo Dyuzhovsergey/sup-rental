@@ -273,7 +273,7 @@ func safeAuditSummary(event audit.Event) string {
 		}
 		return strings.Join(changes, "; ")
 	}
-	if event.Action == "rental.confirmed" || event.Action == "rental.issued" ||
+	if event.Action == "rental.confirmed" || event.Action == "rental.issued" || event.Action == "rental.equipment_replaced" ||
 		event.Action == "rental.cancelled" || event.Action == "rental.completed" {
 		var details struct {
 			ClientID       int64      `json:"client_id"`
@@ -323,10 +323,11 @@ func auditActionLabel(action string) string {
 		"equipment.status_changed":     "Состояние оборудования изменено", "equipment.retired": "Оборудование списано",
 		"equipment.deleted": "Оборудование удалено",
 		"client.created":    "Клиент создан", "client.updated": "Данные клиента изменены",
-		"rental.confirmed": "Аренда создана и подтверждена",
-		"rental.issued":    "Оборудование выдано",
-		"rental.cancelled": "Аренда отменена",
-		"rental.completed": "Аренда завершена",
+		"rental.confirmed":          "Аренда создана и подтверждена",
+		"rental.issued":             "Оборудование выдано",
+		"rental.equipment_replaced": "Оборудование аренды заменено",
+		"rental.cancelled":          "Аренда отменена",
+		"rental.completed":          "Аренда завершена",
 	}
 	if label := labels[action]; label != "" {
 		return label
