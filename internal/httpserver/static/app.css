@@ -2296,6 +2296,37 @@ tbody tr:last-child td {
     appearance: none;
 }
 
+.rental-settlement-stepper {
+    width: min(100%, 164px);
+    margin-top: 0;
+}
+
+.rental-settlement-amount {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: 44px;
+    padding-right: 10px;
+    color: var(--color-text);
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-control-outline);
+    border-bottom: 1px solid var(--color-control-outline);
+}
+
+.quantity-stepper .rental-settlement-amount input {
+    height: 42px;
+    padding: 8px 4px 8px 10px;
+    font-weight: 700;
+    color: var(--color-text);
+    background: transparent;
+    border: 0;
+}
+
+.quantity-stepper .rental-settlement-amount input:focus-visible {
+    position: relative;
+    z-index: 2;
+}
+
 .rental-category-empty {
     padding: 18px;
     color: var(--color-muted);
@@ -2799,6 +2830,17 @@ tbody tr:last-child td {
         grid-template-columns: minmax(0, 1fr);
         gap: 4px;
         padding: 14px 16px;
+    }
+
+    .details-row--settlement {
+        grid-template-columns: minmax(96px, 1fr) 148px;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .details-row--settlement .rental-settlement-stepper {
+        grid-template-columns: 44px minmax(60px, 1fr) 44px;
+        width: 148px;
     }
 
     .details-row dd,

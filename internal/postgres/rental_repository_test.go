@@ -194,7 +194,7 @@ func TestRentalRepositoryCompletesRentalAndReturnsEquipment(t *testing.T) {
 		t.Fatalf("Issue() error = %v", err)
 	}
 	returnedAt := time.Date(2026, 9, 1, 13, 19, 0, 0, time.UTC)
-	completed, err := repository.Complete(ctx, fixture.actor, created.ID, returnedAt)
+	completed, err := repository.Complete(ctx, fixture.actor, created.ID, returnedAt, 75_000)
 	if err != nil {
 		t.Fatalf("Complete() error = %v; apply migration 015 to TEST_DATABASE_URL first", err)
 	}
@@ -203,7 +203,8 @@ func TestRentalRepositoryCompletesRentalAndReturnsEquipment(t *testing.T) {
 	}
 	settlement, ok := completed.Settlement()
 	if !ok || settlement.OverdueSlots != 1 || settlement.PlannedTotalKopecks != 100_000 ||
-		settlement.OverdueTotalKopecks != 50_000 || settlement.FinalTotalKopecks != 150_000 {
+		settlement.CalculatedOverdueTotalKopecks != 50_000 ||
+		settlement.OverdueTotalKopecks != 75_000 || settlement.FinalTotalKopecks != 175_000 {
 		t.Fatalf("Complete() settlement = %+v, %t", settlement, ok)
 	}
 	gotReturnedAt, ok := completed.ReturnedAt()
@@ -244,7 +245,8 @@ func TestRentalRepositoryCompletesRentalAndReturnsEquipment(t *testing.T) {
 		t.Fatalf("query completed audit: %v", err)
 	}
 	if !containsAll(details, `"issued_at":`, `"returned_at":`, `"planned_total_kopecks":`,
-		`"overdue_slots": 1`, `"overdue_total_kopecks": 50000`, `"final_total_kopecks": 150000`) {
+		`"overdue_slots": 1`, `"calculated_overdue_total_kopecks": 50000`,
+		`"overdue_total_kopecks": 75000`, `"final_total_kopecks": 175000`) {
 		t.Fatalf("completed audit details = %s", details)
 	}
 }
@@ -274,7 +276,7 @@ func TestRentalRepositoryCompletionIsConcurrentAndTransactional(t *testing.T) {
 		go func() {
 			defer wait.Done()
 			<-start
-			_, completeErr := repository.Complete(ctx, fixture.actor, created.ID, issuedAt.Add(time.Hour))
+			_, completeErr := repository.Complete(ctx, fixture.actor, created.ID, issuedAt.Add(time.Hour), 0)
 			errorsCh <- completeErr
 		}()
 	}
@@ -312,7 +314,7 @@ func TestRentalRepositoryCompletionIsConcurrentAndTransactional(t *testing.T) {
 	rollbackRepository.writeAudit = func(context.Context, pgx.Tx, string, user.User, rental.Rental, rentalAuditDetails) error {
 		return errors.New("audit unavailable")
 	}
-	if _, err := rollbackRepository.Complete(ctx, rollbackFixture.actor, rollbackRental.ID, issuedAt.Add(time.Hour)); err == nil || !strings.Contains(err.Error(), "audit unavailable") {
+	if _, err := rollbackRepository.Complete(ctx, rollbackFixture.actor, rollbackRental.ID, issuedAt.Add(time.Hour), 0); err == nil || !strings.Contains(err.Error(), "audit unavailable") {
 		t.Fatalf("Complete() audit error = %v", err)
 	}
 	var rentalStatus rental.Status
@@ -348,7 +350,7 @@ func TestRentalRepositoryRejectsCompletionWithNonIssuedEquipment(t *testing.T) {
 	if _, err := pool.Exec(ctx, "UPDATE equipment SET status = 'maintenance' WHERE id = $1", fixture.equipmentIDs[0]); err != nil {
 		t.Fatalf("mark equipment maintenance: %v", err)
 	}
-	if _, err := repository.Complete(ctx, fixture.actor, created.ID, issuedAt.Add(time.Hour)); !errors.Is(err, rental.ErrEquipmentUnavailable) {
+	if _, err := repository.Complete(ctx, fixture.actor, created.ID, issuedAt.Add(time.Hour), 0); !errors.Is(err, rental.ErrEquipmentUnavailable) {
 		t.Fatalf("Complete() error = %v, want ErrEquipmentUnavailable", err)
 	}
 	var status rental.Status
@@ -1112,7 +1114,7 @@ func TestRentalRepositoryMonitoringReturnsOperationalSnapshot(t *testing.T) {
 	if _, err := repository.Issue(ctx, fixture.actor, completed.ID, now.Add(-4*time.Hour)); err != nil {
 		t.Fatalf("issue completed rental: %v", err)
 	}
-	if _, err := repository.Complete(ctx, fixture.actor, completed.ID, now.Add(-3*time.Hour)); err != nil {
+	if _, err := repository.Complete(ctx, fixture.actor, completed.ID, now.Add(-3*time.Hour), 0); err != nil {
 		t.Fatalf("complete rental: %v", err)
 	}
 

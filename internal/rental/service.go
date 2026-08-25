@@ -59,7 +59,7 @@ type Repository interface {
 	IssueMany(ctx context.Context, actor user.User, ids []int64, issuedAt time.Time) ([]Rental, error)
 	Cancel(ctx context.Context, actor user.User, id int64) (Rental, error)
 	CancelMany(ctx context.Context, actor user.User, ids []int64) ([]Rental, error)
-	Complete(ctx context.Context, actor user.User, id int64, returnedAt time.Time) (Rental, error)
+	Complete(ctx context.Context, actor user.User, id int64, returnedAt time.Time, overdueTotalKopecks int64) (Rental, error)
 	CompleteMany(ctx context.Context, actor user.User, ids []int64, returnedAt time.Time) ([]Rental, error)
 	Get(ctx context.Context, id int64) (Rental, error)
 	ListPage(ctx context.Context, statuses []Status, page, pageSize int) (Page, error)
@@ -344,9 +344,14 @@ func (s *Service) CancelMany(ctx context.Context, actor user.User, ids []int64) 
 }
 
 // Complete фиксирует полный возврат активной аренды от имени активного
-// оператора. Repository атомарно завершает аренду, освобождает оборудование и
-// сохраняет обязательный audit event.
-func (s *Service) Complete(ctx context.Context, actor user.User, id int64) (Rental, error) {
+// оператора с выбранной доплатой за просрочку. Repository атомарно завершает
+// аренду, освобождает оборудование и сохраняет обязательный audit event.
+func (s *Service) Complete(
+	ctx context.Context,
+	actor user.User,
+	id int64,
+	overdueTotalKopecks int64,
+) (Rental, error) {
 	if actor.ID <= 0 || actor.Role != user.RoleOperator || !actor.Active {
 		return Rental{}, user.ErrAccessDenied
 	}
@@ -354,7 +359,9 @@ func (s *Service) Complete(ctx context.Context, actor user.User, id int64) (Rent
 		return Rental{}, ErrRentalNotFound
 	}
 
-	completed, err := s.repository.Complete(ctx, actor, id, s.now().UTC())
+	completed, err := s.repository.Complete(
+		ctx, actor, id, s.now().UTC(), overdueTotalKopecks,
+	)
 	if err != nil {
 		return Rental{}, fmt.Errorf("complete rental: %w", err)
 	}

@@ -930,10 +930,11 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 	}
 	returnedAt := time.Date(2026, time.August, 15, 11, 41, 0, 0, moscowTimeZone)
 	completed := active
-	if err := completed.Complete(returnedAt); err != nil {
+	if err := completed.CompleteWithOverdueTotal(returnedAt, 75_000); err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
 	var gotActor user.User
+	var gotOverdueTotal int64
 	rentals := &rentalServiceStub{
 		get: func(context.Context, int64) (rental.Rental, error) { return active, nil },
 		preview: func(context.Context, int64) (rental.SettlementPreview, error) {
@@ -942,8 +943,9 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 				Rental: active, ReturnedAt: returnedAt, Settlement: settlement,
 			}, previewErr
 		},
-		complete: func(_ context.Context, actor user.User, id int64) (rental.Rental, error) {
+		complete: func(_ context.Context, actor user.User, id int64, overdueTotal int64) (rental.Rental, error) {
 			gotActor = actor
+			gotOverdueTotal = overdueTotal
 			if id != 24 {
 				t.Errorf("Complete() id = %d", id)
 			}
@@ -961,7 +963,8 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 		"Подтверждение возврата", "Анна Петрова", "SUP-TOURING-1",
 		"15.08.2026 10:02", `name="csrf_token" value="csrf-token"`,
 		"Подтвердить возврат и завершить", "всё оборудование станет доступным",
-		"Плановая стоимость", "1500 ₽", "Оплачиваемое время просрочки", "30 мин", "Доплата за просрочку", "500 ₽",
+		"Плановая стоимость", "1500 ₽", "Оплачиваемое время просрочки", "30 мин", "Рассчитанная доплата",
+		`name="overdue_total_rubles"`, `value="500"`, "Уменьшить доплату на 50 рублей", "Увеличить доплату на 50 рублей",
 		"Предварительный итог", "2000 ₽", "Первые 10 минут",
 		`class="button button--secondary" href="/rentals">Отмена</a>`,
 	} {
@@ -971,12 +974,17 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 	}
 
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, rentalRequest(http.MethodPost, "/rentals/24/complete", url.Values{"csrf_token": {"csrf-token"}}))
+	handler.ServeHTTP(response, rentalRequest(http.MethodPost, "/rentals/24/complete", url.Values{
+		"csrf_token": {"csrf-token"}, "overdue_total_rubles": {"750"},
+	}))
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/rentals" {
 		t.Fatalf("complete response = %d Location %q", response.Code, response.Header().Get("Location"))
 	}
 	if gotActor.Role != user.RoleOperator || gotActor.Login != "operator" {
 		t.Fatalf("Complete() actor = %+v", gotActor)
+	}
+	if gotOverdueTotal != 75_000 {
+		t.Fatalf("Complete() overdue total = %d", gotOverdueTotal)
 	}
 
 	detail := httptest.NewRecorder()
@@ -988,7 +996,9 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 		!strings.Contains(detail.Body.String(), "15.08.2026 11:41") ||
 		!strings.Contains(detail.Body.String(), "Итоговая стоимость") ||
 		!strings.Contains(detail.Body.String(), "Оплачиваемое время просрочки") ||
-		!strings.Contains(detail.Body.String(), "2000 ₽") ||
+		!strings.Contains(detail.Body.String(), "Рассчитанная доплата") ||
+		!strings.Contains(detail.Body.String(), "Применённая доплата") ||
+		!strings.Contains(detail.Body.String(), "2250 ₽") ||
 		strings.Contains(detail.Body.String(), `href="/rentals/24/complete"`) {
 		t.Fatalf("completed detail = %d body %q", detail.Code, detail.Body.String())
 	}
@@ -1044,21 +1054,71 @@ func TestRentalCompletionErrorsAreMappedSafely(t *testing.T) {
 		{name: "missing", err: rental.ErrRentalNotFound, wantStatus: http.StatusNotFound, wantText: "404 page not found"},
 		{name: "wrong status", err: rental.ErrStatusTransitionNotAllowed, wantStatus: http.StatusConflict, wantText: "только по активной аренде"},
 		{name: "equipment", err: rental.ErrEquipmentUnavailable, wantStatus: http.StatusConflict, wantText: "Состояние оборудования"},
+		{name: "overdue total", err: rental.ErrInvalidOverdueTotal, wantStatus: http.StatusUnprocessableEntity, wantText: "слишком велика"},
 		{name: "internal", err: errors.New("database secret detail"), wantStatus: http.StatusInternalServerError, wantText: "Internal Server Error"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rentals := &rentalServiceStub{complete: func(context.Context, user.User, int64) (rental.Rental, error) {
+			rentals := &rentalServiceStub{complete: func(context.Context, user.User, int64, int64) (rental.Rental, error) {
 				return rental.Rental{}, tt.err
 			}}
 			response := httptest.NewRecorder()
 			newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub()).ServeHTTP(
-				response, rentalRequest(http.MethodPost, "/rentals/24/complete", url.Values{"csrf_token": {"csrf-token"}}),
+				response, rentalRequest(http.MethodPost, "/rentals/24/complete", url.Values{
+					"csrf_token": {"csrf-token"}, "overdue_total_rubles": {"500"},
+				}),
 			)
 			if response.Code != tt.wantStatus || !strings.Contains(response.Body.String(), tt.wantText) || strings.Contains(response.Body.String(), "database secret detail") {
 				t.Fatalf("response = %d body %q", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestRentalCompletionRejectsInvalidOverdueTotal(t *testing.T) {
+	for _, value := range []string{"", "-50", "12.345", "not-money"} {
+		t.Run(value, func(t *testing.T) {
+			called := false
+			rentals := &rentalServiceStub{complete: func(context.Context, user.User, int64, int64) (rental.Rental, error) {
+				called = true
+				return rental.Rental{}, nil
+			}}
+			response := httptest.NewRecorder()
+			newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub()).ServeHTTP(
+				response, rentalRequest(http.MethodPost, "/rentals/24/complete", url.Values{
+					"csrf_token": {"csrf-token"}, "overdue_total_rubles": {value},
+				}),
+			)
+			if response.Code != http.StatusUnprocessableEntity || called {
+				t.Fatalf("response = %d body %q called = %t", response.Code, response.Body.String(), called)
+			}
+		})
+	}
+}
+
+func TestRentalMoneyKopecks(t *testing.T) {
+	tests := []struct {
+		value string
+		want  int64
+	}{
+		{value: "0", want: 0},
+		{value: "750", want: 75_000},
+		{value: "250.5", want: 25_050},
+		{value: "250,50", want: 25_050},
+	}
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			got, err := rentalMoneyKopecks(tt.value)
+			if err != nil || got != tt.want {
+				t.Fatalf("rentalMoneyKopecks(%q) = %d, %v", tt.value, got, err)
+			}
+		})
+	}
+	if got := rentalMoneyLabel(25_050); got != "250,50 ₽" {
+		t.Fatalf("rentalMoneyLabel() = %q", got)
+	}
+	if got := rentalMoneyInputValue(25_050); got != "250.50" {
+		t.Fatalf("rentalMoneyInputValue() = %q", got)
 	}
 }
 

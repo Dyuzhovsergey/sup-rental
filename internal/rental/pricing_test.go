@@ -188,8 +188,60 @@ func TestRentalCompleteFixesAndRestoresSettlement(t *testing.T) {
 	if _, ok := restored.Settlement(); !ok {
 		t.Fatal("restored Settlement() is missing")
 	}
-	if err := restored.RestoreSettlement(1, 50_000); !errors.Is(err, ErrInvalidSettlement) {
+	if err := restored.RestoreSettlement(1, 50_000); err != nil {
+		t.Fatalf("RestoreSettlement(zero applied overdue) error = %v", err)
+	}
+	zeroOverdue, ok := restored.Settlement()
+	if !ok || zeroOverdue.CalculatedOverdueTotalKopecks != 25_000 ||
+		zeroOverdue.OverdueTotalKopecks != 0 || zeroOverdue.FinalTotalKopecks != 50_000 {
+		t.Fatalf("Settlement(zero applied overdue) = %+v, %t", zeroOverdue, ok)
+	}
+	if err := restored.RestoreSettlement(1, 49_999); !errors.Is(err, ErrInvalidSettlement) {
 		t.Fatalf("RestoreSettlement(invalid) error = %v", err)
+	}
+}
+
+func TestRentalCompleteWithOverdueTotalAllowsManualCorrection(t *testing.T) {
+	t.Parallel()
+
+	start := time.Date(2026, time.August, 14, 10, 0, 0, 0, time.UTC)
+	interval := mustInterval(t, start, start.Add(time.Hour))
+	issuedAt := start
+	value, err := Restore(7, 42, interval, StatusActive, &issuedAt, nil, []Item{validRentalItem(1)})
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	if err := value.CompleteWithOverdueTotal(interval.End().Add(11*time.Minute), 40_000); err != nil {
+		t.Fatalf("CompleteWithOverdueTotal() error = %v", err)
+	}
+	settlement, ok := value.Settlement()
+	if !ok || settlement.CalculatedOverdueTotalKopecks != 25_000 ||
+		settlement.OverdueTotalKopecks != 40_000 || settlement.FinalTotalKopecks != 90_000 {
+		t.Fatalf("Settlement() = %+v, %t", settlement, ok)
+	}
+
+	restored, err := Restore(7, 42, interval, StatusCompleted, &issuedAt, timePointer(interval.End().Add(11*time.Minute)), []Item{validRentalItem(1)})
+	if err != nil {
+		t.Fatalf("Restore(completed) error = %v", err)
+	}
+	if err := restored.RestoreSettlement(1, 90_000); err != nil {
+		t.Fatalf("RestoreSettlement() error = %v", err)
+	}
+	restoredSettlement, ok := restored.Settlement()
+	if !ok || restoredSettlement.CalculatedOverdueTotalKopecks != 25_000 ||
+		restoredSettlement.OverdueTotalKopecks != 40_000 {
+		t.Fatalf("restored Settlement() = %+v, %t", restoredSettlement, ok)
+	}
+}
+
+func TestSettlementWithOverdueTotalRejectsInvalidValue(t *testing.T) {
+	t.Parallel()
+
+	settlement := Settlement{PlannedTotalKopecks: 50_000}
+	for _, value := range []int64{-1, math.MaxInt64} {
+		if _, err := settlement.WithOverdueTotal(value); !errors.Is(err, ErrInvalidOverdueTotal) {
+			t.Errorf("WithOverdueTotal(%d) error = %v", value, err)
+		}
 	}
 }
 
@@ -210,6 +262,7 @@ func TestRentalRestoreSettlementPreservesHistoricalSlotCount(t *testing.T) {
 	}
 	settlement, ok := value.Settlement()
 	if !ok || settlement.OverdueDuration != 5*time.Minute || settlement.OverdueSlots != 1 ||
+		settlement.CalculatedOverdueTotalKopecks != 25_000 ||
 		settlement.OverdueTotalKopecks != 25_000 || settlement.FinalTotalKopecks != 75_000 {
 		t.Fatalf("Settlement() = %+v, %t", settlement, ok)
 	}

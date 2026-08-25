@@ -215,6 +215,17 @@ func (r *Rental) Cancel() error {
 // Complete фиксирует фактический возврат всего состава и переводит активную
 // аренду в completed. Плановый интервал при этом не изменяется.
 func (r *Rental) Complete(returnedAt time.Time) error {
+	return r.complete(returnedAt, nil)
+}
+
+// CompleteWithOverdueTotal фиксирует возврат с вручную заданной доплатой за
+// просрочку. Фактическая просрочка и число расчётных слотов сохраняются без
+// изменения, а итог использует переданную оператором сумму.
+func (r *Rental) CompleteWithOverdueTotal(returnedAt time.Time, overdueTotalKopecks int64) error {
+	return r.complete(returnedAt, &overdueTotalKopecks)
+}
+
+func (r *Rental) complete(returnedAt time.Time, overdueTotalKopecks *int64) error {
 	if returnedAt.IsZero() {
 		return ErrReturnedAtRequired
 	}
@@ -233,6 +244,12 @@ func (r *Rental) Complete(returnedAt time.Time) error {
 	settlement, err := r.calculateSettlement(returnedAt)
 	if err != nil {
 		return err
+	}
+	if overdueTotalKopecks != nil {
+		settlement, err = settlement.WithOverdueTotal(*overdueTotalKopecks)
+		if err != nil {
+			return err
+		}
 	}
 	r.Status = StatusCompleted
 	value := returnedAt

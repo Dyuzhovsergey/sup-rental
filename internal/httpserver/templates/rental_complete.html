@@ -15,11 +15,40 @@
     <header class="page-header"><div><p class="page-eyebrow">Возврат оборудования</p><h1>Завершить аренду №{{.RentalID}}</h1><p class="page-description">Проверьте состав и расчёт перед подтверждением полного возврата.</p></div></header>
     <section class="panel confirmation-card" aria-labelledby="rental-complete-heading">
         <div class="panel-header"><div><h2 id="rental-complete-heading">Подтверждение возврата</h2><p class="panel-description">После подтверждения аренда будет завершена, а всё оборудование станет доступным.</p></div></div>
-        <div class="panel-body content-stack"><dl class="details-list details-list--compact"><div class="details-row"><dt>Клиент</dt><dd>{{.Client.FullName}}</dd></div><div class="details-row"><dt>Плановый период</dt><dd>{{.Period}}</dd></div><div class="details-row"><dt>Длительность</dt><dd>{{.Duration}}</dd></div><div class="details-row"><dt>Фактическая выдача</dt><dd>{{.IssuedAt}}</dd></div><div class="details-row"><dt>Расчёт на момент</dt><dd>{{.ReturnedAt}}</dd></div><div class="details-row"><dt>Плановая стоимость</dt><dd>{{.PlannedTotal}}</dd></div><div class="details-row"><dt>Фактическая просрочка</dt><dd>{{.Overdue}}</dd></div><div class="details-row"><dt>Оплачиваемое время просрочки</dt><dd>{{.BillableOverdue}}</dd></div><div class="details-row"><dt>Доплата за просрочку</dt><dd>{{.OverdueTotal}}</dd></div><div class="details-row"><dt><strong>Предварительный итог</strong></dt><dd><strong>{{.FinalTotal}}</strong></dd></div></dl><div class="alert alert--warning" role="note"><p>Первые 10 минут после планового окончания не оплачиваются. После этого вся просрочка округляется вверх до 30 минут. Точный итог фиксируется при подтверждении возврата.</p></div></div>
+        <div class="panel-body content-stack">
+            <dl class="details-list details-list--compact">
+                <div class="details-row"><dt>Клиент</dt><dd>{{.Client.FullName}}</dd></div>
+                <div class="details-row"><dt>Плановый период</dt><dd>{{.Period}}</dd></div>
+                <div class="details-row"><dt>Длительность</dt><dd>{{.Duration}}</dd></div>
+                <div class="details-row"><dt>Фактическая выдача</dt><dd>{{.IssuedAt}}</dd></div>
+                <div class="details-row"><dt>Расчёт на момент</dt><dd>{{.ReturnedAt}}</dd></div>
+                <div class="details-row"><dt>Плановая стоимость</dt><dd>{{.PlannedTotal}}</dd></div>
+                <div class="details-row"><dt>Фактическая просрочка</dt><dd>{{.Overdue}}</dd></div>
+                <div class="details-row"><dt>Оплачиваемое время просрочки</dt><dd>{{.BillableOverdue}}</dd></div>
+                <div class="details-row details-row--settlement">
+                    <dt><label for="overdue-total-rubles">Рассчитанная доплата</label></dt>
+                    <dd>
+                        <div class="quantity-stepper rental-settlement-stepper" data-rental-settlement data-planned-total-kopecks="{{.PlannedTotalKopecks}}">
+                            <button class="quantity-stepper__button" type="button" aria-label="Уменьшить доплату на 50 рублей" data-overdue-decrease>−</button>
+                            <span class="rental-settlement-amount">
+                                <input id="overdue-total-rubles" form="rental-complete-form" name="overdue_total_rubles" type="number" min="0" step="0.01" inputmode="decimal" value="{{.OverdueTotalInput}}" required aria-describedby="rental-settlement-note">
+                                <span aria-hidden="true">₽</span>
+                            </span>
+                            <button class="quantity-stepper__button" type="button" aria-label="Увеличить доплату на 50 рублей" data-overdue-increase>+</button>
+                        </div>
+                    </dd>
+                </div>
+            </dl>
+            <dl class="details-list details-list--compact">
+                <div class="details-row"><dt><strong>Предварительный итог</strong></dt><dd><strong><output data-rental-final-total>{{.FinalTotal}}</output></strong></dd></div>
+            </dl>
+            <div class="alert alert--warning" id="rental-settlement-note" role="note"><p>Первые 10 минут после ожидаемого возврата не оплачиваются. Рассчитанную доплату можно ввести вручную или изменить кнопками с шагом 50 ₽. Фактически применённая сумма сохранится в истории и журнале действий.</p></div>
+        </div>
         <div class="table-scroll" role="region" aria-label="Состав возвращаемой аренды" tabindex="0"><table><thead><tr><th>Инвентарный номер</th><th>Тип</th><th>Модель</th></tr></thead><tbody>{{range .Items}}<tr><td><strong>{{.InventoryNumber}}</strong></td><td>{{.Kind}}</td><td>{{.ModelCode}}</td></tr>{{end}}</tbody></table></div>
-        <div class="confirmation-actions"><form method="post" action="/rentals/{{.RentalID}}/complete"><input type="hidden" name="csrf_token" value="{{.Authentication.CSRFToken}}"><button class="button button--primary" type="submit">Подтвердить возврат и завершить</button></form><a class="button button--secondary" href="/rentals">Отмена</a><span class="count-chip">{{.ItemCount}}</span></div>
+        <div class="confirmation-actions"><form id="rental-complete-form" method="post" action="/rentals/{{.RentalID}}/complete"><input type="hidden" name="csrf_token" value="{{.Authentication.CSRFToken}}"><button class="button button--primary" type="submit">Подтвердить возврат и завершить</button></form><a class="button button--secondary" href="/rentals">Отмена</a><span class="count-chip">{{.ItemCount}}</span></div>
     </section>
 </div></main>
 </div>
+<script src="/static/rental.js" defer></script>
 </body>
 </html>

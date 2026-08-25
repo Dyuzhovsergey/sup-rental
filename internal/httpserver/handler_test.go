@@ -400,7 +400,7 @@ type rentalServiceStub struct {
 	issueMany             func(context.Context, user.User, []int64) ([]rental.Rental, error)
 	cancel                func(context.Context, user.User, int64) (rental.Rental, error)
 	cancelMany            func(context.Context, user.User, []int64) ([]rental.Rental, error)
-	complete              func(context.Context, user.User, int64) (rental.Rental, error)
+	complete              func(context.Context, user.User, int64, int64) (rental.Rental, error)
 	completeMany          func(context.Context, user.User, []int64) ([]rental.Rental, error)
 	preview               func(context.Context, int64) (rental.SettlementPreview, error)
 	previews              func(context.Context, []int64) ([]rental.SettlementPreview, error)
@@ -423,11 +423,11 @@ func (s *rentalServiceStub) Cancel(ctx context.Context, actor user.User, id int6
 	return s.cancel(ctx, actor, id)
 }
 
-func (s *rentalServiceStub) Complete(ctx context.Context, actor user.User, id int64) (rental.Rental, error) {
+func (s *rentalServiceStub) Complete(ctx context.Context, actor user.User, id int64, overdueTotalKopecks int64) (rental.Rental, error) {
 	if s.complete == nil {
 		return rental.Rental{}, rental.ErrRentalNotFound
 	}
-	return s.complete(ctx, actor, id)
+	return s.complete(ctx, actor, id, overdueTotalKopecks)
 }
 
 func (s *rentalServiceStub) CompleteMany(ctx context.Context, actor user.User, ids []int64) ([]rental.Rental, error) {

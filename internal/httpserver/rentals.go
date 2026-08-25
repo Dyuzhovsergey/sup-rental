@@ -31,7 +31,7 @@ type rentalService interface {
 	IssueMany(context.Context, user.User, []int64) ([]rental.Rental, error)
 	Cancel(context.Context, user.User, int64) (rental.Rental, error)
 	CancelMany(context.Context, user.User, []int64) ([]rental.Rental, error)
-	Complete(context.Context, user.User, int64) (rental.Rental, error)
+	Complete(context.Context, user.User, int64, int64) (rental.Rental, error)
 	CompleteMany(context.Context, user.User, []int64) ([]rental.Rental, error)
 	PreviewSettlement(context.Context, int64) (rental.SettlementPreview, error)
 	PreviewSettlements(context.Context, []int64) ([]rental.SettlementPreview, error)
@@ -166,26 +166,27 @@ type rentalSummaryView struct {
 }
 
 type rentalDetailPageData struct {
-	Authentication   *authenticationView
-	Title            string
-	RentalID         int64
-	Client           client.Client
-	Period           string
-	Duration         string
-	Status           string
-	Items            []rentalItemView
-	ItemCount        string
-	PlannedTotal     string
-	HasSettlement    bool
-	Overdue          string
-	BillableOverdue  string
-	OverdueTotal     string
-	FinalTotal       string
-	IssuedAt         string
-	ExpectedReturnAt string
-	ReturnedAt       string
-	CanIssue         bool
-	CanComplete      bool
+	Authentication         *authenticationView
+	Title                  string
+	RentalID               int64
+	Client                 client.Client
+	Period                 string
+	Duration               string
+	Status                 string
+	Items                  []rentalItemView
+	ItemCount              string
+	PlannedTotal           string
+	HasSettlement          bool
+	Overdue                string
+	BillableOverdue        string
+	CalculatedOverdueTotal string
+	OverdueTotal           string
+	FinalTotal             string
+	IssuedAt               string
+	ExpectedReturnAt       string
+	ReturnedAt             string
+	CanIssue               bool
+	CanComplete            bool
 }
 
 type rentalItemView struct {
@@ -879,6 +880,7 @@ func showRentalDetailPage(
 		data.HasSettlement = true
 		data.Overdue = rentalOverdueLabel(settlement.OverdueDuration)
 		data.BillableOverdue = rentalBillableOverdueLabel(settlement.OverdueSlots)
+		data.CalculatedOverdueTotal = rentalMoneyLabel(settlement.CalculatedOverdueTotalKopecks)
 		data.OverdueTotal = rentalMoneyLabel(settlement.OverdueTotalKopecks)
 		data.FinalTotal = rentalMoneyLabel(settlement.FinalTotalKopecks)
 	}
@@ -1518,6 +1520,9 @@ func rentalStatusLabel(status rental.Status) string {
 }
 
 func rentalMoneyLabel(kopecks int64) string {
+	if kopecks%100 != 0 {
+		return fmt.Sprintf("%d,%02d ₽", kopecks/100, kopecks%100)
+	}
 	return fmt.Sprintf("%d ₽", kopecks/100)
 }
 

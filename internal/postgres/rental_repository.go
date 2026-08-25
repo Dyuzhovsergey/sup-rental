@@ -30,18 +30,19 @@ const (
 )
 
 type rentalAuditDetails struct {
-	ClientID            int64                    `json:"client_id"`
-	PlannedStart        time.Time                `json:"planned_start"`
-	PlannedEnd          time.Time                `json:"planned_end"`
-	EquipmentCount      int                      `json:"equipment_count"`
-	IssuedAt            *time.Time               `json:"issued_at,omitempty"`
-	ExpectedReturnAt    *time.Time               `json:"expected_return_at,omitempty"`
-	ReturnedAt          *time.Time               `json:"returned_at,omitempty"`
-	PlannedTotalKopecks *int64                   `json:"planned_total_kopecks,omitempty"`
-	OverdueSlots        *int                     `json:"overdue_slots,omitempty"`
-	OverdueTotalKopecks *int64                   `json:"overdue_total_kopecks,omitempty"`
-	FinalTotalKopecks   *int64                   `json:"final_total_kopecks,omitempty"`
-	Replacements        []rentalReplacementAudit `json:"replacements,omitempty"`
+	ClientID                      int64                    `json:"client_id"`
+	PlannedStart                  time.Time                `json:"planned_start"`
+	PlannedEnd                    time.Time                `json:"planned_end"`
+	EquipmentCount                int                      `json:"equipment_count"`
+	IssuedAt                      *time.Time               `json:"issued_at,omitempty"`
+	ExpectedReturnAt              *time.Time               `json:"expected_return_at,omitempty"`
+	ReturnedAt                    *time.Time               `json:"returned_at,omitempty"`
+	PlannedTotalKopecks           *int64                   `json:"planned_total_kopecks,omitempty"`
+	OverdueSlots                  *int                     `json:"overdue_slots,omitempty"`
+	CalculatedOverdueTotalKopecks *int64                   `json:"calculated_overdue_total_kopecks,omitempty"`
+	OverdueTotalKopecks           *int64                   `json:"overdue_total_kopecks,omitempty"`
+	FinalTotalKopecks             *int64                   `json:"final_total_kopecks,omitempty"`
+	Replacements                  []rentalReplacementAudit `json:"replacements,omitempty"`
 }
 
 type rentalReplacementAudit struct {
@@ -51,15 +52,18 @@ type rentalReplacementAudit struct {
 	ReplacementInventoryNumber string `json:"replacement_inventory_number"`
 }
 
-// Complete атомарно переводит активную аренду в completed, возвращает весь её
-// состав в available и сохраняет обязательный audit event.
+// Complete атомарно переводит активную аренду в completed, применяет выбранную
+// оператором доплату, возвращает весь её состав в available и сохраняет audit.
 func (r *RentalRepository) Complete(
 	ctx context.Context,
 	actor user.User,
 	id int64,
 	returnedAt time.Time,
+	overdueTotalKopecks int64,
 ) (rental.Rental, error) {
-	values, err := r.CompleteMany(ctx, actor, []int64{id}, returnedAt)
+	values, err := r.completeMany(
+		ctx, actor, []int64{id}, returnedAt, map[int64]int64{id: overdueTotalKopecks},
+	)
 	if err != nil {
 		return rental.Rental{}, err
 	}
@@ -74,6 +78,16 @@ func (r *RentalRepository) CompleteMany(
 	actor user.User,
 	ids []int64,
 	returnedAt time.Time,
+) ([]rental.Rental, error) {
+	return r.completeMany(ctx, actor, ids, returnedAt, nil)
+}
+
+func (r *RentalRepository) completeMany(
+	ctx context.Context,
+	actor user.User,
+	ids []int64,
+	returnedAt time.Time,
+	overdueTotals map[int64]int64,
 ) ([]rental.Rental, error) {
 	// PostgreSQL хранит timestamptz с микросекундной точностью. Нормализация до
 	// расчёта не позволяет границе оплачиваемого слота измениться после записи.
@@ -108,8 +122,14 @@ func (r *RentalRepository) CompleteMany(
 			seenEquipment[item.EquipmentID] = struct{}{}
 			equipmentIDs = append(equipmentIDs, item.EquipmentID)
 		}
-		if err := value.Complete(returnedAt); err != nil {
-			return nil, err
+		var completeErr error
+		if overdueTotal, ok := overdueTotals[id]; ok {
+			completeErr = value.CompleteWithOverdueTotal(returnedAt, overdueTotal)
+		} else {
+			completeErr = value.Complete(returnedAt)
+		}
+		if completeErr != nil {
+			return nil, completeErr
 		}
 		values = append(values, value)
 	}
@@ -161,9 +181,11 @@ func (r *RentalRepository) CompleteMany(
 				ClientID: value.ClientID, PlannedStart: value.Interval.Start(), PlannedEnd: value.Interval.End(),
 				EquipmentCount: value.ItemCount(), IssuedAt: &issuedAt,
 				ExpectedReturnAt: &expectedReturnAt, ReturnedAt: &returnedAt,
-				PlannedTotalKopecks: &settlement.PlannedTotalKopecks,
-				OverdueSlots:        &settlement.OverdueSlots, OverdueTotalKopecks: &settlement.OverdueTotalKopecks,
-				FinalTotalKopecks: &settlement.FinalTotalKopecks,
+				PlannedTotalKopecks:           &settlement.PlannedTotalKopecks,
+				OverdueSlots:                  &settlement.OverdueSlots,
+				CalculatedOverdueTotalKopecks: &settlement.CalculatedOverdueTotalKopecks,
+				OverdueTotalKopecks:           &settlement.OverdueTotalKopecks,
+				FinalTotalKopecks:             &settlement.FinalTotalKopecks,
 			},
 		); err != nil {
 			return nil, fmt.Errorf("write completed rental %d audit event: %w", value.ID, err)

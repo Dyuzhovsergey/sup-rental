@@ -18,6 +18,9 @@ var (
 	ErrSettlementNotAvailable = errors.New("rental settlement is not available")
 	// ErrInvalidSettlement означает несогласованный с арендой сохранённый расчёт.
 	ErrInvalidSettlement = errors.New("invalid rental settlement")
+	// ErrInvalidOverdueTotal означает отрицательную доплату или сумму, при
+	// добавлении которой итоговая стоимость переполняет int64.
+	ErrInvalidOverdueTotal = errors.New("invalid rental overdue total")
 )
 
 // Settlement содержит зафиксированный окончательный расчёт завершённой аренды.
@@ -29,7 +32,10 @@ type Settlement struct {
 	OverdueDuration time.Duration
 	// OverdueSlots — число оплачиваемых получасовых слотов просрочки.
 	OverdueSlots int
-	// OverdueTotalKopecks — доплата за просрочку.
+	// CalculatedOverdueTotalKopecks — доплата, автоматически рассчитанная по
+	// фактической просрочке и сохранённым снимкам тарифов.
+	CalculatedOverdueTotalKopecks int64
+	// OverdueTotalKopecks — фактически применённая оператором доплата.
 	OverdueTotalKopecks int64
 	// FinalTotalKopecks — итоговая стоимость аренды.
 	FinalTotalKopecks int64
@@ -86,9 +92,23 @@ func (r Rental) Settlement() (Settlement, bool) {
 	return *r.settlement, true
 }
 
+// WithOverdueTotal возвращает копию расчёта с вручную заданной доплатой.
+// Значение может быть меньше или больше автоматического расчёта, но не может
+// быть отрицательным или приводить к переполнению итоговой стоимости.
+func (s Settlement) WithOverdueTotal(overdueTotalKopecks int64) (Settlement, error) {
+	if s.PlannedTotalKopecks < 0 || overdueTotalKopecks < 0 ||
+		overdueTotalKopecks > math.MaxInt64-s.PlannedTotalKopecks {
+		return Settlement{}, ErrInvalidOverdueTotal
+	}
+	s.OverdueTotalKopecks = overdueTotalKopecks
+	s.FinalTotalKopecks = s.PlannedTotalKopecks + overdueTotalKopecks
+	return s, nil
+}
+
 // RestoreSettlement проверяет и присоединяет расчёт, загруженный из хранилища.
-// Сохранённое число платных слотов считается историческим результатом применённой
-// при возврате политики, а итог проверяется по тарифным снимкам аренды.
+// Сохранённое число платных слотов считается историческим результатом политики
+// расчёта. Рассчитанная доплата восстанавливается по тарифным снимкам, а
+// применённая — как разница между сохранённым итогом и базовой стоимостью.
 func (r *Rental) RestoreSettlement(overdueSlots int, finalTotalKopecks int64) error {
 	if r.Status != StatusCompleted || r.returnedAt == nil {
 		return ErrInvalidSettlement
@@ -109,10 +129,11 @@ func (r *Rental) RestoreSettlement(overdueSlots int, finalTotalKopecks int64) er
 	if overdueSlots > 0 && int64(overdueSlots) > math.MaxInt64/halfHourlyTotal {
 		return ErrInvalidSettlement
 	}
-	overdueTotal := halfHourlyTotal * int64(overdueSlots)
-	if overdueTotal > math.MaxInt64-plannedTotal || finalTotalKopecks != plannedTotal+overdueTotal {
+	calculatedOverdueTotal := halfHourlyTotal * int64(overdueSlots)
+	if calculatedOverdueTotal > math.MaxInt64-plannedTotal || finalTotalKopecks < plannedTotal {
 		return ErrInvalidSettlement
 	}
+	appliedOverdueTotal := finalTotalKopecks - plannedTotal
 
 	expectedReturnAt, ok := r.ExpectedReturnAt()
 	if !ok {
@@ -123,11 +144,12 @@ func (r *Rental) RestoreSettlement(overdueSlots int, finalTotalKopecks int64) er
 		overdueDuration = 0
 	}
 	r.settlement = &Settlement{
-		PlannedTotalKopecks: plannedTotal,
-		OverdueDuration:     overdueDuration,
-		OverdueSlots:        overdueSlots,
-		OverdueTotalKopecks: overdueTotal,
-		FinalTotalKopecks:   finalTotalKopecks,
+		PlannedTotalKopecks:           plannedTotal,
+		OverdueDuration:               overdueDuration,
+		OverdueSlots:                  overdueSlots,
+		CalculatedOverdueTotalKopecks: calculatedOverdueTotal,
+		OverdueTotalKopecks:           appliedOverdueTotal,
+		FinalTotalKopecks:             finalTotalKopecks,
 	}
 	return nil
 }
@@ -167,11 +189,12 @@ func (r Rental) calculateSettlement(returnedAt time.Time) (Settlement, error) {
 		return Settlement{}, ErrPriceOverflow
 	}
 	return Settlement{
-		PlannedTotalKopecks: plannedTotal,
-		OverdueDuration:     overdueDuration,
-		OverdueSlots:        overdueSlots,
-		OverdueTotalKopecks: overdueTotal,
-		FinalTotalKopecks:   plannedTotal + overdueTotal,
+		PlannedTotalKopecks:           plannedTotal,
+		OverdueDuration:               overdueDuration,
+		OverdueSlots:                  overdueSlots,
+		CalculatedOverdueTotalKopecks: overdueTotal,
+		OverdueTotalKopecks:           overdueTotal,
+		FinalTotalKopecks:             plannedTotal + overdueTotal,
 	}, nil
 }
 
