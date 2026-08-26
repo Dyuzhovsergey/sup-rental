@@ -36,7 +36,7 @@ type MonitoringData struct {
 	ConfirmedTotal int
 	// ActiveTotal — полное число активных аренд.
 	ActiveTotal int
-	// OverdueTotal — число активных аренд с прошедшим плановым окончанием.
+	// OverdueTotal — число активных аренд с прошедшим ожидаемым возвратом.
 	OverdueTotal int
 	// Confirmed содержит ближайшие подтверждённые аренды выбранного дня.
 	Confirmed []Summary
@@ -58,7 +58,7 @@ const (
 	MonitoringActive MonitoringTimingState = "active"
 	// MonitoringDue означает точное наступление планового окончания.
 	MonitoringDue MonitoringTimingState = "due"
-	// MonitoringOverdue означает, что плановое окончание активной аренды прошло.
+	// MonitoringOverdue означает, что ожидаемое время возврата активной аренды прошло.
 	MonitoringOverdue MonitoringTimingState = "overdue"
 )
 
@@ -154,6 +154,10 @@ func monitoringEntries(summaries []Summary, want Status, now time.Time) ([]Monit
 func calculateMonitoringTiming(summary Summary, now time.Time) MonitoringTiming {
 	start := summary.Interval.Start()
 	end := summary.Interval.End()
+	if summary.Status == StatusActive && summary.IssuedAt != nil && summary.ExpectedReturnAt != nil {
+		start = *summary.IssuedAt
+		end = *summary.ExpectedReturnAt
+	}
 	if now.Before(start) {
 		return MonitoringTiming{State: MonitoringUpcoming, Delta: start.Sub(now)}
 	}

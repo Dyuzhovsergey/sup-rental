@@ -21,6 +21,8 @@ type rentalCancelPageData struct {
 	Duration       string
 	Items          []rentalItemView
 	ItemCount      string
+	HasPayment     bool
+	PaymentAmount  string
 }
 
 func showRentalCancelPage(
@@ -49,6 +51,12 @@ func showRentalCancelPage(
 		http.Error(w, "Отменить можно только подтверждённую аренду.", http.StatusConflict)
 		return
 	}
+	paymentSummary, err := rentals.PaymentSummary(r.Context(), id)
+	if err != nil {
+		logger.Error("get rental payments for cancellation", slog.Any("error", err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 	customer, err := clients.Get(r.Context(), value.ClientID)
 	if err != nil {
 		logger.Error("get rental client for cancellation", slog.Any("error", err))
@@ -63,7 +71,13 @@ func showRentalCancelPage(
 		Period:         rentalPeriodLabel(value.Interval),
 		Duration:       rentalDurationLabel(value.Interval),
 		Items:          rentalItemViews(value.Items()),
-		ItemCount:      rentalItemCountLabel(value.ItemCount()),
+		ItemCount:      rentalItemCountLabel(value.ItemCount()), HasPayment: paymentSummary.HasBase(),
+		PaymentAmount: func() string {
+			if paymentSummary.Base == nil {
+				return ""
+			}
+			return rentalMoneyLabel(paymentSummary.Base.AmountKopecks)
+		}(),
 	}, "render rental cancellation", "write rental cancellation response")
 }
 

@@ -22,6 +22,8 @@ func TestServiceSnapshotUsesMoscowDay(t *testing.T) {
 		EquipmentTotal: 10, EquipmentAvailable: 4, EquipmentMaintenance: 2,
 		EquipmentRetired: 1, EquipmentIssued: 3, RentalsActive: 2,
 		RentalsOverdue: 1, RentalsStartingToday: 3, RentalsEndingToday: 4,
+		PaymentsBaseTodayKopecks: 120_000, PaymentsOverdueTodayKopecks: 30_000,
+		PaymentsRefundTodayKopecks: 20_000, PaymentsNetTodayKopecks: 130_000,
 	}
 	var gotQuery Query
 	service := NewService(&repositoryStub{snapshot: func(_ context.Context, query Query) (Snapshot, error) {
@@ -62,6 +64,8 @@ func TestServiceSnapshotRejectsInconsistentCounts(t *testing.T) {
 		{name: "negative", snapshot: Snapshot{EquipmentTotal: -1}, want: "negative count"},
 		{name: "equipment sum", snapshot: Snapshot{EquipmentTotal: 2, EquipmentAvailable: 1}, want: "do not match"},
 		{name: "overdue", snapshot: Snapshot{RentalsActive: 1, RentalsOverdue: 2}, want: "exceed"},
+		{name: "negative payment", snapshot: Snapshot{PaymentsBaseTodayKopecks: -1, PaymentsNetTodayKopecks: -1}, want: "negative count"},
+		{name: "payment net", snapshot: Snapshot{PaymentsBaseTodayKopecks: 100, PaymentsNetTodayKopecks: 99}, want: "payment net"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -152,6 +152,12 @@ func TestStylesheet(t *testing.T) {
 		".app-theme-control",
 		".equipment-layout",
 		".equipment-list-column",
+		".admin-finance-metrics",
+		".admin-finance-metric--danger",
+		".responsive-table-region",
+		".responsive-data-table",
+		".mobile-cell-label",
+		".table-scroll.responsive-table-region::before",
 		".button--compact",
 		".button--edit",
 		".retirement-panel",
@@ -202,6 +208,10 @@ func TestThemeScript(t *testing.T) {
 		`event.key === "Escape"`,
 		`main.inert = inert`,
 		`initializeNavigableRows`,
+		`initializeOperatorMonitoring`,
+		`document.querySelectorAll("[data-operator-timing]")`,
+		`refreshIntervalMilliseconds = 30000`,
+		`document.addEventListener("visibilitychange"`,
 		`document.querySelectorAll("[data-row-href]")`,
 		`event.target.closest(interactiveSelector)`,
 		`event.key !== "Enter"`,
@@ -393,17 +403,29 @@ type clientServiceStub struct {
 }
 
 type rentalServiceStub struct {
-	available    func(context.Context, rental.Interval) ([]rental.AvailableModel, error)
-	create       func(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
-	issue        func(context.Context, user.User, int64) (rental.Rental, error)
-	issueMany    func(context.Context, user.User, []int64) ([]rental.Rental, error)
-	cancel       func(context.Context, user.User, int64) (rental.Rental, error)
-	cancelMany   func(context.Context, user.User, []int64) ([]rental.Rental, error)
-	complete     func(context.Context, user.User, int64) (rental.Rental, error)
-	completeMany func(context.Context, user.User, []int64) ([]rental.Rental, error)
-	get          func(context.Context, int64) (rental.Rental, error)
-	list         func(context.Context, []rental.Status, int, int) (rental.Page, error)
-	monitoring   func(context.Context) (rental.MonitoringSnapshot, error)
+	available             func(context.Context, rental.Interval) ([]rental.AvailableModel, error)
+	create                func(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
+	issue                 func(context.Context, user.User, int64) (rental.Rental, error)
+	issueWithReplacements func(context.Context, user.User, int64, []rental.EquipmentReplacement) (rental.Rental, error)
+	previewIssue          func(context.Context, int64) (rental.IssuePreview, error)
+	issueMany             func(context.Context, user.User, []int64) ([]rental.Rental, error)
+	cancel                func(context.Context, user.User, int64) (rental.Rental, error)
+	cancelMany            func(context.Context, user.User, []int64) ([]rental.Rental, error)
+	complete              func(context.Context, user.User, int64, int64) (rental.Rental, error)
+	completeMany          func(context.Context, user.User, []int64) ([]rental.Rental, error)
+	preview               func(context.Context, int64) (rental.SettlementPreview, error)
+	previews              func(context.Context, []int64) ([]rental.SettlementPreview, error)
+	get                   func(context.Context, int64) (rental.Rental, error)
+	paymentSummary        func(context.Context, int64) (rental.PaymentSummary, error)
+	list                  func(context.Context, []rental.Status, int, int) (rental.Page, error)
+	monitoring            func(context.Context) (rental.MonitoringSnapshot, error)
+}
+
+func (s *rentalServiceStub) PaymentSummary(ctx context.Context, id int64) (rental.PaymentSummary, error) {
+	if s.paymentSummary == nil {
+		return rental.PaymentSummary{}, nil
+	}
+	return s.paymentSummary(ctx, id)
 }
 
 func (s *rentalServiceStub) CancelMany(ctx context.Context, actor user.User, ids []int64) ([]rental.Rental, error) {
@@ -420,11 +442,11 @@ func (s *rentalServiceStub) Cancel(ctx context.Context, actor user.User, id int6
 	return s.cancel(ctx, actor, id)
 }
 
-func (s *rentalServiceStub) Complete(ctx context.Context, actor user.User, id int64) (rental.Rental, error) {
+func (s *rentalServiceStub) Complete(ctx context.Context, actor user.User, id int64, overdueTotalKopecks int64) (rental.Rental, error) {
 	if s.complete == nil {
 		return rental.Rental{}, rental.ErrRentalNotFound
 	}
-	return s.complete(ctx, actor, id)
+	return s.complete(ctx, actor, id, overdueTotalKopecks)
 }
 
 func (s *rentalServiceStub) CompleteMany(ctx context.Context, actor user.User, ids []int64) ([]rental.Rental, error) {
@@ -434,11 +456,61 @@ func (s *rentalServiceStub) CompleteMany(ctx context.Context, actor user.User, i
 	return s.completeMany(ctx, actor, ids)
 }
 
+func (s *rentalServiceStub) PreviewSettlement(ctx context.Context, id int64) (rental.SettlementPreview, error) {
+	if s.preview != nil {
+		return s.preview(ctx, id)
+	}
+	value, err := s.Get(ctx, id)
+	if err != nil {
+		return rental.SettlementPreview{}, err
+	}
+	settlement, err := value.SettlementAt(value.Interval.End())
+	return rental.SettlementPreview{Rental: value, ReturnedAt: value.Interval.End(), Settlement: settlement}, err
+}
+
+func (s *rentalServiceStub) PreviewSettlements(ctx context.Context, ids []int64) ([]rental.SettlementPreview, error) {
+	if s.previews != nil {
+		return s.previews(ctx, ids)
+	}
+	result := make([]rental.SettlementPreview, 0, len(ids))
+	for _, id := range ids {
+		preview, err := s.PreviewSettlement(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, preview)
+	}
+	return result, nil
+}
+
 func (s *rentalServiceStub) Issue(ctx context.Context, actor user.User, id int64) (rental.Rental, error) {
 	if s.issue == nil {
 		return rental.Rental{}, rental.ErrRentalNotFound
 	}
 	return s.issue(ctx, actor, id)
+}
+
+func (s *rentalServiceStub) IssueWithReplacements(ctx context.Context, actor user.User, id int64, replacements []rental.EquipmentReplacement) (rental.Rental, error) {
+	if s.issueWithReplacements != nil {
+		return s.issueWithReplacements(ctx, actor, id, replacements)
+	}
+	return s.Issue(ctx, actor, id)
+}
+
+func (s *rentalServiceStub) PreviewIssue(ctx context.Context, id int64) (rental.IssuePreview, error) {
+	if s.previewIssue != nil {
+		return s.previewIssue(ctx, id)
+	}
+	value, err := s.Get(ctx, id)
+	if err != nil {
+		return rental.IssuePreview{}, err
+	}
+	issuedAt := value.Interval.Start()
+	if err := value.Issue(issuedAt); err != nil {
+		return rental.IssuePreview{}, err
+	}
+	expected, _ := value.ExpectedReturnAt()
+	return rental.IssuePreview{Rental: value, IssuedAt: issuedAt, ExpectedReturnAt: expected}, nil
 }
 
 func (s *rentalServiceStub) IssueMany(ctx context.Context, actor user.User, ids []int64) ([]rental.Rental, error) {

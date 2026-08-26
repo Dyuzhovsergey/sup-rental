@@ -31,9 +31,12 @@ func (r *RentalRepository) Monitoring(
 	const countQuery = `
 		SELECT
 			count(*) FILTER (
-				WHERE status IN ('confirmed', 'active')
-				  AND planned_start_at < $2
-				  AND $1 < planned_end_at
+				WHERE (
+					status = 'confirmed' AND planned_start_at < $2
+					AND $1 < planned_end_at
+				) OR (
+					status = 'active' AND issued_at < $2 AND $1 < expected_return_at
+				)
 			),
 			count(*) FILTER (
 				WHERE status = 'confirmed'
@@ -43,7 +46,7 @@ func (r *RentalRepository) Monitoring(
 			count(*) FILTER (WHERE status = 'active'),
 			count(*) FILTER (
 				WHERE status = 'active'
-				  AND planned_end_at < $3
+				  AND expected_return_at < $3
 			)
 		FROM rentals
 	`
@@ -57,6 +60,7 @@ func (r *RentalRepository) Monitoring(
 	const confirmedQuery = `
 		SELECT r.id, r.client_id, c.full_name,
 		       r.planned_start_at, r.planned_end_at, r.status,
+		       r.issued_at, r.expected_return_at, r.returned_at,
 		       count(ri.equipment_id),
 		       COALESCE(sum(ri.hourly_rate_kopecks), 0)
 		FROM rentals AS r
@@ -66,11 +70,11 @@ func (r *RentalRepository) Monitoring(
 		  AND r.planned_start_at < $2
 		  AND $1 < r.planned_end_at
 		GROUP BY r.id, c.full_name
-		ORDER BY r.planned_start_at, r.id
+		ORDER BY (r.planned_start_at <= $4) DESC, r.planned_start_at, r.id
 		LIMIT $3
 	`
 	data.Confirmed, err = queryMonitoringSummaries(
-		ctx, tx, confirmedQuery, query.DayStart, query.DayEnd, query.Limit,
+		ctx, tx, confirmedQuery, query.DayStart, query.DayEnd, query.Limit, query.Now,
 	)
 	if err != nil {
 		return rental.MonitoringData{}, fmt.Errorf("query confirmed rental monitoring: %w", err)
@@ -79,6 +83,7 @@ func (r *RentalRepository) Monitoring(
 	const activeQuery = `
 		SELECT r.id, r.client_id, c.full_name,
 		       r.planned_start_at, r.planned_end_at, r.status,
+		       r.issued_at, r.expected_return_at, r.returned_at,
 		       count(ri.equipment_id),
 		       COALESCE(sum(ri.hourly_rate_kopecks), 0)
 		FROM rentals AS r
@@ -86,7 +91,7 @@ func (r *RentalRepository) Monitoring(
 		LEFT JOIN rental_items AS ri ON ri.rental_id = r.id
 		WHERE r.status = 'active'
 		GROUP BY r.id, c.full_name
-		ORDER BY (r.planned_end_at < $1) DESC, r.planned_end_at, r.id
+		ORDER BY (r.expected_return_at < $1) DESC, r.expected_return_at, r.id
 		LIMIT $2
 	`
 	data.Active, err = queryMonitoringSummaries(ctx, tx, activeQuery, query.Now, query.Limit)
@@ -122,7 +127,9 @@ func queryMonitoringSummaries(
 		)
 		if err := rows.Scan(
 			&summary.ID, &summary.ClientID, &summary.ClientName,
-			&start, &end, &summary.Status, &summary.ItemCount, &hourlyRateSum,
+			&start, &end, &summary.Status,
+			&summary.IssuedAt, &summary.ExpectedReturnAt, &summary.ReturnedAt,
+			&summary.ItemCount, &hourlyRateSum,
 		); err != nil {
 			return nil, err
 		}

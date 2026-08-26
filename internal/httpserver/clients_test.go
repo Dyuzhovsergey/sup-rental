@@ -55,6 +55,8 @@ func TestClientsPageShowsOperatorCreateFormAndAdminReadOnlyList(t *testing.T) {
 			`href="/clients"`, `class="client-name-link" href="/clients/3"`,
 			`aria-current="page"`, "Строк на странице", `value="5" selected`,
 			`value="10"`, `value="15"`,
+			`class="table-scroll responsive-table-region"`, `class="responsive-data-table"`,
+			`class="mobile-cell-label" aria-hidden="true">Телефон`,
 		} {
 			if !strings.Contains(body, want) {
 				t.Errorf("%s body does not contain %q", tt.role, want)
