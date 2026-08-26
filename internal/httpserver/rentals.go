@@ -36,6 +36,7 @@ type rentalService interface {
 	PreviewSettlement(context.Context, int64) (rental.SettlementPreview, error)
 	PreviewSettlements(context.Context, []int64) ([]rental.SettlementPreview, error)
 	Get(context.Context, int64) (rental.Rental, error)
+	PaymentSummary(context.Context, int64) (rental.PaymentSummary, error)
 	ListPage(context.Context, []rental.Status, int, int) (rental.Page, error)
 	Monitoring(context.Context) (rental.MonitoringSnapshot, error)
 }
@@ -187,6 +188,13 @@ type rentalDetailPageData struct {
 	ReturnedAt             string
 	CanIssue               bool
 	CanComplete            bool
+	PaymentLegacy          bool
+	BasePayment            string
+	BasePaymentAt          string
+	OverduePayment         string
+	OverduePaymentAt       string
+	RefundPayment          string
+	RefundPaymentAt        string
 }
 
 type rentalItemView struct {
@@ -760,7 +768,7 @@ func showRentalsPage(
 	}
 	if createdID, parseErr := positiveOptionalID(r.URL.Query().Get("created")); parseErr == nil && createdID > 0 {
 		if _, getErr := rentals.Get(r.Context(), createdID); getErr == nil {
-			data.Success = "Аренда №" + strconv.FormatInt(createdID, 10) + " создана и подтверждена."
+			data.Success = "Аренда №" + strconv.FormatInt(createdID, 10) + " создана, подтверждена и оплачена."
 		} else if !errors.Is(getErr, rental.ErrRentalNotFound) {
 			logger.Error("load created rental notice", slog.Any("error", getErr))
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -781,6 +789,13 @@ func showRentalsPage(
 		cancelled, getErr := rentals.Get(r.Context(), cancelledID)
 		if getErr == nil && cancelled.Status == rental.StatusCancelled {
 			data.Success = "Аренда №" + strconv.FormatInt(cancelledID, 10) + " отменена."
+			if paymentSummary, paymentErr := rentals.PaymentSummary(r.Context(), cancelledID); paymentErr == nil && paymentSummary.HasRefund() {
+				data.Success += " Возврат основной оплаты зафиксирован."
+			} else if paymentErr != nil {
+				logger.Error("load cancelled rental payment notice", slog.Any("error", paymentErr))
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
 		} else if getErr != nil && !errors.Is(getErr, rental.ErrRentalNotFound) {
 			logger.Error("load cancelled rental notice", slog.Any("error", getErr))
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -857,6 +872,12 @@ func showRentalDetailPage(
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+	paymentSummary, err := rentals.PaymentSummary(r.Context(), id)
+	if err != nil {
+		logger.Error("get rental payments", slog.Any("error", err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 	authentication := authenticationForPage(r)
 	data := rentalDetailPageData{
 		Authentication: authentication, Title: fmt.Sprintf("Аренда №%d — SUP Rental", id),
@@ -866,6 +887,19 @@ func showRentalDetailPage(
 		PlannedTotal: rentalMoneyLabel(total),
 		CanIssue:     authentication != nil && authentication.IsOperator && value.Status == rental.StatusConfirmed,
 		CanComplete:  authentication != nil && authentication.IsOperator && value.Status == rental.StatusActive,
+	}
+	data.PaymentLegacy = !paymentSummary.HasBase()
+	if paymentSummary.Base != nil {
+		data.BasePayment = rentalMoneyLabel(paymentSummary.Base.AmountKopecks)
+		data.BasePaymentAt = rentalDateTimeLabel(paymentSummary.Base.OccurredAt)
+	}
+	if paymentSummary.Overdue != nil {
+		data.OverduePayment = rentalMoneyLabel(paymentSummary.Overdue.AmountKopecks)
+		data.OverduePaymentAt = rentalDateTimeLabel(paymentSummary.Overdue.OccurredAt)
+	}
+	if paymentSummary.Refund != nil {
+		data.RefundPayment = rentalMoneyLabel(paymentSummary.Refund.AmountKopecks)
+		data.RefundPaymentAt = rentalDateTimeLabel(paymentSummary.Refund.OccurredAt)
 	}
 	if issuedAt, ok := value.IssuedAt(); ok {
 		data.IssuedAt = rentalDateTimeLabel(issuedAt)

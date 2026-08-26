@@ -274,7 +274,8 @@ func safeAuditSummary(event audit.Event) string {
 		return strings.Join(changes, "; ")
 	}
 	if event.Action == "rental.confirmed" || event.Action == "rental.issued" || event.Action == "rental.equipment_replaced" ||
-		event.Action == "rental.cancelled" || event.Action == "rental.completed" {
+		event.Action == "rental.cancelled" || event.Action == "rental.completed" ||
+		event.Action == "rental.payment_recorded" || event.Action == "rental.payment_refunded" {
 		var details struct {
 			ClientID       int64      `json:"client_id"`
 			PlannedStart   time.Time  `json:"planned_start"`
@@ -282,6 +283,8 @@ func safeAuditSummary(event audit.Event) string {
 			EquipmentCount int        `json:"equipment_count"`
 			IssuedAt       *time.Time `json:"issued_at"`
 			ReturnedAt     *time.Time `json:"returned_at"`
+			PaymentKind    string     `json:"payment_kind"`
+			PaymentAmount  int64      `json:"payment_amount_kopecks"`
 		}
 		if json.Unmarshal(event.Details, &details) != nil {
 			return ""
@@ -295,6 +298,9 @@ func safeAuditSummary(event audit.Event) string {
 		}
 		if details.ReturnedAt != nil {
 			summary += "; фактический возврат: " + details.ReturnedAt.In(moscowTimeZone).Format("02.01.2006 15:04")
+		}
+		if details.PaymentAmount > 0 {
+			summary += "; сумма: " + rentalMoneyLabel(details.PaymentAmount)
 		}
 		return summary
 	}
@@ -328,6 +334,8 @@ func auditActionLabel(action string) string {
 		"rental.equipment_replaced": "Оборудование аренды заменено",
 		"rental.cancelled":          "Аренда отменена",
 		"rental.completed":          "Аренда завершена",
+		"rental.payment_recorded":   "Оплата аренды зафиксирована",
+		"rental.payment_refunded":   "Оплата аренды возвращена",
 	}
 	if label := labels[action]; label != "" {
 		return label

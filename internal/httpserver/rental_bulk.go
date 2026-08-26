@@ -38,6 +38,7 @@ type rentalBulkPageData struct {
 	IsCompletion      bool
 	CombinedTotal     string
 	HasIssueConflicts bool
+	HasRefunds        bool
 }
 
 type rentalBulkView struct {
@@ -49,6 +50,8 @@ type rentalBulkView struct {
 	OverdueTotal  string
 	FinalTotal    string
 	IssueConflict bool
+	Payment       string
+	HasPayment    bool
 }
 
 func showBulkRentalIssuePage(
@@ -155,6 +158,16 @@ func showRentalBulkPage(
 			ID: id, ClientName: customer.FullName, Period: rentalPeriodLabel(value.Interval),
 			ItemCount: rentalItemCountLabel(value.ItemCount()), PlannedTotal: rentalMoneyLabel(total),
 		}
+		paymentSummary, paymentErr := rentals.PaymentSummary(r.Context(), id)
+		if paymentErr != nil {
+			logger.Error("get rental payments for bulk action", slog.Int64("rental_id", id), slog.Any("error", paymentErr))
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		if paymentSummary.Base != nil {
+			view.HasPayment = true
+			view.Payment = rentalMoneyLabel(paymentSummary.Base.AmountKopecks)
+		}
 		view.IssueConflict = issueConflict
 		if preview, ok := previews[id]; ok {
 			view.OverdueTotal = rentalMoneyLabel(preview.Settlement.OverdueTotalKopecks)
@@ -179,6 +192,9 @@ func showRentalBulkPage(
 			data.HasIssueConflicts = true
 			break
 		}
+		if action == rentalBulkCancel && view.HasPayment {
+			data.HasRefunds = true
+		}
 	}
 	switch action {
 	case rentalBulkCancel:
@@ -187,6 +203,10 @@ func showRentalBulkPage(
 		data.Description = "Проверьте список перед снятием резервирования оборудования."
 		data.Warning = "Все выбранные аренды будут отменены. Аренды и их состав останутся в истории."
 		data.SubmitLabel = "Подтвердить отмену"
+		if data.HasRefunds {
+			data.Warning = "Все выбранные аренды будут отменены. Указанные основные оплаты необходимо полностью вернуть клиентам; аренды и их состав останутся в истории."
+			data.SubmitLabel = "Деньги возвращены — отменить"
+		}
 		data.Action = "/rentals/bulk/cancel"
 		data.IsCancellation = true
 	case rentalBulkComplete:
@@ -194,7 +214,7 @@ func showRentalBulkPage(
 		data.Heading = "Принять возврат по выбранным арендам?"
 		data.Description = "Проверьте клиентов, периоды и состав перед завершением аренд."
 		data.Warning = "Все выбранные аренды будут завершены с одним временем возврата, а всё оборудование станет доступным. Если одну аренду или единицу оборудования нельзя вернуть, вся операция будет отменена."
-		data.SubmitLabel = "Подтвердить возврат"
+		data.SubmitLabel = "Завершить аренды"
 		data.Action = "/rentals/bulk/complete"
 		data.IsCompletion = true
 		data.CombinedTotal = rentalMoneyLabel(combinedFinalTotal)

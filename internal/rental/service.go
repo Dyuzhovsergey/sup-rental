@@ -62,9 +62,22 @@ type Repository interface {
 	Complete(ctx context.Context, actor user.User, id int64, returnedAt time.Time, overdueTotalKopecks int64) (Rental, error)
 	CompleteMany(ctx context.Context, actor user.User, ids []int64, returnedAt time.Time) ([]Rental, error)
 	Get(ctx context.Context, id int64) (Rental, error)
+	PaymentSummary(ctx context.Context, id int64) (PaymentSummary, error)
 	ListPage(ctx context.Context, statuses []Status, page, pageSize int) (Page, error)
 	Monitoring(ctx context.Context, query MonitoringQuery) (MonitoringData, error)
 	AvailableEquipment(ctx context.Context, interval Interval) ([]equipment.Item, error)
+}
+
+// PaymentSummary возвращает зафиксированные оплаты и возврат одной аренды.
+func (s *Service) PaymentSummary(ctx context.Context, id int64) (PaymentSummary, error) {
+	if id <= 0 {
+		return PaymentSummary{}, ErrInvalidRentalID
+	}
+	summary, err := s.repository.PaymentSummary(ctx, id)
+	if err != nil {
+		return PaymentSummary{}, fmt.Errorf("load rental payment summary: %w", err)
+	}
+	return summary, nil
 }
 
 // ModelSelection задаёт требуемое количество единиц одной модели.

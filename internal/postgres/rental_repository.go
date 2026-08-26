@@ -27,6 +27,8 @@ const (
 	actionRentalEquipmentReplaced    = "rental.equipment_replaced"
 	actionRentalCancelled            = "rental.cancelled"
 	actionRentalCompleted            = "rental.completed"
+	actionRentalPaymentRecorded      = "rental.payment_recorded"
+	actionRentalPaymentRefunded      = "rental.payment_refunded"
 )
 
 type rentalAuditDetails struct {
@@ -42,6 +44,10 @@ type rentalAuditDetails struct {
 	CalculatedOverdueTotalKopecks *int64                   `json:"calculated_overdue_total_kopecks,omitempty"`
 	OverdueTotalKopecks           *int64                   `json:"overdue_total_kopecks,omitempty"`
 	FinalTotalKopecks             *int64                   `json:"final_total_kopecks,omitempty"`
+	PaymentID                     *int64                   `json:"payment_id,omitempty"`
+	PaymentKind                   *rental.PaymentKind      `json:"payment_kind,omitempty"`
+	PaymentAmountKopecks          *int64                   `json:"payment_amount_kopecks,omitempty"`
+	RelatedPaymentID              *int64                   `json:"related_payment_id,omitempty"`
 	Replacements                  []rentalReplacementAudit `json:"replacements,omitempty"`
 }
 
@@ -189,6 +195,18 @@ func (r *RentalRepository) completeMany(
 			},
 		); err != nil {
 			return nil, fmt.Errorf("write completed rental %d audit event: %w", value.ID, err)
+		}
+		if settlement.OverdueTotalKopecks > 0 {
+			payment, err := insertRentalPayment(
+				ctx, tx, value.ID, rental.PaymentKindOverdue,
+				settlement.OverdueTotalKopecks, actor.ID, nil,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("record rental %d overdue payment: %w", value.ID, err)
+			}
+			if err := r.writeAudit(ctx, tx, actionRentalPaymentRecorded, actor, value, paymentAuditDetails(value, payment)); err != nil {
+				return nil, fmt.Errorf("write rental %d overdue payment audit event: %w", value.ID, err)
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -542,6 +560,22 @@ func (r *RentalRepository) CancelMany(
 			},
 		); err != nil {
 			return nil, fmt.Errorf("write cancelled rental %d audit event: %w", value.ID, err)
+		}
+		basePayment, err := lockBaseRentalPayment(ctx, tx, value.ID)
+		if err != nil && !errors.Is(err, rental.ErrPaymentNotFound) {
+			return nil, err
+		}
+		if err == nil {
+			refund, err := insertRentalPayment(
+				ctx, tx, value.ID, rental.PaymentKindRefund,
+				basePayment.AmountKopecks, actor.ID, &basePayment.ID,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("record rental %d payment refund: %w", value.ID, err)
+			}
+			if err := r.writeAudit(ctx, tx, actionRentalPaymentRefunded, actor, value, paymentAuditDetails(value, refund)); err != nil {
+				return nil, fmt.Errorf("write rental %d refund audit event: %w", value.ID, err)
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -975,6 +1009,16 @@ func (r *RentalRepository) CreateConfirmed(
 	if err != nil {
 		return rental.Rental{}, fmt.Errorf("restore confirmed rental: %w", err)
 	}
+	plannedTotal, err := created.PlannedTotalKopecks()
+	if err != nil {
+		return rental.Rental{}, fmt.Errorf("calculate confirmed rental payment: %w", err)
+	}
+	basePayment, err := insertRentalPayment(
+		ctx, tx, created.ID, rental.PaymentKindBase, plannedTotal, actor.ID, nil,
+	)
+	if err != nil {
+		return rental.Rental{}, fmt.Errorf("record confirmed rental payment: %w", err)
+	}
 	if err := r.writeAudit(
 		ctx,
 		tx,
@@ -988,10 +1032,54 @@ func (r *RentalRepository) CreateConfirmed(
 	); err != nil {
 		return rental.Rental{}, fmt.Errorf("write confirmed rental audit event: %w", err)
 	}
+	if err := r.writeAudit(
+		ctx, tx, actionRentalPaymentRecorded, actor, created, paymentAuditDetails(created, basePayment),
+	); err != nil {
+		return rental.Rental{}, fmt.Errorf("write confirmed rental payment audit event: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return rental.Rental{}, fmt.Errorf("commit create confirmed rental transaction: %w", err)
 	}
 	return created, nil
+}
+
+// PaymentSummary возвращает неизменяемые финансовые записи аренды.
+func (r *RentalRepository) PaymentSummary(ctx context.Context, id int64) (rental.PaymentSummary, error) {
+	if id <= 0 {
+		return rental.PaymentSummary{}, rental.ErrInvalidRentalID
+	}
+	const query = `
+		SELECT p.id, p.rental_id, p.kind, p.amount_kopecks, p.occurred_at,
+		       p.actor_user_id, p.related_payment_id
+		FROM rental_payments AS p
+		WHERE p.rental_id = $1
+		ORDER BY p.id
+	`
+	rows, err := r.pool.Query(ctx, query, id)
+	if err != nil {
+		return rental.PaymentSummary{}, fmt.Errorf("query rental payments: %w", err)
+	}
+	defer rows.Close()
+
+	var summary rental.PaymentSummary
+	for rows.Next() {
+		payment, err := scanRentalPayment(rows)
+		if err != nil {
+			return rental.PaymentSummary{}, err
+		}
+		switch payment.Kind {
+		case rental.PaymentKindBase:
+			summary.Base = &payment
+		case rental.PaymentKindOverdue:
+			summary.Overdue = &payment
+		case rental.PaymentKindRefund:
+			summary.Refund = &payment
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return rental.PaymentSummary{}, fmt.Errorf("iterate rental payments: %w", err)
+	}
+	return summary, nil
 }
 
 // Get возвращает аренду с составом в сохранённом порядке.
@@ -1407,6 +1495,87 @@ func mapRentalItemConstraintError(err error) error {
 		return rental.ErrEquipmentAlreadyAdded
 	}
 	return nil
+}
+
+type rentalPaymentScanner interface {
+	Scan(dest ...any) error
+}
+
+func insertRentalPayment(
+	ctx context.Context,
+	tx pgx.Tx,
+	rentalID int64,
+	kind rental.PaymentKind,
+	amountKopecks int64,
+	actorUserID int64,
+	relatedPaymentID *int64,
+) (rental.Payment, error) {
+	const query = `
+		INSERT INTO rental_payments (
+			rental_id, kind, amount_kopecks, actor_user_id, related_payment_id
+		)
+		VALUES ($1, $2, $3, $4, $5)
+		RETURNING id, rental_id, kind, amount_kopecks, occurred_at,
+		          actor_user_id, related_payment_id
+	`
+	payment, err := scanRentalPayment(tx.QueryRow(
+		ctx, query, rentalID, kind, amountKopecks, actorUserID, relatedPaymentID,
+	))
+	if err != nil {
+		return rental.Payment{}, fmt.Errorf("insert rental payment: %w", err)
+	}
+	return payment, nil
+}
+
+func lockBaseRentalPayment(ctx context.Context, tx pgx.Tx, rentalID int64) (rental.Payment, error) {
+	const query = `
+		SELECT id, rental_id, kind, amount_kopecks, occurred_at,
+		       actor_user_id, related_payment_id
+		FROM rental_payments
+		WHERE rental_id = $1 AND kind = 'base'
+		FOR UPDATE
+	`
+	payment, err := scanRentalPayment(tx.QueryRow(ctx, query, rentalID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return rental.Payment{}, rental.ErrPaymentNotFound
+	}
+	if err != nil {
+		return rental.Payment{}, fmt.Errorf("lock base rental payment: %w", err)
+	}
+	return payment, nil
+}
+
+func scanRentalPayment(row rentalPaymentScanner) (rental.Payment, error) {
+	var payment rental.Payment
+	if err := row.Scan(
+		&payment.ID,
+		&payment.RentalID,
+		&payment.Kind,
+		&payment.AmountKopecks,
+		&payment.OccurredAt,
+		&payment.ActorUserID,
+		&payment.RelatedPaymentID,
+	); err != nil {
+		return rental.Payment{}, err
+	}
+	validated, err := rental.RestorePayment(payment)
+	if err != nil {
+		return rental.Payment{}, fmt.Errorf("restore rental payment: %w", err)
+	}
+	return validated, nil
+}
+
+func paymentAuditDetails(value rental.Rental, payment rental.Payment) rentalAuditDetails {
+	return rentalAuditDetails{
+		ClientID:             value.ClientID,
+		PlannedStart:         value.Interval.Start(),
+		PlannedEnd:           value.Interval.End(),
+		EquipmentCount:       value.ItemCount(),
+		PaymentID:            &payment.ID,
+		PaymentKind:          &payment.Kind,
+		PaymentAmountKopecks: &payment.AmountKopecks,
+		RelatedPaymentID:     payment.RelatedPaymentID,
+	}
 }
 
 func writeRentalAudit(

@@ -436,9 +436,17 @@ type serviceRepositoryStub struct {
 	complete              func(context.Context, user.User, int64, time.Time, int64) (Rental, error)
 	completeMany          func(context.Context, user.User, []int64, time.Time) ([]Rental, error)
 	get                   func(context.Context, int64) (Rental, error)
+	paymentSummary        func(context.Context, int64) (PaymentSummary, error)
 	list                  func(context.Context, []Status, int, int) (Page, error)
 	monitoring            func(context.Context, MonitoringQuery) (MonitoringData, error)
 	available             func(context.Context, Interval) ([]equipment.Item, error)
+}
+
+func (s *serviceRepositoryStub) PaymentSummary(ctx context.Context, id int64) (PaymentSummary, error) {
+	if s.paymentSummary == nil {
+		return PaymentSummary{}, nil
+	}
+	return s.paymentSummary(ctx, id)
 }
 
 func (s *serviceRepositoryStub) CancelMany(ctx context.Context, actor user.User, ids []int64) ([]Rental, error) {

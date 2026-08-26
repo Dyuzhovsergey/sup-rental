@@ -41,6 +41,14 @@ func TestRentalRepositoryCreatesConfirmedRentalWithSnapshotsAndAudit(t *testing.
 		t.Fatalf("Get() error = %v", err)
 	}
 	assertRentalEqual(t, got, created)
+	paymentSummary, err := repository.PaymentSummary(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("PaymentSummary() error = %v", err)
+	}
+	if paymentSummary.Base == nil || paymentSummary.Base.Kind != rental.PaymentKindBase ||
+		paymentSummary.Base.AmountKopecks != 100_000 || paymentSummary.Base.ActorUserID != fixture.actor.ID {
+		t.Fatalf("base payment = %+v", paymentSummary.Base)
+	}
 
 	if _, err := pool.Exec(ctx, "UPDATE equipment_models SET hourly_rate_kopecks = 60000 WHERE id = $1", fixture.modelID); err != nil {
 		t.Fatalf("change current rate: %v", err)
@@ -216,6 +224,13 @@ func TestRentalRepositoryCompletesRentalAndReturnsEquipment(t *testing.T) {
 		t.Fatalf("Get() error = %v", err)
 	}
 	assertRentalEqual(t, stored, completed)
+	paymentSummary, err := repository.PaymentSummary(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("PaymentSummary() error = %v", err)
+	}
+	if paymentSummary.Overdue == nil || paymentSummary.Overdue.AmountKopecks != 75_000 {
+		t.Fatalf("overdue payment = %+v", paymentSummary.Overdue)
+	}
 	history, err := repository.ListPage(ctx, []rental.Status{rental.StatusCompleted}, 1, 5)
 	if err != nil {
 		t.Fatalf("ListPage(completed) error = %v", err)
@@ -654,6 +669,16 @@ func TestRentalRepositoryCancelsRentalAndReleasesReservation(t *testing.T) {
 		t.Fatalf("Get() error = %v", err)
 	}
 	assertRentalEqual(t, stored, cancelled)
+	paymentSummary, err := repository.PaymentSummary(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("PaymentSummary() error = %v", err)
+	}
+	if paymentSummary.Base == nil || paymentSummary.Refund == nil ||
+		paymentSummary.Refund.AmountKopecks != paymentSummary.Base.AmountKopecks ||
+		paymentSummary.Refund.RelatedPaymentID == nil ||
+		*paymentSummary.Refund.RelatedPaymentID != paymentSummary.Base.ID {
+		t.Fatalf("payment summary after cancellation = %+v", paymentSummary)
+	}
 
 	var equipmentStatus equipment.Status
 	if err := pool.QueryRow(ctx, "SELECT status FROM equipment WHERE id = $1", fixture.equipmentIDs[0]).Scan(&equipmentStatus); err != nil {
@@ -931,8 +956,13 @@ func TestRentalRepositoryRollsBackWhenAuditFails(t *testing.T) {
 	pool, ctx := rentalTestPool(t)
 	fixture := newRentalRepositoryFixture(t, ctx, pool, 1)
 	repository := NewRentalRepository(pool)
-	repository.writeAudit = func(context.Context, pgx.Tx, string, user.User, rental.Rental, rentalAuditDetails) error {
-		return errors.New("audit unavailable")
+	auditCalls := 0
+	repository.writeAudit = func(ctx context.Context, tx pgx.Tx, action string, actor user.User, value rental.Rental, details rentalAuditDetails) error {
+		auditCalls++
+		if auditCalls == 2 {
+			return errors.New("audit unavailable")
+		}
+		return writeRentalAudit(ctx, tx, action, actor, value, details)
 	}
 	interval := rentalTestInterval(t, time.Date(2026, 9, 4, 10, 8, 0, 0, time.UTC))
 
@@ -946,6 +976,9 @@ func TestRentalRepositoryRollsBackWhenAuditFails(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("rentals after rollback = %d", count)
+	}
+	if auditCalls != 2 {
+		t.Fatalf("audit calls = %d, want 2", auditCalls)
 	}
 }
 
@@ -1226,6 +1259,9 @@ func newRentalRepositoryFixture(t *testing.T, ctx context.Context, pool *pgxpool
 	t.Cleanup(func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
+		_, _ = pool.Exec(cleanupCtx, `DELETE FROM rental_payments WHERE rental_id IN (
+			SELECT id FROM rentals WHERE client_id = ANY($1)
+		)`, []int64{fixture.firstClientID, fixture.secondClientID})
 		_, _ = pool.Exec(cleanupCtx, "DELETE FROM rentals WHERE client_id = ANY($1)", []int64{fixture.firstClientID, fixture.secondClientID})
 		_, _ = pool.Exec(cleanupCtx, "DELETE FROM audit_events WHERE actor_user_id = $1", fixture.actor.ID)
 		_, _ = pool.Exec(cleanupCtx, "DELETE FROM equipment WHERE model_id = $1", fixture.modelID)

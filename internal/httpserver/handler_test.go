@@ -405,8 +405,16 @@ type rentalServiceStub struct {
 	preview               func(context.Context, int64) (rental.SettlementPreview, error)
 	previews              func(context.Context, []int64) ([]rental.SettlementPreview, error)
 	get                   func(context.Context, int64) (rental.Rental, error)
+	paymentSummary        func(context.Context, int64) (rental.PaymentSummary, error)
 	list                  func(context.Context, []rental.Status, int, int) (rental.Page, error)
 	monitoring            func(context.Context) (rental.MonitoringSnapshot, error)
+}
+
+func (s *rentalServiceStub) PaymentSummary(ctx context.Context, id int64) (rental.PaymentSummary, error) {
+	if s.paymentSummary == nil {
+		return rental.PaymentSummary{}, nil
+	}
+	return s.paymentSummary(ctx, id)
 }
 
 func (s *rentalServiceStub) CancelMany(ctx context.Context, actor user.User, ids []int64) ([]rental.Rental, error) {

@@ -468,6 +468,13 @@ func TestRentalsListAndDetail(t *testing.T) {
 			}}, Total: 1, Page: 1, PageSize: 5}, nil
 		},
 		get: func(context.Context, int64) (rental.Rental, error) { return stored, nil },
+		paymentSummary: func(context.Context, int64) (rental.PaymentSummary, error) {
+			paidAt := time.Date(2026, 8, 15, 9, 55, 0, 0, time.UTC)
+			return rental.PaymentSummary{Base: &rental.Payment{
+				ID: 1, RentalID: 24, Kind: rental.PaymentKindBase,
+				AmountKopecks: 150_000, OccurredAt: paidAt, ActorUserID: 7,
+			}}, nil
+		},
 	}
 	handler := newRentalTestHandler(t, user.RoleAdmin, rentals, rentalClientsStub())
 
@@ -477,7 +484,7 @@ func TestRentalsListAndDetail(t *testing.T) {
 		t.Fatalf("list status = %d", list.Code)
 	}
 	for _, want := range []string{
-		"Аренда №24 создана и подтверждена", "Подтверждена", "Анна Петрова", "1 позиция", "1500 ₽",
+		"Аренда №24 создана, подтверждена и оплачена", "Подтверждена", "Анна Петрова", "1 позиция", "1500 ₽",
 		`href="/rentals/24"`, `data-row-href="/rentals/24"`, `tabindex="0"`,
 		`aria-label="Открыть аренду №24"`,
 	} {
@@ -494,7 +501,7 @@ func TestRentalsListAndDetail(t *testing.T) {
 	if detail.Code != http.StatusOK {
 		t.Fatalf("detail status = %d", detail.Code)
 	}
-	for _, want := range []string{"Аренда №24", "SUP-TOURING-1", "TOURING", "1000 ₽/час", "1 час 30 мин", "&#43;7 (999) 123-45-67"} {
+	for _, want := range []string{"Аренда №24", "SUP-TOURING-1", "TOURING", "1000 ₽/час", "1 час 30 мин", "&#43;7 (999) 123-45-67", "Оплата", "Основная оплата", "1500 ₽"} {
 		if !strings.Contains(detail.Body.String(), want) {
 			t.Errorf("detail does not contain %q", want)
 		}
@@ -962,7 +969,7 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 	for _, want := range []string{
 		"Подтверждение возврата", "Анна Петрова", "SUP-TOURING-1",
 		"15.08.2026 10:02", `name="csrf_token" value="csrf-token"`,
-		"Подтвердить возврат и завершить", "всё оборудование станет доступным",
+		"Завершить аренду", "всё оборудование станет доступным",
 		"Плановая стоимость", "1500 ₽", "Оплачиваемое время просрочки", "30 мин", "Рассчитанная доплата",
 		`name="overdue_total_rubles"`, `value="500"`, "Уменьшить доплату на 50 рублей", "Увеличить доплату на 50 рублей",
 		"Предварительный итог", "2000 ₽", "Первые 10 минут",
@@ -1138,6 +1145,13 @@ func TestRentalCancellationConfirmationAndRedirect(t *testing.T) {
 	var gotActor user.User
 	rentals := &rentalServiceStub{
 		get: func(context.Context, int64) (rental.Rental, error) { return confirmed, nil },
+		paymentSummary: func(context.Context, int64) (rental.PaymentSummary, error) {
+			paidAt := time.Date(2026, 8, 15, 9, 55, 0, 0, time.UTC)
+			return rental.PaymentSummary{Base: &rental.Payment{
+				ID: 1, RentalID: 24, Kind: rental.PaymentKindBase,
+				AmountKopecks: 150_000, OccurredAt: paidAt, ActorUserID: 7,
+			}}, nil
+		},
 		cancel: func(_ context.Context, actor user.User, id int64) (rental.Rental, error) {
 			gotActor = actor
 			if id != 24 {
@@ -1152,7 +1166,7 @@ func TestRentalCancellationConfirmationAndRedirect(t *testing.T) {
 	if page.Code != http.StatusOK {
 		t.Fatalf("cancel page status = %d body %q", page.Code, page.Body.String())
 	}
-	for _, want := range []string{"Подтверждение отмены", "Анна Петрова", "SUP-TOURING-1", `name="csrf_token" value="csrf-token"`, "Подтвердить отмену", "останутся в истории"} {
+	for _, want := range []string{"Подтверждение отмены", "Анна Петрова", "SUP-TOURING-1", `name="csrf_token" value="csrf-token"`, "Деньги возвращены — отменить", "1500 ₽", "останутся в истории"} {
 		if !strings.Contains(page.Body.String(), want) {
 			t.Errorf("cancel page does not contain %q", want)
 		}
