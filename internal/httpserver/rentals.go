@@ -25,13 +25,18 @@ const rentalDateTimeLayout = "2006-01-02T15:04"
 type rentalService interface {
 	AvailableModels(context.Context, rental.Interval) ([]rental.AvailableModel, error)
 	CreateConfirmed(context.Context, user.User, int64, rental.Interval, []rental.ModelSelection) (rental.Rental, error)
+	PreviewIssue(context.Context, int64) (rental.IssuePreview, error)
 	Issue(context.Context, user.User, int64) (rental.Rental, error)
+	IssueWithReplacements(context.Context, user.User, int64, []rental.EquipmentReplacement) (rental.Rental, error)
 	IssueMany(context.Context, user.User, []int64) ([]rental.Rental, error)
 	Cancel(context.Context, user.User, int64) (rental.Rental, error)
 	CancelMany(context.Context, user.User, []int64) ([]rental.Rental, error)
-	Complete(context.Context, user.User, int64) (rental.Rental, error)
+	Complete(context.Context, user.User, int64, int64) (rental.Rental, error)
 	CompleteMany(context.Context, user.User, []int64) ([]rental.Rental, error)
+	PreviewSettlement(context.Context, int64) (rental.SettlementPreview, error)
+	PreviewSettlements(context.Context, []int64) ([]rental.SettlementPreview, error)
 	Get(context.Context, int64) (rental.Rental, error)
+	PaymentSummary(context.Context, int64) (rental.PaymentSummary, error)
 	ListPage(context.Context, []rental.Status, int, int) (rental.Page, error)
 	Monitoring(context.Context) (rental.MonitoringSnapshot, error)
 }
@@ -152,30 +157,44 @@ type rentalPageNumbers struct {
 }
 
 type rentalSummaryView struct {
-	ID           int64
-	ClientName   string
-	Period       string
-	Duration     string
-	ItemCount    string
-	Status       string
-	PlannedTotal string
+	ID         int64
+	ClientName string
+	Period     string
+	Duration   string
+	ItemCount  string
+	Status     string
+	Total      string
 }
 
 type rentalDetailPageData struct {
-	Authentication *authenticationView
-	Title          string
-	RentalID       int64
-	Client         client.Client
-	Period         string
-	Duration       string
-	Status         string
-	Items          []rentalItemView
-	ItemCount      string
-	PlannedTotal   string
-	IssuedAt       string
-	ReturnedAt     string
-	CanIssue       bool
-	CanComplete    bool
+	Authentication         *authenticationView
+	Title                  string
+	RentalID               int64
+	Client                 client.Client
+	Period                 string
+	Duration               string
+	Status                 string
+	Items                  []rentalItemView
+	ItemCount              string
+	PlannedTotal           string
+	HasSettlement          bool
+	Overdue                string
+	BillableOverdue        string
+	CalculatedOverdueTotal string
+	OverdueTotal           string
+	FinalTotal             string
+	IssuedAt               string
+	ExpectedReturnAt       string
+	ReturnedAt             string
+	CanIssue               bool
+	CanComplete            bool
+	PaymentLegacy          bool
+	BasePayment            string
+	BasePaymentAt          string
+	OverduePayment         string
+	OverduePaymentAt       string
+	RefundPayment          string
+	RefundPaymentAt        string
 }
 
 type rentalItemView struct {
@@ -749,7 +768,7 @@ func showRentalsPage(
 	}
 	if createdID, parseErr := positiveOptionalID(r.URL.Query().Get("created")); parseErr == nil && createdID > 0 {
 		if _, getErr := rentals.Get(r.Context(), createdID); getErr == nil {
-			data.Success = "Аренда №" + strconv.FormatInt(createdID, 10) + " создана и подтверждена."
+			data.Success = "Аренда №" + strconv.FormatInt(createdID, 10) + " создана, подтверждена и оплачена."
 		} else if !errors.Is(getErr, rental.ErrRentalNotFound) {
 			logger.Error("load created rental notice", slog.Any("error", getErr))
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -770,6 +789,13 @@ func showRentalsPage(
 		cancelled, getErr := rentals.Get(r.Context(), cancelledID)
 		if getErr == nil && cancelled.Status == rental.StatusCancelled {
 			data.Success = "Аренда №" + strconv.FormatInt(cancelledID, 10) + " отменена."
+			if paymentSummary, paymentErr := rentals.PaymentSummary(r.Context(), cancelledID); paymentErr == nil && paymentSummary.HasRefund() {
+				data.Success += " Возврат основной оплаты зафиксирован."
+			} else if paymentErr != nil {
+				logger.Error("load cancelled rental payment notice", slog.Any("error", paymentErr))
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
 		} else if getErr != nil && !errors.Is(getErr, rental.ErrRentalNotFound) {
 			logger.Error("load cancelled rental notice", slog.Any("error", getErr))
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -846,6 +872,12 @@ func showRentalDetailPage(
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
+	paymentSummary, err := rentals.PaymentSummary(r.Context(), id)
+	if err != nil {
+		logger.Error("get rental payments", slog.Any("error", err))
+		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+		return
+	}
 	authentication := authenticationForPage(r)
 	data := rentalDetailPageData{
 		Authentication: authentication, Title: fmt.Sprintf("Аренда №%d — SUP Rental", id),
@@ -856,11 +888,35 @@ func showRentalDetailPage(
 		CanIssue:     authentication != nil && authentication.IsOperator && value.Status == rental.StatusConfirmed,
 		CanComplete:  authentication != nil && authentication.IsOperator && value.Status == rental.StatusActive,
 	}
+	data.PaymentLegacy = !paymentSummary.HasBase()
+	if paymentSummary.Base != nil {
+		data.BasePayment = rentalMoneyLabel(paymentSummary.Base.AmountKopecks)
+		data.BasePaymentAt = rentalDateTimeLabel(paymentSummary.Base.OccurredAt)
+	}
+	if paymentSummary.Overdue != nil {
+		data.OverduePayment = rentalMoneyLabel(paymentSummary.Overdue.AmountKopecks)
+		data.OverduePaymentAt = rentalDateTimeLabel(paymentSummary.Overdue.OccurredAt)
+	}
+	if paymentSummary.Refund != nil {
+		data.RefundPayment = rentalMoneyLabel(paymentSummary.Refund.AmountKopecks)
+		data.RefundPaymentAt = rentalDateTimeLabel(paymentSummary.Refund.OccurredAt)
+	}
 	if issuedAt, ok := value.IssuedAt(); ok {
 		data.IssuedAt = rentalDateTimeLabel(issuedAt)
 	}
+	if expectedReturnAt, ok := value.ExpectedReturnAt(); ok {
+		data.ExpectedReturnAt = rentalDateTimeLabel(expectedReturnAt)
+	}
 	if returnedAt, ok := value.ReturnedAt(); ok {
 		data.ReturnedAt = rentalDateTimeLabel(returnedAt)
+	}
+	if settlement, ok := value.Settlement(); ok {
+		data.HasSettlement = true
+		data.Overdue = rentalOverdueLabel(settlement.OverdueDuration)
+		data.BillableOverdue = rentalBillableOverdueLabel(settlement.OverdueSlots)
+		data.CalculatedOverdueTotal = rentalMoneyLabel(settlement.CalculatedOverdueTotalKopecks)
+		data.OverdueTotal = rentalMoneyLabel(settlement.OverdueTotalKopecks)
+		data.FinalTotal = rentalMoneyLabel(settlement.FinalTotalKopecks)
 	}
 	renderPage(logger, pageTemplates, w, http.StatusOK, "rental_detail.html", data,
 		"render rental detail", "write rental detail response")
@@ -1297,14 +1353,38 @@ func rentalModelGroups(
 func rentalSummaryViews(values []rental.Summary) []rentalSummaryView {
 	views := make([]rentalSummaryView, 0, len(values))
 	for _, value := range values {
+		total := value.PlannedTotalKopecks
+		if value.FinalTotalKopecks != nil {
+			total = *value.FinalTotalKopecks
+		}
+		period, duration := rentalSummaryPeriod(value)
+		status := rentalStatusLabel(value.Status)
+		if value.WaitingForIssue {
+			status = "Ожидает выдачи"
+		}
 		views = append(views, rentalSummaryView{
 			ID: value.ID, ClientName: value.ClientName,
-			Period: rentalPeriodLabel(value.Interval), Duration: rentalDurationLabel(value.Interval),
+			Period: period, Duration: duration,
 			ItemCount: rentalItemCountLabel(value.ItemCount),
-			Status:    rentalStatusLabel(value.Status), PlannedTotal: rentalMoneyLabel(value.PlannedTotalKopecks),
+			Status:    status, Total: rentalMoneyLabel(total),
 		})
 	}
 	return views
+}
+
+func rentalSummaryPeriod(value rental.Summary) (string, string) {
+	start, end := value.Interval.Start(), value.Interval.End()
+	switch value.Status {
+	case rental.StatusActive:
+		if value.IssuedAt != nil && value.ExpectedReturnAt != nil {
+			start, end = *value.IssuedAt, *value.ExpectedReturnAt
+		}
+	case rental.StatusCompleted:
+		if value.IssuedAt != nil && value.ReturnedAt != nil {
+			start, end = *value.IssuedAt, *value.ReturnedAt
+		}
+	}
+	return rentalTimeRangeLabel(start, end), rentalDurationValueLabel(end.Sub(start))
 }
 
 func rentalItemViews(items []rental.Item) []rentalItemView {
@@ -1377,12 +1457,35 @@ func rentalSectionPagination(pageKey string, page, total int, pages rentalPageNu
 }
 
 func rentalPeriodLabel(interval rental.Interval) string {
-	start := interval.Start().In(moscowTimeZone)
-	end := interval.End().In(moscowTimeZone)
+	return rentalTimeRangeLabel(interval.Start(), interval.End())
+}
+
+func rentalTimeRangeLabel(startValue, endValue time.Time) string {
+	start := startValue.In(moscowTimeZone)
+	end := endValue.In(moscowTimeZone)
 	if start.YearDay() == end.YearDay() && start.Year() == end.Year() {
 		return start.Format("02.01.2006 15:04") + " — " + end.Format("15:04")
 	}
 	return start.Format("02.01.2006 15:04") + " — " + end.Format("02.01.2006 15:04")
+}
+
+func rentalDurationValueLabel(duration time.Duration) string {
+	if duration <= 0 {
+		return "0 мин"
+	}
+	minutes := int(duration / time.Minute)
+	if duration%time.Minute != 0 {
+		minutes++
+	}
+	hours := minutes / 60
+	remaining := minutes % 60
+	if hours == 0 {
+		return fmt.Sprintf("%d мин", remaining)
+	}
+	if remaining == 0 {
+		return fmt.Sprintf("%d %s", hours, russianHourWord(hours))
+	}
+	return fmt.Sprintf("%d %s %d мин", hours, russianHourWord(hours), remaining)
 }
 
 func rentalDateTimeLabel(value time.Time) string {
@@ -1404,6 +1507,21 @@ func rentalSlotsLabel(slots int) string {
 		return fmt.Sprintf("%d %s", hours, russianHourWord(hours))
 	}
 	return fmt.Sprintf("%d %s %d мин", hours, russianHourWord(hours), remaining)
+}
+
+func rentalOverdueLabel(duration time.Duration) string {
+	if duration <= 0 {
+		return "Нет"
+	}
+	minutes := int(duration / time.Minute)
+	if duration%time.Minute != 0 {
+		minutes++
+	}
+	return fmt.Sprintf("%d мин", minutes)
+}
+
+func rentalBillableOverdueLabel(slots int) string {
+	return rentalSlotsLabel(slots)
 }
 
 func russianHourWord(hours int) string {
@@ -1436,6 +1554,9 @@ func rentalStatusLabel(status rental.Status) string {
 }
 
 func rentalMoneyLabel(kopecks int64) string {
+	if kopecks%100 != 0 {
+		return fmt.Sprintf("%d,%02d ₽", kopecks/100, kopecks%100)
+	}
 	return fmt.Sprintf("%d ₽", kopecks/100)
 }
 

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"html/template"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -23,25 +24,34 @@ const (
 )
 
 type rentalBulkPageData struct {
-	Authentication *authenticationView
-	Title          string
-	Heading        string
-	Description    string
-	Warning        string
-	SubmitLabel    string
-	Action         string
-	Rentals        []rentalBulkView
-	RentalCount    string
-	EquipmentCount string
-	IsCancellation bool
+	Authentication    *authenticationView
+	Title             string
+	Heading           string
+	Description       string
+	Warning           string
+	SubmitLabel       string
+	Action            string
+	Rentals           []rentalBulkView
+	RentalCount       string
+	EquipmentCount    string
+	IsCancellation    bool
+	IsCompletion      bool
+	CombinedTotal     string
+	HasIssueConflicts bool
+	HasRefunds        bool
 }
 
 type rentalBulkView struct {
-	ID           int64
-	ClientName   string
-	Period       string
-	ItemCount    string
-	PlannedTotal string
+	ID            int64
+	ClientName    string
+	Period        string
+	ItemCount     string
+	PlannedTotal  string
+	OverdueTotal  string
+	FinalTotal    string
+	IssueConflict bool
+	Payment       string
+	HasPayment    bool
 }
 
 func showBulkRentalIssuePage(
@@ -93,8 +103,24 @@ func showRentalBulkPage(
 	}
 	views := make([]rentalBulkView, 0, len(ids))
 	totalEquipment := 0
+	previews := make(map[int64]rental.SettlementPreview, len(ids))
+	if action == rentalBulkComplete {
+		values, previewErr := rentals.PreviewSettlements(r.Context(), ids)
+		if previewErr != nil {
+			writeBulkRentalError(logger, w, r, previewErr, "preview selected rental settlements")
+			return
+		}
+		for _, preview := range values {
+			previews[preview.Rental.ID] = preview
+		}
+	}
+	var combinedFinalTotal int64
 	for _, id := range ids {
 		value, err := rentals.Get(r.Context(), id)
+		if preview, ok := previews[id]; ok {
+			value = preview.Rental
+			err = nil
+		}
 		switch {
 		case errors.Is(err, rental.ErrRentalNotFound), errors.Is(err, rental.ErrInvalidRentalID):
 			http.NotFound(w, r)
@@ -106,6 +132,15 @@ func showRentalBulkPage(
 		case value.Status != rentalBulkExpectedStatus(action):
 			http.Error(w, "Выбранные аренды изменились. Вернитесь к списку и повторите выбор.", http.StatusConflict)
 			return
+		}
+		issueConflict := false
+		if action == rentalBulkIssue {
+			preview, previewErr := rentals.PreviewIssue(r.Context(), id)
+			if previewErr != nil {
+				writeBulkRentalError(logger, w, r, previewErr, "preview selected rental issue")
+				return
+			}
+			issueConflict = len(preview.Conflicts) > 0
 		}
 		customer, err := clients.Get(r.Context(), value.ClientID)
 		if err != nil {
@@ -119,16 +154,47 @@ func showRentalBulkPage(
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 			return
 		}
-		views = append(views, rentalBulkView{
+		view := rentalBulkView{
 			ID: id, ClientName: customer.FullName, Period: rentalPeriodLabel(value.Interval),
 			ItemCount: rentalItemCountLabel(value.ItemCount()), PlannedTotal: rentalMoneyLabel(total),
-		})
+		}
+		paymentSummary, paymentErr := rentals.PaymentSummary(r.Context(), id)
+		if paymentErr != nil {
+			logger.Error("get rental payments for bulk action", slog.Int64("rental_id", id), slog.Any("error", paymentErr))
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+		if paymentSummary.Base != nil {
+			view.HasPayment = true
+			view.Payment = rentalMoneyLabel(paymentSummary.Base.AmountKopecks)
+		}
+		view.IssueConflict = issueConflict
+		if preview, ok := previews[id]; ok {
+			view.OverdueTotal = rentalMoneyLabel(preview.Settlement.OverdueTotalKopecks)
+			view.FinalTotal = rentalMoneyLabel(preview.Settlement.FinalTotalKopecks)
+			if preview.Settlement.FinalTotalKopecks > math.MaxInt64-combinedFinalTotal {
+				logger.Error("calculate combined rental settlement", slog.Any("error", rental.ErrPriceOverflow))
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			combinedFinalTotal += preview.Settlement.FinalTotalKopecks
+		}
+		views = append(views, view)
 		totalEquipment += value.ItemCount()
 	}
 
 	data := rentalBulkPageData{
 		Authentication: authenticationForPage(r), Rentals: views,
 		RentalCount: rentalCountLabel(len(views)), EquipmentCount: rentalItemCountLabel(totalEquipment),
+	}
+	for _, view := range views {
+		if view.IssueConflict {
+			data.HasIssueConflicts = true
+			break
+		}
+		if action == rentalBulkCancel && view.HasPayment {
+			data.HasRefunds = true
+		}
 	}
 	switch action {
 	case rentalBulkCancel:
@@ -137,6 +203,10 @@ func showRentalBulkPage(
 		data.Description = "Проверьте список перед снятием резервирования оборудования."
 		data.Warning = "Все выбранные аренды будут отменены. Аренды и их состав останутся в истории."
 		data.SubmitLabel = "Подтвердить отмену"
+		if data.HasRefunds {
+			data.Warning = "Все выбранные аренды будут отменены. Указанные основные оплаты необходимо полностью вернуть клиентам; аренды и их состав останутся в истории."
+			data.SubmitLabel = "Деньги возвращены — отменить"
+		}
 		data.Action = "/rentals/bulk/cancel"
 		data.IsCancellation = true
 	case rentalBulkComplete:
@@ -144,13 +214,18 @@ func showRentalBulkPage(
 		data.Heading = "Принять возврат по выбранным арендам?"
 		data.Description = "Проверьте клиентов, периоды и состав перед завершением аренд."
 		data.Warning = "Все выбранные аренды будут завершены с одним временем возврата, а всё оборудование станет доступным. Если одну аренду или единицу оборудования нельзя вернуть, вся операция будет отменена."
-		data.SubmitLabel = "Подтвердить возврат"
+		data.SubmitLabel = "Завершить аренды"
 		data.Action = "/rentals/bulk/complete"
+		data.IsCompletion = true
+		data.CombinedTotal = rentalMoneyLabel(combinedFinalTotal)
 	default:
 		data.Title = "Массовая выдача аренд — SUP Rental"
 		data.Heading = "Выдать оборудование по выбранным арендам?"
 		data.Description = "Проверьте клиентов, периоды и состав перед фактической выдачей."
 		data.Warning = "Все аренды будут выданы одновременно. Если одна аренда или единица оборудования недоступна, вся операция будет отменена."
+		if data.HasIssueConflicts {
+			data.Warning = "Массовая выдача заблокирована: фактический период одной или нескольких аренд конфликтует с резервом. Откройте отмеченные аренды и выберите замену."
+		}
 		data.SubmitLabel = "Подтвердить выдачу"
 		data.Action = "/rentals/bulk/issue"
 	}
@@ -241,7 +316,7 @@ func writeBulkRentalError(logger *slog.Logger, w http.ResponseWriter, r *http.Re
 		http.Error(w, bulkSelectionMessage, http.StatusUnprocessableEntity)
 	case errors.Is(err, rental.ErrRentalNotFound), errors.Is(err, rental.ErrInvalidRentalID):
 		http.NotFound(w, r)
-	case errors.Is(err, rental.ErrStatusTransitionNotAllowed), errors.Is(err, rental.ErrEquipmentUnavailable):
+	case errors.Is(err, rental.ErrStatusTransitionNotAllowed), errors.Is(err, rental.ErrSettlementNotAvailable), errors.Is(err, rental.ErrEquipmentUnavailable):
 		http.Error(w, "Выбранные аренды изменились. Вернитесь к списку и повторите выбор.", http.StatusConflict)
 	case errors.Is(err, user.ErrAccessDenied):
 		http.Error(w, "Forbidden", http.StatusForbidden)

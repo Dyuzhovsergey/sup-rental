@@ -286,6 +286,45 @@
         updateSelection();
     });
 
+    document.querySelectorAll("[data-rental-settlement]").forEach((settlement) => {
+        const input = settlement.querySelector("[name='overdue_total_rubles']");
+        const decrease = settlement.querySelector("[data-overdue-decrease]");
+        const increase = settlement.querySelector("[data-overdue-increase]");
+        const total = document.querySelector("[data-rental-final-total]");
+        if (!input || !decrease || !increase || !total) {
+            return;
+        }
+
+        const plannedTotalKopecks = Number(settlement.dataset.plannedTotalKopecks);
+        const stepRubles = 50;
+        const formatMoney = (kopecks) => {
+            const hasKopecks = kopecks % 100 !== 0;
+            return new Intl.NumberFormat("ru-RU", {
+                minimumFractionDigits: hasKopecks ? 2 : 0,
+                maximumFractionDigits: 2,
+            }).format(kopecks / 100) + " ₽";
+        };
+        const updateSettlement = () => {
+            const rubles = Number(input.value);
+            const valid = Number.isFinite(rubles) && rubles >= 0;
+            decrease.disabled = !valid || rubles <= 0;
+            total.textContent = valid
+                ? formatMoney(plannedTotalKopecks + Math.round(rubles * 100))
+                : "Проверьте сумму";
+        };
+        const changeBy = (difference) => {
+            const current = Number(input.value);
+            const base = Number.isFinite(current) ? current : 0;
+            input.value = String(Math.max(0, base + difference));
+            input.dispatchEvent(new Event("input", {bubbles: true}));
+        };
+
+        decrease.addEventListener("click", () => changeBy(-stepRubles));
+        increase.addEventListener("click", () => changeBy(stepRubles));
+        input.addEventListener("input", updateSettlement);
+        updateSettlement();
+    });
+
     const form = document.querySelector("[data-rental-equipment-form]");
     if (!form) {
         return;

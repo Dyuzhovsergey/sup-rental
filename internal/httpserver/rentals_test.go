@@ -359,6 +359,24 @@ func TestRentalSlotsLabelUsesFullHourWord(t *testing.T) {
 	}
 }
 
+func TestRentalBillableOverdueLabelUsesReadableDuration(t *testing.T) {
+	tests := []struct {
+		slots int
+		want  string
+	}{
+		{slots: 0, want: "0 мин"},
+		{slots: 1, want: "30 мин"},
+		{slots: 2, want: "1 час"},
+		{slots: 3, want: "1 час 30 мин"},
+		{slots: 6, want: "3 часа"},
+	}
+	for _, tt := range tests {
+		if got := rentalBillableOverdueLabel(tt.slots); got != tt.want {
+			t.Errorf("rentalBillableOverdueLabel(%d) = %q, want %q", tt.slots, got, tt.want)
+		}
+	}
+}
+
 func TestCreateConfirmedRentalRedirectsToList(t *testing.T) {
 	var gotActor user.User
 	var gotSelections []rental.ModelSelection
@@ -450,6 +468,13 @@ func TestRentalsListAndDetail(t *testing.T) {
 			}}, Total: 1, Page: 1, PageSize: 5}, nil
 		},
 		get: func(context.Context, int64) (rental.Rental, error) { return stored, nil },
+		paymentSummary: func(context.Context, int64) (rental.PaymentSummary, error) {
+			paidAt := time.Date(2026, 8, 15, 9, 55, 0, 0, time.UTC)
+			return rental.PaymentSummary{Base: &rental.Payment{
+				ID: 1, RentalID: 24, Kind: rental.PaymentKindBase,
+				AmountKopecks: 150_000, OccurredAt: paidAt, ActorUserID: 7,
+			}}, nil
+		},
 	}
 	handler := newRentalTestHandler(t, user.RoleAdmin, rentals, rentalClientsStub())
 
@@ -458,7 +483,11 @@ func TestRentalsListAndDetail(t *testing.T) {
 	if list.Code != http.StatusOK {
 		t.Fatalf("list status = %d", list.Code)
 	}
-	for _, want := range []string{"Аренда №24 создана и подтверждена", "Подтверждена", "Анна Петрова", "1 позиция", "1500 ₽", `href="/rentals/24"`} {
+	for _, want := range []string{
+		"Аренда №24 создана, подтверждена и оплачена", "Подтверждена", "Анна Петрова", "1 позиция", "1500 ₽",
+		`href="/rentals/24"`, `data-row-href="/rentals/24"`, `tabindex="0"`,
+		`aria-label="Открыть аренду №24"`,
+	} {
 		if !strings.Contains(list.Body.String(), want) {
 			t.Errorf("list does not contain %q", want)
 		}
@@ -472,7 +501,7 @@ func TestRentalsListAndDetail(t *testing.T) {
 	if detail.Code != http.StatusOK {
 		t.Fatalf("detail status = %d", detail.Code)
 	}
-	for _, want := range []string{"Аренда №24", "SUP-TOURING-1", "TOURING", "1000 ₽/час", "1 час 30 мин", "&#43;7 (999) 123-45-67"} {
+	for _, want := range []string{"Аренда №24", "SUP-TOURING-1", "TOURING", "1000 ₽/час", "1 час 30 мин", "&#43;7 (999) 123-45-67", "Оплата", "Основная оплата", "1500 ₽"} {
 		if !strings.Contains(detail.Body.String(), want) {
 			t.Errorf("detail does not contain %q", want)
 		}
@@ -520,10 +549,11 @@ func TestRentalMutationsRequireOperatorAndCSRF(t *testing.T) {
 
 func TestRentalsListSeparatesStatusesAndShowsConfirmedActions(t *testing.T) {
 	interval := rentalHTTPInterval(t)
+	completedTotal := int64(350_000)
 	rentalByStatus := map[rental.Status]rental.Summary{
 		rental.StatusConfirmed: {ID: 24, ClientName: "Подтверждённый клиент", Interval: interval, Status: rental.StatusConfirmed, ItemCount: 1, PlannedTotalKopecks: 100_000},
 		rental.StatusActive:    {ID: 25, ClientName: "Активный клиент", Interval: interval, Status: rental.StatusActive, ItemCount: 2, PlannedTotalKopecks: 200_000},
-		rental.StatusCompleted: {ID: 26, ClientName: "Завершённый клиент", Interval: interval, Status: rental.StatusCompleted, ItemCount: 3, PlannedTotalKopecks: 300_000},
+		rental.StatusCompleted: {ID: 26, ClientName: "Завершённый клиент", Interval: interval, Status: rental.StatusCompleted, ItemCount: 3, PlannedTotalKopecks: 300_000, FinalTotalKopecks: &completedTotal},
 	}
 	rentals := &rentalServiceStub{list: func(_ context.Context, statuses []rental.Status, page, pageSize int) (rental.Page, error) {
 		status := statuses[0]
@@ -563,6 +593,10 @@ func TestRentalsListSeparatesStatusesAndShowsConfirmedActions(t *testing.T) {
 		`formaction="/rentals/bulk/cancel"`, "Выбрать все на странице",
 		`name="rental_id" value="25"`, `formaction="/rentals/bulk/complete"`,
 		"Принять возврат выбранных",
+		`data-row-href="/rentals/24"`, `aria-label="Открыть аренду №24"`,
+		`data-row-href="/rentals/25"`, `aria-label="Открыть аренду №25"`,
+		`data-row-href="/rentals/26"`, `aria-label="Открыть аренду №26"`,
+		"3500 ₽",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("list does not contain %q", want)
@@ -659,6 +693,13 @@ func TestRentalBulkConfirmationAndRedirects(t *testing.T) {
 		for _, want := range append([]string{"Выбранные аренды", "Анна Петрова", `name="csrf_token" value="csrf-token"`}, tt.ids...) {
 			if !strings.Contains(response.Body.String(), want) {
 				t.Errorf("GET %s body does not contain %q", tt.path, want)
+			}
+		}
+		if strings.Contains(tt.path, "/complete") {
+			for _, want := range []string{"Плановая стоимость", "Доплата", "Предварительный итог", "3000 ₽"} {
+				if !strings.Contains(response.Body.String(), want) {
+					t.Errorf("GET %s body does not contain %q", tt.path, want)
+				}
 			}
 		}
 	}
@@ -770,7 +811,7 @@ func TestRentalIssueConfirmationAndSuccess(t *testing.T) {
 	if page.Code != http.StatusOK {
 		t.Fatalf("issue page status = %d body %q", page.Code, page.Body.String())
 	}
-	for _, want := range []string{"Подтверждение выдачи", "Анна Петрова", "SUP-TOURING-1", `name="csrf_token" value="csrf-token"`, "Подтвердить выдачу"} {
+	for _, want := range []string{"Подтверждение выдачи", "Анна Петрова", "SUP-TOURING-1", `name="csrf_token" value="csrf-token"`, "Подтвердить выдачу", `href="/rentals">Отмена</a>`} {
 		if !strings.Contains(page.Body.String(), want) {
 			t.Errorf("issue page does not contain %q", want)
 		}
@@ -826,7 +867,7 @@ func TestRentalIssueErrorsAreMappedSafely(t *testing.T) {
 	}{
 		{name: "missing", err: rental.ErrRentalNotFound, wantStatus: http.StatusNotFound, wantText: "404 page not found"},
 		{name: "wrong status", err: rental.ErrStatusTransitionNotAllowed, wantStatus: http.StatusConflict, wantText: "только подтверждённую"},
-		{name: "equipment", err: rental.ErrEquipmentUnavailable, wantStatus: http.StatusConflict, wantText: "недоступно для выдачи"},
+		{name: "equipment", err: rental.ErrEquipmentUnavailable, wantStatus: http.StatusSeeOther, wantText: ""},
 		{name: "internal", err: errors.New("database secret detail"), wantStatus: http.StatusInternalServerError, wantText: "Internal Server Error"},
 	}
 	for _, tt := range tests {
@@ -841,7 +882,46 @@ func TestRentalIssueErrorsAreMappedSafely(t *testing.T) {
 			if response.Code != tt.wantStatus || !strings.Contains(response.Body.String(), tt.wantText) || strings.Contains(response.Body.String(), "database secret detail") {
 				t.Fatalf("response = %d body %q", response.Code, response.Body.String())
 			}
+			if tt.name == "equipment" && response.Header().Get("Location") != "/rentals/24/issue?changed=1" {
+				t.Fatalf("Location = %q", response.Header().Get("Location"))
+			}
 		})
+	}
+}
+
+func TestRentalIssueShowsSameModelReplacementForConflict(t *testing.T) {
+	interval := rentalHTTPInterval(t)
+	confirmed, err := rental.Restore(24, 18, interval, rental.StatusConfirmed, nil, nil, []rental.Item{{
+		EquipmentID: 94, InventoryNumber: "SUP-TOURING-1", Kind: equipment.KindSUPBoard,
+		ModelCode: "TOURING", HourlyRateKopecks: 100_000,
+	}})
+	if err != nil {
+		t.Fatalf("Restore() error = %v", err)
+	}
+	issuedAt := interval.Start().Add(20 * time.Minute)
+	rentals := &rentalServiceStub{previewIssue: func(context.Context, int64) (rental.IssuePreview, error) {
+		return rental.IssuePreview{
+			Rental: confirmed, IssuedAt: issuedAt, ExpectedReturnAt: issuedAt.Add(interval.End().Sub(interval.Start())),
+			Conflicts: []rental.IssueConflict{{Item: confirmed.Items()[0], Replacements: []equipment.Item{{
+				ID: 95, InventoryNumber: "SUP-TOURING-2", ModelCode: "TOURING",
+			}}}},
+		}, nil
+	}}
+	response := httptest.NewRecorder()
+	newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub()).ServeHTTP(
+		response, rentalRequest(http.MethodGet, "/rentals/24/issue", nil),
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body %q", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{
+		"Фактический период пересекается", `name="replacement_94"`,
+		"SUP-TOURING-1", "SUP-TOURING-2", "Заменить и выдать", "Ожидаемый возврат",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body does not contain %q", want)
+		}
 	}
 }
 
@@ -855,16 +935,24 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Restore() error = %v", err)
 	}
-	returnedAt := time.Date(2026, time.August, 15, 11, 26, 0, 0, moscowTimeZone)
+	returnedAt := time.Date(2026, time.August, 15, 11, 41, 0, 0, moscowTimeZone)
 	completed := active
-	if err := completed.Complete(returnedAt); err != nil {
+	if err := completed.CompleteWithOverdueTotal(returnedAt, 75_000); err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
 	var gotActor user.User
+	var gotOverdueTotal int64
 	rentals := &rentalServiceStub{
 		get: func(context.Context, int64) (rental.Rental, error) { return active, nil },
-		complete: func(_ context.Context, actor user.User, id int64) (rental.Rental, error) {
+		preview: func(context.Context, int64) (rental.SettlementPreview, error) {
+			settlement, previewErr := active.SettlementAt(returnedAt)
+			return rental.SettlementPreview{
+				Rental: active, ReturnedAt: returnedAt, Settlement: settlement,
+			}, previewErr
+		},
+		complete: func(_ context.Context, actor user.User, id int64, overdueTotal int64) (rental.Rental, error) {
 			gotActor = actor
+			gotOverdueTotal = overdueTotal
 			if id != 24 {
 				t.Errorf("Complete() id = %d", id)
 			}
@@ -881,7 +969,10 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 	for _, want := range []string{
 		"Подтверждение возврата", "Анна Петрова", "SUP-TOURING-1",
 		"15.08.2026 10:02", `name="csrf_token" value="csrf-token"`,
-		"Подтвердить возврат и завершить", "всё оборудование станет доступным",
+		"Завершить аренду", "всё оборудование станет доступным",
+		"Плановая стоимость", "1500 ₽", "Оплачиваемое время просрочки", "30 мин", "Рассчитанная доплата",
+		`name="overdue_total_rubles"`, `value="500"`, "Уменьшить доплату на 50 рублей", "Увеличить доплату на 50 рублей",
+		"Предварительный итог", "2000 ₽", "Первые 10 минут",
 		`class="button button--secondary" href="/rentals">Отмена</a>`,
 	} {
 		if !strings.Contains(page.Body.String(), want) {
@@ -890,12 +981,17 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 	}
 
 	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, rentalRequest(http.MethodPost, "/rentals/24/complete", url.Values{"csrf_token": {"csrf-token"}}))
+	handler.ServeHTTP(response, rentalRequest(http.MethodPost, "/rentals/24/complete", url.Values{
+		"csrf_token": {"csrf-token"}, "overdue_total_rubles": {"750"},
+	}))
 	if response.Code != http.StatusSeeOther || response.Header().Get("Location") != "/rentals" {
 		t.Fatalf("complete response = %d Location %q", response.Code, response.Header().Get("Location"))
 	}
 	if gotActor.Role != user.RoleOperator || gotActor.Login != "operator" {
 		t.Fatalf("Complete() actor = %+v", gotActor)
+	}
+	if gotOverdueTotal != 75_000 {
+		t.Fatalf("Complete() overdue total = %d", gotOverdueTotal)
 	}
 
 	detail := httptest.NewRecorder()
@@ -904,7 +1000,12 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 	}, rentalClientsStub()).ServeHTTP(detail, rentalRequest(http.MethodGet, "/rentals/24", nil))
 	if detail.Code != http.StatusOK ||
 		!strings.Contains(detail.Body.String(), "Фактический возврат") ||
-		!strings.Contains(detail.Body.String(), "15.08.2026 11:26") ||
+		!strings.Contains(detail.Body.String(), "15.08.2026 11:41") ||
+		!strings.Contains(detail.Body.String(), "Итоговая стоимость") ||
+		!strings.Contains(detail.Body.String(), "Оплачиваемое время просрочки") ||
+		!strings.Contains(detail.Body.String(), "Рассчитанная доплата") ||
+		!strings.Contains(detail.Body.String(), "Применённая доплата") ||
+		!strings.Contains(detail.Body.String(), "2250 ₽") ||
 		strings.Contains(detail.Body.String(), `href="/rentals/24/complete"`) {
 		t.Fatalf("completed detail = %d body %q", detail.Code, detail.Body.String())
 	}
@@ -960,21 +1061,71 @@ func TestRentalCompletionErrorsAreMappedSafely(t *testing.T) {
 		{name: "missing", err: rental.ErrRentalNotFound, wantStatus: http.StatusNotFound, wantText: "404 page not found"},
 		{name: "wrong status", err: rental.ErrStatusTransitionNotAllowed, wantStatus: http.StatusConflict, wantText: "только по активной аренде"},
 		{name: "equipment", err: rental.ErrEquipmentUnavailable, wantStatus: http.StatusConflict, wantText: "Состояние оборудования"},
+		{name: "overdue total", err: rental.ErrInvalidOverdueTotal, wantStatus: http.StatusUnprocessableEntity, wantText: "слишком велика"},
 		{name: "internal", err: errors.New("database secret detail"), wantStatus: http.StatusInternalServerError, wantText: "Internal Server Error"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			rentals := &rentalServiceStub{complete: func(context.Context, user.User, int64) (rental.Rental, error) {
+			rentals := &rentalServiceStub{complete: func(context.Context, user.User, int64, int64) (rental.Rental, error) {
 				return rental.Rental{}, tt.err
 			}}
 			response := httptest.NewRecorder()
 			newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub()).ServeHTTP(
-				response, rentalRequest(http.MethodPost, "/rentals/24/complete", url.Values{"csrf_token": {"csrf-token"}}),
+				response, rentalRequest(http.MethodPost, "/rentals/24/complete", url.Values{
+					"csrf_token": {"csrf-token"}, "overdue_total_rubles": {"500"},
+				}),
 			)
 			if response.Code != tt.wantStatus || !strings.Contains(response.Body.String(), tt.wantText) || strings.Contains(response.Body.String(), "database secret detail") {
 				t.Fatalf("response = %d body %q", response.Code, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestRentalCompletionRejectsInvalidOverdueTotal(t *testing.T) {
+	for _, value := range []string{"", "-50", "12.345", "not-money"} {
+		t.Run(value, func(t *testing.T) {
+			called := false
+			rentals := &rentalServiceStub{complete: func(context.Context, user.User, int64, int64) (rental.Rental, error) {
+				called = true
+				return rental.Rental{}, nil
+			}}
+			response := httptest.NewRecorder()
+			newRentalTestHandler(t, user.RoleOperator, rentals, rentalClientsStub()).ServeHTTP(
+				response, rentalRequest(http.MethodPost, "/rentals/24/complete", url.Values{
+					"csrf_token": {"csrf-token"}, "overdue_total_rubles": {value},
+				}),
+			)
+			if response.Code != http.StatusUnprocessableEntity || called {
+				t.Fatalf("response = %d body %q called = %t", response.Code, response.Body.String(), called)
+			}
+		})
+	}
+}
+
+func TestRentalMoneyKopecks(t *testing.T) {
+	tests := []struct {
+		value string
+		want  int64
+	}{
+		{value: "0", want: 0},
+		{value: "750", want: 75_000},
+		{value: "250.5", want: 25_050},
+		{value: "250,50", want: 25_050},
+	}
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			got, err := rentalMoneyKopecks(tt.value)
+			if err != nil || got != tt.want {
+				t.Fatalf("rentalMoneyKopecks(%q) = %d, %v", tt.value, got, err)
+			}
+		})
+	}
+	if got := rentalMoneyLabel(25_050); got != "250,50 ₽" {
+		t.Fatalf("rentalMoneyLabel() = %q", got)
+	}
+	if got := rentalMoneyInputValue(25_050); got != "250.50" {
+		t.Fatalf("rentalMoneyInputValue() = %q", got)
 	}
 }
 
@@ -994,6 +1145,13 @@ func TestRentalCancellationConfirmationAndRedirect(t *testing.T) {
 	var gotActor user.User
 	rentals := &rentalServiceStub{
 		get: func(context.Context, int64) (rental.Rental, error) { return confirmed, nil },
+		paymentSummary: func(context.Context, int64) (rental.PaymentSummary, error) {
+			paidAt := time.Date(2026, 8, 15, 9, 55, 0, 0, time.UTC)
+			return rental.PaymentSummary{Base: &rental.Payment{
+				ID: 1, RentalID: 24, Kind: rental.PaymentKindBase,
+				AmountKopecks: 150_000, OccurredAt: paidAt, ActorUserID: 7,
+			}}, nil
+		},
 		cancel: func(_ context.Context, actor user.User, id int64) (rental.Rental, error) {
 			gotActor = actor
 			if id != 24 {
@@ -1008,7 +1166,7 @@ func TestRentalCancellationConfirmationAndRedirect(t *testing.T) {
 	if page.Code != http.StatusOK {
 		t.Fatalf("cancel page status = %d body %q", page.Code, page.Body.String())
 	}
-	for _, want := range []string{"Подтверждение отмены", "Анна Петрова", "SUP-TOURING-1", `name="csrf_token" value="csrf-token"`, "Подтвердить отмену", "останутся в истории"} {
+	for _, want := range []string{"Подтверждение отмены", "Анна Петрова", "SUP-TOURING-1", `name="csrf_token" value="csrf-token"`, "Деньги возвращены — отменить", "1500 ₽", "останутся в истории"} {
 		if !strings.Contains(page.Body.String(), want) {
 			t.Errorf("cancel page does not contain %q", want)
 		}

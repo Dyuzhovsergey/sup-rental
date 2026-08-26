@@ -43,6 +43,7 @@
     --color-focus: #6366f1;
     --color-disabled-surface: #f1f5f9;
     --color-disabled-text: #64748b;
+    --color-scrim: rgb(15 23 42 / 58%);
     --shadow-surface: 0 1px 2px rgb(23 32 51 / 6%);
     --shadow-raised: 0 12px 32px rgb(23 32 51 / 8%);
     --shadow-pressed: inset 0 1px 2px rgb(23 32 51 / 16%);
@@ -98,6 +99,7 @@
     --color-focus: #c4b5fd;
     --color-disabled-surface: #202a3b;
     --color-disabled-text: #7f8ba0;
+    --color-scrim: rgb(2 6 23 / 72%);
     --shadow-surface: 0 1px 2px rgb(0 0 0 / 28%);
     --shadow-raised: 0 12px 32px rgb(0 0 0 / 32%);
     --shadow-pressed: inset 0 1px 2px rgb(0 0 0 / 35%);
@@ -149,6 +151,7 @@
         --color-focus: #c4b5fd;
         --color-disabled-surface: #202a3b;
         --color-disabled-text: #7f8ba0;
+        --color-scrim: rgb(2 6 23 / 72%);
         --shadow-surface: 0 1px 2px rgb(0 0 0 / 28%);
         --shadow-raised: 0 12px 32px rgb(0 0 0 / 32%);
         --shadow-pressed: inset 0 1px 2px rgb(0 0 0 / 35%);
@@ -171,6 +174,7 @@ body {
     min-width: 0;
     min-height: 100vh;
     margin: 0;
+    overflow-x: clip;
     color: var(--color-text);
     background: var(--color-background);
     font-family:
@@ -257,9 +261,36 @@ p {
 }
 
 .app-shell {
+    position: relative;
     display: grid;
     grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
     min-height: 100vh;
+}
+
+.mobile-app-bar,
+.sidebar-mobile-header,
+.mobile-nav-backdrop {
+    display: none;
+}
+
+.mobile-menu-button {
+    display: none;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    color: var(--color-text);
+    cursor: pointer;
+    background: transparent;
+    border: 1px solid var(--color-outline);
+    border-radius: var(--radius-control);
+    place-items: center;
+}
+
+.mobile-menu-button:hover,
+.mobile-menu-button:focus-visible {
+    color: var(--color-primary);
+    background: var(--color-primary-container);
+    border-color: var(--color-primary-outline);
 }
 
 .sidebar {
@@ -413,6 +444,7 @@ p {
     align-items: flex-start;
     justify-content: space-between;
     margin-bottom: 24px;
+    padding-right: 60px;
 }
 
 .page-eyebrow {
@@ -1065,6 +1097,14 @@ input:-webkit-autofill:focus {
 .table-scroll {
     max-width: 100%;
     overflow-x: auto;
+    overscroll-behavior-inline: contain;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
+}
+
+.table-scroll:focus-visible {
+    outline: 3px solid var(--color-focus);
+    outline-offset: -3px;
 }
 
 table {
@@ -1110,6 +1150,23 @@ tbody tr:hover {
     background: var(--color-row-hover);
 }
 
+.navigable-row {
+    cursor: pointer;
+}
+
+.navigable-row:focus-visible {
+    outline: 3px solid var(--color-focus);
+    outline-offset: -3px;
+}
+
+.navigable-row:focus-visible > td {
+    background: var(--color-row-hover);
+}
+
+.navigable-row:active > td {
+    background: var(--color-primary-container);
+}
+
 tbody tr:has(input[type="checkbox"]:checked) {
     background: var(--color-primary-container);
 }
@@ -1127,12 +1184,12 @@ tbody tr:last-child td {
 .inventory-link {
     color: var(--color-text);
     font-weight: 700;
-    text-decoration-color: var(--color-outline);
+    text-decoration: none;
 }
 
-.inventory-link:hover {
+.inventory-link:hover,
+.inventory-link:focus-visible {
     color: var(--color-primary);
-    text-decoration-color: currentColor;
 }
 
 .table-actions {
@@ -1385,7 +1442,32 @@ tbody tr:last-child td {
     border-color: var(--color-primary-outline);
 }
 
-.theme-toggle [hidden] {
+.theme-toggle [data-theme-icon] {
+    display: none;
+}
+
+:root[data-theme="light"] .theme-toggle [data-theme-icon="light"],
+:root[data-theme="dark"] .theme-toggle [data-theme-icon="dark"] {
+    display: block;
+}
+
+.app-theme-control {
+    position: absolute;
+    z-index: 20;
+    top: 24px;
+    right: 24px;
+}
+
+.app-theme-control .theme-toggle {
+    justify-content: center;
+    width: 44px;
+    padding: 0;
+    color: var(--color-text);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-surface);
+}
+
+.app-theme-control [data-theme-label] {
     display: none;
 }
 
@@ -2214,6 +2296,37 @@ tbody tr:last-child td {
     appearance: none;
 }
 
+.rental-settlement-stepper {
+    width: min(100%, 164px);
+    margin-top: 0;
+}
+
+.rental-settlement-amount {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    height: 44px;
+    padding-right: 10px;
+    color: var(--color-text);
+    background: var(--color-surface);
+    border-top: 1px solid var(--color-control-outline);
+    border-bottom: 1px solid var(--color-control-outline);
+}
+
+.quantity-stepper .rental-settlement-amount input {
+    height: 42px;
+    padding: 8px 4px 8px 10px;
+    font-weight: 700;
+    color: var(--color-text);
+    background: transparent;
+    border: 0;
+}
+
+.quantity-stepper .rental-settlement-amount input:focus-visible {
+    position: relative;
+    z-index: 2;
+}
+
 .rental-category-empty {
     padding: 18px;
     color: var(--color-muted);
@@ -2369,16 +2482,154 @@ tbody tr:last-child td {
     color: var(--color-muted);
 }
 
-@media (max-width: 960px) {
+@media (max-width: 1023px) {
     :root {
-        --sidebar-width: 208px;
+        --sidebar-width: 280px;
+    }
+
+    .app-shell {
+        grid-template-columns: minmax(0, 1fr);
+        min-height: 100dvh;
+    }
+
+    .mobile-app-bar {
+        position: sticky;
+        z-index: 40;
+        top: 0;
+        display: grid;
+        grid-template-columns: 44px minmax(0, 1fr) 44px;
+        gap: 10px;
+        align-items: center;
+        min-height: 64px;
+        padding: max(10px, env(safe-area-inset-top)) 16px 10px;
+        background: var(--color-surface);
+        border-bottom: 1px solid var(--color-outline);
+        box-shadow: var(--shadow-surface);
+    }
+
+    .mobile-brand {
+        display: inline-flex;
+        gap: 10px;
+        align-items: center;
+        min-width: 0;
+        color: var(--color-text);
+        text-decoration: none;
+    }
+
+    .mobile-brand:hover {
+        color: var(--color-text);
+    }
+
+    .mobile-brand .brand-mark {
+        flex-basis: 36px;
+        width: 36px;
+        height: 36px;
+        border-radius: 10px;
+    }
+
+    .mobile-brand strong {
+        overflow: hidden;
+        font-size: 16px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .js .mobile-menu-button {
+        display: grid;
+    }
+
+    .sidebar {
+        position: static;
+        grid-column: 1;
+        width: 100%;
+        height: auto;
+        min-height: 0;
+        padding: 16px;
+        border-right: 0;
+        border-bottom: 1px solid var(--color-outline);
+    }
+
+    .js .sidebar {
+        position: fixed;
+        z-index: 60;
+        inset: 0 auto 0 0;
+        width: min(86vw, var(--sidebar-width));
+        height: 100dvh;
+        padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom));
+        overflow-y: auto;
+        visibility: hidden;
+        border-right: 1px solid var(--color-outline);
+        border-bottom: 0;
+        box-shadow: var(--shadow-raised);
+        transform: translateX(-105%);
+        transition:
+            transform var(--transition-fast),
+            visibility var(--transition-fast);
+    }
+
+    .js .sidebar.is-open {
+        visibility: visible;
+        transform: translateX(0);
+    }
+
+    .sidebar-mobile-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 44px;
+        margin-bottom: 8px;
+        padding-left: 8px;
+    }
+
+    .sidebar-mobile-header strong {
+        font-size: 14px;
+    }
+
+    .mobile-nav-backdrop:not([hidden]) {
+        position: fixed;
+        z-index: 50;
+        inset: 0;
+        display: block;
+        background: var(--color-scrim);
+    }
+
+    .mobile-nav-open {
+        overflow: hidden;
+    }
+
+    .sidebar-nav {
+        margin-top: 20px;
+    }
+
+    .sidebar-account {
+        display: grid;
+    }
+
+    .app-theme-control {
+        position: fixed;
+        z-index: 70;
+        top: max(10px, env(safe-area-inset-top));
+        right: 16px;
     }
 
     .main-content {
         padding: 24px;
     }
 
-    .operator-metrics {
+    .page-header {
+        padding-right: 0;
+    }
+
+    .equipment-layout {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .equipment-layout .panel-header {
+        min-height: 0;
+    }
+
+    .operator-metrics,
+    .admin-metrics {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
@@ -2386,65 +2637,36 @@ tbody tr:last-child td {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .form-grid--three {
-        grid-template-columns: minmax(0, 1fr);
+    .form-grid--three,
+    .audit-filter-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .equipment-edit-top {
         grid-template-columns: minmax(0, 1fr);
     }
 
-    .rental-model-row {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
+    .rental-model-row,
     .rental-equipment-summary,
-    .rental-review-summary {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-
+    .rental-review-summary,
     .rental-review-model {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
-    .rental-client-summary--three {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
+    .rental-client-summary--three,
     .rental-period-summary {
         grid-template-columns: minmax(0, 1fr);
     }
 }
 
-@media (max-width: 720px) {
-    .app-shell {
-        grid-template-columns: minmax(0, 1fr);
-    }
-
-    .sidebar {
-        position: static;
-        height: auto;
-        padding: 12px 16px;
-        border-right: 0;
-        border-bottom: 1px solid var(--color-outline);
-    }
-
-    .sidebar-nav {
-        margin-top: 12px;
-    }
-
-    .sidebar-label,
-    .sidebar-footer,
-    .sidebar-account {
-        display: none;
-    }
-
+@media (max-width: 767px) {
     .login-page {
-        padding: 24px 16px;
+        min-height: 100dvh;
+        padding: 80px 16px 24px;
     }
 
     .login-panel {
-        padding: 24px;
+        padding: 24px 20px;
     }
 
     .main-content {
@@ -2452,36 +2674,213 @@ tbody tr:last-child td {
     }
 
     .page-header {
-        display: block;
+        display: grid;
+        gap: 16px;
+        margin-bottom: 20px;
     }
 
-    .operator-metrics {
+    .page-header__actions,
+    .page-actions {
+        display: flex;
+        flex-wrap: wrap;
+        width: 100%;
+        gap: 8px;
+    }
+
+    .content-stack,
+    .operator-dashboard,
+    .admin-dashboard {
+        gap: 16px;
+    }
+
+    .panel-header {
+        flex-wrap: wrap;
+        padding: 16px;
+    }
+
+    .panel-body {
+        padding: 16px;
+    }
+
+    .equipment-list-notice,
+    .client-search,
+    .client-list-toolbar,
+    .equipment-list-toolbar {
+        padding-right: 16px;
+        padding-left: 16px;
+    }
+
+    .form-grid--three,
+    .audit-filter-grid,
+    .client-search-form,
+    .equipment-edit-top {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .audit-filter-actions,
+    .client-search-actions {
+        align-items: stretch;
+        flex-wrap: wrap;
+    }
+
+    input,
+    select {
+        height: 44px;
+    }
+
+    .button,
+    .button--compact {
+        min-height: 44px;
+        padding: 8px 12px;
+    }
+
+    .item-actions {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+    }
+
+    .table-scroll::before {
+        position: sticky;
+        left: 0;
+        display: block;
+        width: max-content;
+        max-width: 100%;
+        padding: 8px 12px;
+        color: var(--color-muted);
+        font-size: 12px;
+        font-weight: 600;
+        content: "Прокрутите таблицу по горизонтали →";
+        background: var(--color-surface-subtle);
+        border-bottom: 1px solid var(--color-outline);
+    }
+
+    th,
+    td,
+    .equipment-list-panel th,
+    .equipment-list-panel td {
+        padding: 10px 12px;
+    }
+
+    .list-toolbar {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+        min-height: 44px;
+    }
+
+    .list-toolbar select {
+        height: 44px;
+    }
+
+    .rental-bulk-toolbar {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 12px;
+        padding: 14px 16px;
+    }
+
+    .rental-bulk-select-all {
+        min-height: 44px;
+    }
+
+    .rental-bulk-actions {
+        flex-wrap: wrap;
+        width: 100%;
+        margin-left: 0;
+    }
+
+    .rental-bulk-select-all input,
+    .rental-select-column input {
+        width: 24px;
+        height: 24px;
+    }
+
+    .pagination {
+        flex-wrap: wrap;
+        justify-content: center;
+        padding: 12px;
+    }
+
+    .confirmation-actions {
+        align-items: stretch;
+        padding: 16px;
+    }
+
+    .details-actions,
+    .form-actions {
+        align-items: stretch;
+        flex-wrap: wrap;
+    }
+
+    .operator-metrics,
+    .admin-metrics {
         grid-template-columns: minmax(0, 1fr);
     }
 
     .operator-entry {
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: auto minmax(0, 1fr);
     }
 
     .operator-entry .button {
-        justify-self: start;
+        width: 100%;
+        grid-column: 1 / -1;
+        justify-self: stretch;
     }
 
     .details-row {
         grid-template-columns: minmax(0, 1fr);
-    }
-
-    .details-row {
         gap: 4px;
+        padding: 14px 16px;
     }
 
-    .wizard-steps,
+    .details-row--settlement {
+        grid-template-columns: minmax(96px, 1fr) 148px;
+        gap: 8px;
+        align-items: center;
+    }
+
+    .details-row--settlement .rental-settlement-stepper {
+        grid-template-columns: 44px minmax(60px, 1fr) 44px;
+        width: 148px;
+    }
+
+    .details-row dd,
+    .audit-summary,
+    .operator-entry__copy,
+    .panel-header > div {
+        min-width: 0;
+        overflow-wrap: anywhere;
+    }
+
     .rental-client-summary,
     .rental-model-row,
     .rental-equipment-summary,
     .rental-review-model,
     .rental-review-summary {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .wizard-steps {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        padding: 16px;
+    }
+
+    .rental-wizard-body {
+        padding: 20px 16px;
+    }
+
+    .rental-wizard-footer {
+        flex-wrap: wrap;
+        padding: 16px;
+    }
+
+    .rental-model-row {
+        gap: 12px;
+        padding: 16px;
+    }
+
+    .rental-equipment-group__header {
+        flex-wrap: wrap;
+        padding: 14px 16px;
     }
 
     .rental-review-summary__total {
@@ -2499,6 +2898,102 @@ tbody tr:last-child td {
         text-align: left;
     }
 
+    .rental-selected-client,
+    .rental-end-preview {
+        align-items: flex-start;
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .rental-end-preview output {
+        text-align: left;
+    }
+
+    .empty-state {
+        padding: 28px 16px;
+    }
+}
+
+@media (max-width: 479px) {
+    .mobile-app-bar {
+        padding-right: 12px;
+        padding-left: 12px;
+    }
+
+    .app-theme-control {
+        right: 12px;
+    }
+
+    .main-content,
+    .main-content--equipment,
+    .main-content--wide {
+        padding: 16px 12px 24px;
+    }
+
+    .page-header h1 {
+        font-size: clamp(24px, 8vw, 28px);
+        overflow-wrap: anywhere;
+    }
+
+    .page-header__actions .button,
+    .page-actions .button,
+    .form-actions .button,
+    .details-actions .button,
+    .client-search-actions .button,
+    .audit-filter-actions .button {
+        width: 100%;
+    }
+
+    .admin-metrics {
+        grid-template-columns: minmax(0, 1fr);
+        padding: 16px;
+    }
+
+    .admin-metrics--equipment .admin-metric:first-child {
+        grid-column: auto;
+    }
+
+    .operator-metric,
+    .admin-metric {
+        min-height: 92px;
+        padding: 16px;
+    }
+
+    .wizard-steps {
+        gap: 8px;
+        padding: 12px;
+    }
+
+    .wizard-step {
+        gap: 8px;
+        font-size: 13px;
+    }
+
+    .rental-wizard-actions,
+    .rental-wizard-footer,
+    .confirmation-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .rental-wizard-actions .button,
+    .rental-wizard-footer .button,
+    .confirmation-actions form,
+    .confirmation-actions .button,
+    .confirmation-actions form .button,
+    .rental-bulk-actions .button {
+        width: 100%;
+    }
+
+    .pagination {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        gap: 8px;
+    }
+
+    .pagination-label {
+        text-align: center;
+    }
 }
 
 @media (prefers-reduced-motion: reduce) {

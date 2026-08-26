@@ -233,8 +233,9 @@
                                 <div><span>Жилеты</span><strong>{{.LifeJacketCount}}</strong></div>
                                 <div><span>Всего единиц</span><strong>{{.ItemCount}}</strong></div>
                                 <div class="rental-review-summary__total"><span>Продолжительность</span><strong>{{.Duration}}</strong></div>
-                                <div class="rental-review-summary__total"><span>Предварительная стоимость</span><strong>{{.PlannedTotal}}</strong></div>
+                                <div class="rental-review-summary__total"><span>К оплате сейчас</span><strong>{{.PlannedTotal}}</strong></div>
                             </div>
+							<div class="alert alert--warning" role="note"><p>Получите полную сумму до создания аренды. Нажатие кнопки подтвердит оплату и сразу создаст подтверждённую аренду; частичная оплата не поддерживается.</p></div>
                         </div>
                         <div class="rental-wizard-footer">
                             <a class="button" href="{{.ClientBackURL}}">Назад к клиенту</a>

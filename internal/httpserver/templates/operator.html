@@ -43,19 +43,24 @@
                             <span class="count-badge">{{.Confirmed.CountLabel}}</span>
                         </div>
                         {{if .Confirmed.Rentals}}
-                        <div class="table-scroll">
+                        <div class="table-scroll" role="region" aria-labelledby="operator-confirmed-heading" tabindex="0">
                             <table class="data-table operator-monitoring-table">
                                 <thead><tr><th scope="col">№</th><th scope="col">Клиент</th><th scope="col">Период</th><th scope="col">Состав</th><th scope="col">Плановое время</th><th scope="col"><span class="visually-hidden">Переход</span></th></tr></thead>
                                 <tbody>
                                     {{range .Confirmed.Rentals}}
-                                    <tr>
+                                    <tr
+                                        class="navigable-row"
+                                        data-row-href="/rentals/{{.ID}}"
+                                        tabindex="0"
+                                        aria-label="Открыть аренду №{{.ID}}"
+                                    >
                                         <td><a class="table-primary-link" href="/rentals/{{.ID}}">№{{.ID}}</a></td>
                                         <td>{{.ClientName}}</td>
                                         <td class="operator-monitoring-table__period">{{.Period}}</td>
                                         <td>{{.ItemCount}}</td>
                                         <td>
-                                            <div class="operator-timing operator-timing--{{.TimingTone}}">
-                                                <span>{{.TimingLabel}}</span>
+                                            <div class="operator-timing operator-timing--{{.TimingTone}}" data-operator-timing data-rental-id="{{.ID}}" data-rental-status="{{.Status}}" data-start-unix-ms="{{.StartUnixMS}}" data-end-unix-ms="{{.EndUnixMS}}">
+                                                <span data-operator-timing-label>{{.TimingLabel}}</span>
                                                 <progress max="100" value="{{.Progress}}" aria-label="{{.ProgressLabel}}">{{.Progress}}%</progress>
                                             </div>
                                         </td>
@@ -80,19 +85,24 @@
                             <span class="count-badge">{{.Active.CountLabel}}</span>
                         </div>
                         {{if .Active.Rentals}}
-                        <div class="table-scroll">
+                        <div class="table-scroll" role="region" aria-labelledby="operator-active-heading" tabindex="0">
                             <table class="data-table operator-monitoring-table">
                                 <thead><tr><th scope="col">№</th><th scope="col">Клиент</th><th scope="col">Плановое завершение</th><th scope="col">Состав</th><th scope="col">Прогресс</th><th scope="col"><span class="visually-hidden">Переход</span></th></tr></thead>
                                 <tbody>
                                     {{range .Active.Rentals}}
-                                    <tr>
+                                    <tr
+                                        class="navigable-row"
+                                        data-row-href="/rentals/{{.ID}}"
+                                        tabindex="0"
+                                        aria-label="Открыть аренду №{{.ID}}"
+                                    >
                                         <td><a class="table-primary-link" href="/rentals/{{.ID}}">№{{.ID}}</a></td>
                                         <td>{{.ClientName}}</td>
                                         <td class="operator-monitoring-table__period">{{.End}}</td>
                                         <td>{{.ItemCount}}</td>
                                         <td>
-                                            <div class="operator-timing operator-timing--{{.TimingTone}}">
-                                                <span>{{.TimingLabel}}</span>
+                                            <div class="operator-timing operator-timing--{{.TimingTone}}" data-operator-timing data-rental-id="{{.ID}}" data-rental-status="{{.Status}}" data-start-unix-ms="{{.StartUnixMS}}" data-end-unix-ms="{{.EndUnixMS}}">
+                                                <span data-operator-timing-label>{{.TimingLabel}}</span>
                                                 <progress max="100" value="{{.Progress}}" aria-label="{{.ProgressLabel}}">{{.Progress}}%</progress>
                                             </div>
                                         </td>

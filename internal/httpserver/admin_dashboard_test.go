@@ -36,7 +36,11 @@ func TestAdminDashboardShowsActualMetricsAndNavigation(t *testing.T) {
 		"Аренды", "Активные", "Просроченные", "Начинаются сегодня",
 		"Завершаются сегодня", `href="/equipment"`, `href="/rentals"`,
 		`href="/admin" aria-current="page"`,
-		`data-theme-toggle`, `aria-label="Включить тёмную тему"`,
+		`class="app-theme-control"`, `data-theme-toggle`,
+		`data-theme-icon="light"`, `data-theme-icon="dark"`,
+		`aria-label="Включить тёмную тему"`,
+		`data-mobile-nav-open`, `aria-controls="app-navigation"`,
+		`aria-expanded="false"`, `data-mobile-nav`, `data-mobile-nav-close`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q", want)
