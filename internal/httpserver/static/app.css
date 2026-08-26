@@ -1750,6 +1750,78 @@ tbody tr:last-child td {
     line-height: 1.15;
 }
 
+.admin-dashboard__section--finance {
+    grid-column: 1 / -1;
+}
+
+.admin-finance__header {
+    align-items: center;
+}
+
+.admin-finance-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    padding: 20px;
+}
+
+.admin-finance-metric {
+    position: relative;
+    min-width: 0;
+    min-height: 132px;
+    padding: 18px;
+    overflow: hidden;
+    background: var(--color-surface-variant);
+    border: 1px solid var(--color-outline);
+    border-radius: 14px;
+}
+
+.admin-finance-metric::before {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    content: "";
+    background: var(--color-primary);
+}
+
+.admin-finance-metric--success::before {
+    background: var(--color-success);
+}
+
+.admin-finance-metric--warning::before {
+    background: var(--color-warning);
+}
+
+.admin-finance-metric--danger::before {
+    background: var(--color-danger);
+}
+
+.admin-finance-metric--neutral::before {
+    background: var(--color-muted);
+}
+
+.admin-finance-metric > span {
+    display: block;
+    color: var(--color-muted);
+    font-size: 14px;
+    font-weight: 650;
+}
+
+.admin-finance-metric strong {
+    display: block;
+    margin-top: 10px;
+    font-size: clamp(24px, 2.4vw, 32px);
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+}
+
+.admin-finance-metric p {
+    margin: 10px 0 0;
+    color: var(--color-muted);
+    font-size: 13px;
+    line-height: 1.4;
+}
+
 .operator-dashboard__header {
     margin-bottom: 0;
 }
@@ -2637,6 +2709,10 @@ tbody tr:last-child td {
         grid-template-columns: minmax(0, 1fr);
     }
 
+    .admin-finance-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .form-grid--three,
     .audit-filter-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2945,6 +3021,11 @@ tbody tr:last-child td {
     }
 
     .admin-metrics {
+        grid-template-columns: minmax(0, 1fr);
+        padding: 16px;
+    }
+
+    .admin-finance-metrics {
         grid-template-columns: minmax(0, 1fr);
         padding: 16px;
     }

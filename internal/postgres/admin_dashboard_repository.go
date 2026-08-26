@@ -44,10 +44,24 @@ func (r *AdminDashboardRepository) Snapshot(ctx context.Context, query dashboard
 			             AND planned_end_at >= $1 AND planned_end_at < $2
 			       ) AS ending_today
 			FROM rentals
+		), payment_counts AS (
+			SELECT COALESCE(sum(amount_kopecks) FILTER (
+			           WHERE kind = 'base' AND occurred_at >= $1 AND occurred_at < $2
+			       ), 0)::bigint AS base,
+			       COALESCE(sum(amount_kopecks) FILTER (
+			           WHERE kind = 'overdue' AND occurred_at >= $1 AND occurred_at < $2
+			       ), 0)::bigint AS overdue,
+			       COALESCE(sum(amount_kopecks) FILTER (
+			           WHERE kind = 'refund' AND occurred_at >= $1 AND occurred_at < $2
+			       ), 0)::bigint AS refund
+			FROM rental_payments
 		)
 		SELECT e.total, e.available, e.maintenance, e.retired, e.issued,
-		       r.active, r.overdue, r.starting_today, r.ending_today
-		FROM equipment_counts AS e CROSS JOIN rental_counts AS r
+		       r.active, r.overdue, r.starting_today, r.ending_today,
+		       p.base, p.overdue, p.refund, p.base + p.overdue - p.refund
+		FROM equipment_counts AS e
+		CROSS JOIN rental_counts AS r
+		CROSS JOIN payment_counts AS p
 	`
 	var snapshot dashboard.Snapshot
 	err := r.pool.QueryRow(ctx, statement, query.DayStart, query.DayEnd, query.Now).Scan(
@@ -55,7 +69,9 @@ func (r *AdminDashboardRepository) Snapshot(ctx context.Context, query dashboard
 		&snapshot.EquipmentMaintenance, &snapshot.EquipmentRetired,
 		&snapshot.EquipmentIssued, &snapshot.RentalsActive,
 		&snapshot.RentalsOverdue, &snapshot.RentalsStartingToday,
-		&snapshot.RentalsEndingToday,
+		&snapshot.RentalsEndingToday, &snapshot.PaymentsBaseTodayKopecks,
+		&snapshot.PaymentsOverdueTodayKopecks, &snapshot.PaymentsRefundTodayKopecks,
+		&snapshot.PaymentsNetTodayKopecks,
 	)
 	if err != nil {
 		return dashboard.Snapshot{}, fmt.Errorf("query admin dashboard: %w", err)

@@ -152,6 +152,8 @@ func TestStylesheet(t *testing.T) {
 		".app-theme-control",
 		".equipment-layout",
 		".equipment-list-column",
+		".admin-finance-metrics",
+		".admin-finance-metric--danger",
 		".button--compact",
 		".button--edit",
 		".retirement-panel",

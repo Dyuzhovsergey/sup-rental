@@ -19,7 +19,7 @@ type Query struct {
 	DayEnd time.Time
 }
 
-// Snapshot содержит агрегированные показатели оборудования и аренды.
+// Snapshot содержит агрегированные показатели оборудования, аренды и платежей.
 type Snapshot struct {
 	// EquipmentTotal — общее число физических единиц оборудования.
 	EquipmentTotal int64
@@ -39,6 +39,14 @@ type Snapshot struct {
 	RentalsStartingToday int64
 	// RentalsEndingToday — число текущих аренд с плановым окончанием сегодня.
 	RentalsEndingToday int64
+	// PaymentsBaseTodayKopecks — основные оплаты, полученные сегодня.
+	PaymentsBaseTodayKopecks int64
+	// PaymentsOverdueTodayKopecks — доплаты за просрочку, полученные сегодня.
+	PaymentsOverdueTodayKopecks int64
+	// PaymentsRefundTodayKopecks — возвраты оплаты, выполненные сегодня.
+	PaymentsRefundTodayKopecks int64
+	// PaymentsNetTodayKopecks — чистая выручка за сегодня с учётом возвратов.
+	PaymentsNetTodayKopecks int64
 }
 
 // Repository загружает согласованный снимок показателей из постоянного хранилища.
@@ -81,7 +89,8 @@ func validateSnapshot(snapshot Snapshot) error {
 		snapshot.EquipmentMaintenance, snapshot.EquipmentRetired,
 		snapshot.EquipmentIssued, snapshot.RentalsActive,
 		snapshot.RentalsOverdue, snapshot.RentalsStartingToday,
-		snapshot.RentalsEndingToday,
+		snapshot.RentalsEndingToday, snapshot.PaymentsBaseTodayKopecks,
+		snapshot.PaymentsOverdueTodayKopecks, snapshot.PaymentsRefundTodayKopecks,
 	}
 	for _, value := range values {
 		if value < 0 {
@@ -95,6 +104,11 @@ func validateSnapshot(snapshot Snapshot) error {
 	}
 	if snapshot.RentalsOverdue > snapshot.RentalsActive {
 		return fmt.Errorf("validate admin dashboard: overdue rentals exceed active rentals")
+	}
+	wantNet := snapshot.PaymentsBaseTodayKopecks + snapshot.PaymentsOverdueTodayKopecks -
+		snapshot.PaymentsRefundTodayKopecks
+	if snapshot.PaymentsNetTodayKopecks != wantNet {
+		return fmt.Errorf("validate admin dashboard: payment net does not match payment totals")
 	}
 	return nil
 }

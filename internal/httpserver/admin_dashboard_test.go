@@ -19,6 +19,8 @@ func TestAdminDashboardShowsActualMetricsAndNavigation(t *testing.T) {
 			EquipmentTotal: 12, EquipmentAvailable: 5, EquipmentMaintenance: 2,
 			EquipmentRetired: 1, EquipmentIssued: 4, RentalsActive: 3,
 			RentalsOverdue: 1, RentalsStartingToday: 2, RentalsEndingToday: 4,
+			PaymentsBaseTodayKopecks: 1_200_000, PaymentsOverdueTodayKopecks: 50_000,
+			PaymentsRefundTodayKopecks: 1_500_000, PaymentsNetTodayKopecks: -250_000,
 		}, nil
 	}}
 	response := httptest.NewRecorder()
@@ -35,6 +37,12 @@ func TestAdminDashboardShowsActualMetricsAndNavigation(t *testing.T) {
 		"Доступно", ">5<", "На обслуживании", "Выдано", "Списано",
 		"Аренды", "Активные", "Просроченные", "Начинаются сегодня",
 		"Завершаются сегодня", `href="/equipment"`, `href="/rentals"`,
+		"Финансы сегодня", "Фактически полученные и возвращённые средства",
+		"Основные оплаты", "12 000 ₽", "Получено при создании аренд",
+		"Доплаты за просрочку", "500 ₽", "Получено при завершении",
+		"Возвраты", "15 000 ₽", "Возвращено при отмене",
+		"Итого за сегодня", "−2 500 ₽", "Оплаты &#43; доплаты − возвраты",
+		`admin-finance-metric--danger`,
 		`href="/admin" aria-current="page"`,
 		`class="app-theme-control"`, `data-theme-toggle`,
 		`data-theme-icon="light"`, `data-theme-icon="dark"`,
@@ -50,6 +58,26 @@ func TestAdminDashboardShowsActualMetricsAndNavigation(t *testing.T) {
 		if strings.Contains(body, forbidden) {
 			t.Errorf("body contains technical information %q", forbidden)
 		}
+	}
+}
+
+func TestAdminMoneyLabel(t *testing.T) {
+	tests := []struct {
+		name    string
+		kopecks int64
+		want    string
+	}{
+		{name: "zero", kopecks: 0, want: "0 ₽"},
+		{name: "whole rubles", kopecks: 1_234_500, want: "12 345 ₽"},
+		{name: "kopecks", kopecks: 1_250_050, want: "12 500,50 ₽"},
+		{name: "negative", kopecks: -150_000, want: "−1 500 ₽"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := adminMoneyLabel(test.kopecks); got != test.want {
+				t.Fatalf("adminMoneyLabel(%d) = %q, want %q", test.kopecks, got, test.want)
+			}
+		})
 	}
 }
 
