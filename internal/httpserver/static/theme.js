@@ -223,6 +223,133 @@
         closeNavigation(false);
     }
 
+    function initializeOperatorMonitoring() {
+        const timings = Array.from(document.querySelectorAll("[data-operator-timing]"));
+        const refreshIntervalMilliseconds = 30000;
+        let timerID = 0;
+
+        if (timings.length === 0) {
+            return;
+        }
+
+        function russianWord(value, one, few, many) {
+            const lastTwoDigits = value % 100;
+            const lastDigit = value % 10;
+            if (lastDigit === 1 && lastTwoDigits !== 11) {
+                return one;
+            }
+            if (lastDigit >= 2 && lastDigit <= 4 && (lastTwoDigits < 12 || lastTwoDigits > 14)) {
+                return few;
+            }
+            return many;
+        }
+
+        function durationLabel(milliseconds) {
+            const minutes = Math.ceil(Math.abs(milliseconds) / 60000);
+            if (minutes <= 0) {
+                return "менее минуты";
+            }
+
+            const days = Math.floor(minutes / (24 * 60));
+            const hours = Math.floor((minutes % (24 * 60)) / 60);
+            const remainingMinutes = minutes % 60;
+            const parts = [];
+            if (days > 0) {
+                parts.push(days + " " + russianWord(days, "день", "дня", "дней"));
+            }
+            if (hours > 0) {
+                parts.push(hours + " " + russianWord(hours, "час", "часа", "часов"));
+            }
+            if (remainingMinutes > 0) {
+                parts.push(remainingMinutes + " мин");
+            }
+            return parts.join(" ");
+        }
+
+        function progressPercent(start, end, now) {
+            if (now <= start) {
+                return 0;
+            }
+            if (now >= end || end <= start) {
+                return 100;
+            }
+            return Math.floor((now - start) * 100 / (end - start));
+        }
+
+        function updateTiming(timing, now) {
+            const start = Number(timing.dataset.startUnixMs);
+            const end = Number(timing.dataset.endUnixMs);
+            const status = timing.dataset.rentalStatus;
+            const rentalID = timing.dataset.rentalId;
+            const label = timing.querySelector("[data-operator-timing-label]");
+            const progress = timing.querySelector("progress");
+            let text;
+            let tone;
+
+            if (!Number.isFinite(start) || !Number.isFinite(end) || !label || !progress) {
+                return;
+            }
+
+            const percent = progressPercent(start, end, now);
+            if (now < start) {
+                text = "До начала " + durationLabel(start - now);
+                tone = "neutral";
+            } else if (status === "confirmed") {
+                text = "Выдача задерживается на " + durationLabel(now - start);
+                tone = "warning";
+            } else if (now === end) {
+                text = "Плановое время завершения наступило";
+                tone = "warning";
+            } else if (now > end) {
+                text = "Просрочена на " + durationLabel(now - end);
+                tone = "danger";
+            } else {
+                text = "Осталось " + durationLabel(end - now);
+                tone = "success";
+            }
+
+            timing.className = "operator-timing operator-timing--" + tone;
+            label.textContent = text;
+            progress.value = percent;
+            progress.textContent = percent + "%";
+            progress.setAttribute("aria-label", "Период аренды №" + rentalID + ": " + percent + "%");
+        }
+
+        function updateAll() {
+            const now = Date.now();
+            timings.forEach(function (timing) {
+                updateTiming(timing, now);
+            });
+        }
+
+        function stopTimer() {
+            if (timerID !== 0) {
+                window.clearInterval(timerID);
+                timerID = 0;
+            }
+        }
+
+        function startTimer() {
+            updateAll();
+            if (timerID === 0) {
+                timerID = window.setInterval(updateAll, refreshIntervalMilliseconds);
+            }
+        }
+
+        document.addEventListener("visibilitychange", function () {
+            if (document.visibilityState === "visible") {
+                startTimer();
+            } else {
+                stopTimer();
+            }
+        });
+
+        if (document.visibilityState === "visible") {
+            startTimer();
+        }
+    }
+
     document.addEventListener("DOMContentLoaded", initializeMobileNavigation);
     document.addEventListener("DOMContentLoaded", initializeNavigableRows);
+    document.addEventListener("DOMContentLoaded", initializeOperatorMonitoring);
 })();

@@ -58,6 +58,8 @@ func TestOperatorDashboardShowsMetricsRentalsAndProgress(t *testing.T) {
 		`data-row-href="/rentals/41"`, `aria-label="Открыть аренду №41"`,
 		`data-row-href="/rentals/42"`, `aria-label="Открыть аренду №42"`,
 		`data-row-href="/rentals/43"`, `aria-label="Открыть аренду №43"`,
+		`data-operator-timing`, `data-rental-status="confirmed"`,
+		`data-start-unix-ms="`, `data-end-unix-ms="`, `data-operator-timing-label`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q", want)

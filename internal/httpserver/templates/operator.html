@@ -59,8 +59,8 @@
                                         <td class="operator-monitoring-table__period">{{.Period}}</td>
                                         <td>{{.ItemCount}}</td>
                                         <td>
-                                            <div class="operator-timing operator-timing--{{.TimingTone}}">
-                                                <span>{{.TimingLabel}}</span>
+                                            <div class="operator-timing operator-timing--{{.TimingTone}}" data-operator-timing data-rental-id="{{.ID}}" data-rental-status="{{.Status}}" data-start-unix-ms="{{.StartUnixMS}}" data-end-unix-ms="{{.EndUnixMS}}">
+                                                <span data-operator-timing-label>{{.TimingLabel}}</span>
                                                 <progress max="100" value="{{.Progress}}" aria-label="{{.ProgressLabel}}">{{.Progress}}%</progress>
                                             </div>
                                         </td>
@@ -101,8 +101,8 @@
                                         <td class="operator-monitoring-table__period">{{.End}}</td>
                                         <td>{{.ItemCount}}</td>
                                         <td>
-                                            <div class="operator-timing operator-timing--{{.TimingTone}}">
-                                                <span>{{.TimingLabel}}</span>
+                                            <div class="operator-timing operator-timing--{{.TimingTone}}" data-operator-timing data-rental-id="{{.ID}}" data-rental-status="{{.Status}}" data-start-unix-ms="{{.StartUnixMS}}" data-end-unix-ms="{{.EndUnixMS}}">
+                                                <span data-operator-timing-label>{{.TimingLabel}}</span>
                                                 <progress max="100" value="{{.Progress}}" aria-label="{{.ProgressLabel}}">{{.Progress}}%</progress>
                                             </div>
                                         </td>

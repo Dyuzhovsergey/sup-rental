@@ -811,7 +811,7 @@ func TestRentalIssueConfirmationAndSuccess(t *testing.T) {
 	if page.Code != http.StatusOK {
 		t.Fatalf("issue page status = %d body %q", page.Code, page.Body.String())
 	}
-	for _, want := range []string{"Подтверждение выдачи", "Анна Петрова", "SUP-TOURING-1", `name="csrf_token" value="csrf-token"`, "Подтвердить выдачу"} {
+	for _, want := range []string{"Подтверждение выдачи", "Анна Петрова", "SUP-TOURING-1", `name="csrf_token" value="csrf-token"`, "Подтвердить выдачу", `href="/rentals">Отмена</a>`} {
 		if !strings.Contains(page.Body.String(), want) {
 			t.Errorf("issue page does not contain %q", want)
 		}
