@@ -486,6 +486,8 @@ func TestRentalsListAndDetail(t *testing.T) {
 	for _, want := range []string{
 		"Аренда №24 создана, подтверждена и оплачена", "Подтверждена", "Анна Петрова", "1 позиция", "1500 ₽",
 		`href="/rentals/24"`, `data-row-href="/rentals/24"`, `tabindex="0"`,
+		`class="rental-table responsive-data-table"`,
+		`class="mobile-cell-label" aria-hidden="true">Период`,
 		`aria-label="Открыть аренду №24"`,
 	} {
 		if !strings.Contains(list.Body.String(), want) {
@@ -592,7 +594,8 @@ func TestRentalsListSeparatesStatusesAndShowsConfirmedActions(t *testing.T) {
 		`name="rental_id" value="24"`, `formaction="/rentals/bulk/issue"`,
 		`formaction="/rentals/bulk/cancel"`, "Выбрать все на странице",
 		`name="rental_id" value="25"`, `formaction="/rentals/bulk/complete"`,
-		"Принять возврат выбранных",
+		"Принять возврат выбранных", `class="rental-card-select-control"`,
+		`class="mobile-cell-label" aria-hidden="true">Выбрать аренду`,
 		`data-row-href="/rentals/24"`, `aria-label="Открыть аренду №24"`,
 		`data-row-href="/rentals/25"`, `aria-label="Открыть аренду №25"`,
 		`data-row-href="/rentals/26"`, `aria-label="Открыть аренду №26"`,
@@ -690,7 +693,11 @@ func TestRentalBulkConfirmationAndRedirects(t *testing.T) {
 		if response.Code != http.StatusOK {
 			t.Fatalf("GET %s status = %d body %q", tt.path, response.Code, response.Body.String())
 		}
-		for _, want := range append([]string{"Выбранные аренды", "Анна Петрова", `name="csrf_token" value="csrf-token"`}, tt.ids...) {
+		for _, want := range append([]string{
+			"Выбранные аренды", "Анна Петрова", `name="csrf_token" value="csrf-token"`,
+			`class="table-scroll responsive-table-region"`, `class="responsive-data-table"`,
+			`class="mobile-cell-label" aria-hidden="true">Период`,
+		}, tt.ids...) {
 			if !strings.Contains(response.Body.String(), want) {
 				t.Errorf("GET %s body does not contain %q", tt.path, want)
 			}

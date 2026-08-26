@@ -36,7 +36,11 @@ func TestAuditPageShowsSafeEventsAndFilters(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200", response.Code)
 	}
-	for _, want := range []string{"Журнал действий", "12.08.2026 10:30:00", "Оборудование изменено", "SUP-001", "Номер: SUP-001 → SUP-002", "Страница 1 из 1"} {
+	for _, want := range []string{
+		"Журнал действий", "12.08.2026 10:30:00", "Оборудование изменено", "SUP-001", "Номер: SUP-001 → SUP-002", "Страница 1 из 1",
+		`class="table-scroll responsive-table-region"`, `class="audit-table responsive-data-table"`,
+		`class="mobile-cell-label" aria-hidden="true">Подробности`,
+	} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("body does not contain %q", want)
 		}

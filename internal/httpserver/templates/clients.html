@@ -67,9 +67,9 @@
                         </form>
                         {{end}}
                         {{if .Clients}}
-                        <div class="table-scroll" role="region" aria-labelledby="clients-list-heading" tabindex="0">
-                            <table><thead><tr><th scope="col">ФИО</th><th scope="col">Телефон</th><th scope="col">ID</th></tr></thead>
-                            <tbody>{{range .Clients}}<tr><td><strong><a class="client-name-link" href="/clients/{{.ID}}">{{.FullName}}</a></strong></td><td><a href="tel:{{.Phone}}">{{phoneLabel .Phone}}</a></td><td>{{.ID}}</td></tr>{{end}}</tbody></table>
+                        <div class="table-scroll responsive-table-region" role="region" aria-labelledby="clients-list-heading" tabindex="0">
+                            <table class="responsive-data-table"><thead><tr><th scope="col">ФИО</th><th scope="col">Телефон</th><th scope="col">ID</th></tr></thead>
+                            <tbody>{{range .Clients}}<tr><td class="mobile-cell--full">{{template "mobile-cell-label" "ФИО"}}<strong><a class="client-name-link" href="/clients/{{.ID}}">{{.FullName}}</a></strong></td><td>{{template "mobile-cell-label" "Телефон"}}<a href="tel:{{.Phone}}">{{phoneLabel .Phone}}</a></td><td>{{template "mobile-cell-label" "ID"}}{{.ID}}</td></tr>{{end}}</tbody></table>
                         </div>
                         {{else if .SearchEmpty}}
                         <div class="empty-state"><strong>Клиент не найден</strong><span>Проверьте номер или создайте новую карточку клиента.</span></div>

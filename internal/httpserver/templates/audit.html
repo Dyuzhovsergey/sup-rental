@@ -85,18 +85,18 @@
                             </div>
                         </header>
                         {{if .Events}}
-                        <div class="table-scroll" role="region" aria-labelledby="audit-list-heading" tabindex="0">
-                            <table class="audit-table">
+                        <div class="table-scroll responsive-table-region" role="region" aria-labelledby="audit-list-heading" tabindex="0">
+                            <table class="audit-table responsive-data-table">
                                 <thead><tr><th scope="col">Время</th><th scope="col">Действие</th><th scope="col">Исполнитель</th><th scope="col">Объект</th><th scope="col">Результат</th><th scope="col">Подробности</th></tr></thead>
                                 <tbody>
                                 {{range .Events}}
                                     <tr>
-                                        <td class="audit-time">{{.OccurredAt}}</td>
-                                        <td><strong>{{.Action}}</strong><span class="audit-action-code">{{.ActionCode}}</span></td>
-                                        <td>{{.Actor}}</td>
-                                        <td>{{.Target}}</td>
-                                        <td><span class="status-chip {{if .Successful}}status-chip--available{{else}}status-chip--retired{{end}}"><span class="status-dot" aria-hidden="true"></span>{{.Result}}</span></td>
-                                        <td class="audit-summary">{{if .Summary}}{{.Summary}}{{else}}—{{end}}</td>
+                                        <td class="audit-time">{{template "mobile-cell-label" "Время"}}{{.OccurredAt}}</td>
+                                        <td class="mobile-cell--full">{{template "mobile-cell-label" "Действие"}}<strong>{{.Action}}</strong><span class="audit-action-code">{{.ActionCode}}</span></td>
+                                        <td>{{template "mobile-cell-label" "Исполнитель"}}{{.Actor}}</td>
+                                        <td>{{template "mobile-cell-label" "Объект"}}{{.Target}}</td>
+                                        <td>{{template "mobile-cell-label" "Результат"}}<span class="status-chip {{if .Successful}}status-chip--available{{else}}status-chip--retired{{end}}"><span class="status-dot" aria-hidden="true"></span>{{.Result}}</span></td>
+                                        <td class="audit-summary mobile-cell--full">{{template "mobile-cell-label" "Подробности"}}{{if .Summary}}{{.Summary}}{{else}}—{{end}}</td>
                                     </tr>
                                 {{end}}
                                 </tbody>
