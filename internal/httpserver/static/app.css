@@ -1293,6 +1293,66 @@ tbody tr:last-child td {
     border-color: var(--color-control-outline);
 }
 
+.payment-operations-header {
+    align-items: center;
+}
+
+.payment-operations-table th:last-child,
+.payment-operations-table td:last-child {
+    text-align: right;
+}
+
+.payment-kind {
+    display: inline-flex;
+    gap: 7px;
+    align-items: center;
+    min-height: 26px;
+    padding: 3px 10px;
+    border: 1px solid var(--color-outline);
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 650;
+    white-space: nowrap;
+}
+
+.payment-kind--base {
+    color: var(--color-success);
+    background: var(--color-success-container);
+    border-color: var(--color-success-outline);
+}
+
+.payment-kind--overdue {
+    color: var(--color-warning);
+    background: var(--color-warning-container);
+    border-color: var(--color-warning-outline);
+}
+
+.payment-kind--refund {
+    color: var(--color-danger);
+    background: var(--color-danger-container);
+    border-color: var(--color-danger-outline);
+}
+
+.payment-kind--unknown {
+    color: var(--color-muted);
+    background: var(--color-surface-variant);
+}
+
+.payment-amount {
+    font-variant-numeric: tabular-nums;
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.payment-amount--base,
+.payment-amount--overdue {
+    color: var(--color-success);
+}
+
+.payment-amount--refund {
+    color: var(--color-danger);
+}
+
 .empty-state {
     display: grid;
     justify-items: center;
@@ -2863,6 +2923,10 @@ tbody tr:last-child td {
 
     .responsive-data-table .operator-progress-cell .operator-timing {
         width: 100%;
+    }
+
+    .responsive-data-table.payment-operations-table td:last-child {
+        text-align: left;
     }
 
     .responsive-data-table .item-actions .button,

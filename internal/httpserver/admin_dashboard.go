@@ -12,6 +12,7 @@ import (
 
 type adminDashboardService interface {
 	Snapshot(ctx context.Context) (dashboard.Snapshot, error)
+	PaymentOperations(ctx context.Context, page, pageSize int) (dashboard.PaymentOperationsPage, error)
 }
 
 type adminDashboardPageData struct {

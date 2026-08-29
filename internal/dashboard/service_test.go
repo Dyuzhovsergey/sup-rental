@@ -10,10 +10,18 @@ import (
 
 type repositoryStub struct {
 	snapshot func(context.Context, Query) (Snapshot, error)
+	payments func(context.Context, PaymentOperationsQuery) (PaymentOperationsPage, error)
 }
 
 func (s *repositoryStub) Snapshot(ctx context.Context, query Query) (Snapshot, error) {
 	return s.snapshot(ctx, query)
+}
+
+func (s *repositoryStub) PaymentOperations(ctx context.Context, query PaymentOperationsQuery) (PaymentOperationsPage, error) {
+	if s.payments == nil {
+		return PaymentOperationsPage{}, nil
+	}
+	return s.payments(ctx, query)
 }
 
 func TestServiceSnapshotUsesMoscowDay(t *testing.T) {
@@ -76,5 +84,66 @@ func TestServiceSnapshotRejectsInconsistentCounts(t *testing.T) {
 				t.Fatalf("Snapshot() error = %v, want %q", err, test.want)
 			}
 		})
+	}
+}
+
+func TestServicePaymentOperationsUsesMoscowDayAndPagination(t *testing.T) {
+	now := time.Date(2026, 8, 20, 22, 15, 0, 0, time.UTC)
+	want := PaymentOperationsPage{Total: 7}
+	var gotQuery PaymentOperationsQuery
+	service := NewService(&repositoryStub{
+		snapshot: func(context.Context, Query) (Snapshot, error) { return Snapshot{}, nil },
+		payments: func(_ context.Context, query PaymentOperationsQuery) (PaymentOperationsPage, error) {
+			gotQuery = query
+			return want, nil
+		},
+	})
+	service.now = func() time.Time { return now }
+
+	got, err := service.PaymentOperations(context.Background(), 2, 5)
+	if err != nil {
+		t.Fatalf("PaymentOperations() error = %v", err)
+	}
+	if got.Total != want.Total || got.Page != 2 || got.PageSize != 5 {
+		t.Fatalf("PaymentOperations() = %+v", got)
+	}
+	if gotQuery.DayStart.Format(time.RFC3339) != "2026-08-21T00:00:00+03:00" ||
+		gotQuery.DayEnd.Format(time.RFC3339) != "2026-08-22T00:00:00+03:00" ||
+		gotQuery.Page != 2 || gotQuery.PageSize != 5 {
+		t.Fatalf("query = %+v", gotQuery)
+	}
+}
+
+func TestServicePaymentOperationsRejectsInvalidPagination(t *testing.T) {
+	service := NewService(&repositoryStub{
+		snapshot: func(context.Context, Query) (Snapshot, error) { return Snapshot{}, nil },
+	})
+	for _, input := range []struct{ page, pageSize int }{{0, 5}, {1, 0}, {1, 20}} {
+		if _, err := service.PaymentOperations(context.Background(), input.page, input.pageSize); !errors.Is(err, ErrInvalidPaymentPagination) {
+			t.Fatalf("PaymentOperations(%d, %d) error = %v", input.page, input.pageSize, err)
+		}
+	}
+}
+
+func TestServicePaymentOperationsPreservesRepositoryErrorAndRejectsNegativeTotal(t *testing.T) {
+	repositoryError := errors.New("database unavailable")
+	service := NewService(&repositoryStub{
+		snapshot: func(context.Context, Query) (Snapshot, error) { return Snapshot{}, nil },
+		payments: func(context.Context, PaymentOperationsQuery) (PaymentOperationsPage, error) {
+			return PaymentOperationsPage{}, repositoryError
+		},
+	})
+	if _, err := service.PaymentOperations(context.Background(), 1, 10); !errors.Is(err, repositoryError) {
+		t.Fatalf("PaymentOperations() error = %v", err)
+	}
+
+	service.repository = &repositoryStub{
+		snapshot: func(context.Context, Query) (Snapshot, error) { return Snapshot{}, nil },
+		payments: func(context.Context, PaymentOperationsQuery) (PaymentOperationsPage, error) {
+			return PaymentOperationsPage{Total: -1}, nil
+		},
+	}
+	if _, err := service.PaymentOperations(context.Background(), 1, 10); err == nil || !strings.Contains(err.Error(), "negative total") {
+		t.Fatalf("PaymentOperations() error = %v", err)
 	}
 }

@@ -43,6 +43,7 @@ func TestAdminDashboardShowsActualMetricsAndNavigation(t *testing.T) {
 		"Возвраты", "15 000 ₽", "Возвращено при отмене",
 		"Итого за сегодня", "−2 500 ₽", "Оплаты &#43; доплаты − возвраты",
 		`admin-finance-metric--danger`,
+		`href="/admin/payments"`, "Открыть операции", "Платежи",
 		`href="/admin" aria-current="page"`,
 		`class="app-theme-control"`, `data-theme-toggle`,
 		`data-theme-icon="light"`, `data-theme-icon="dark"`,
