@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{.Title}}</title>
+    {{template "theme-head" .}}
+</head>
+<body>
+    <a class="skip-link" href="#main-content">К содержимому</a>
+    <div class="app-shell">
+        {{template "equipment-sidebar" .}}
+        <main class="main-content" id="main-content" tabindex="-1">
+            <div class="content-container">
+                <header class="page-header">
+                    <div>
+                        <p class="page-eyebrow">Финансы</p>
+                        <h1>Платёжные операции</h1>
+                        <p class="page-description">Полученные оплаты и возвраты за текущий московский день.</p>
+                    </div>
+                    <span class="count-chip count-chip--total">{{.TotalLabel}}</span>
+                </header>
+
+                <section class="panel" aria-labelledby="payment-operations-heading">
+                    <header class="panel-header payment-operations-header">
+                        <div>
+                            <h2 id="payment-operations-heading">Операции за сегодня</h2>
+                            <p class="panel-description">Новые операции отображаются первыми</p>
+                        </div>
+                        <form class="list-toolbar" method="get" action="/admin/payments">
+                            <label for="payment-page-size">Строк на странице</label>
+                            <select id="payment-page-size" name="page_size">
+                                {{range .PageSizeOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Value}}</option>{{end}}
+                            </select>
+                            <button class="button button--compact" type="submit">Показать</button>
+                        </form>
+                    </header>
+
+                    {{if .Operations}}
+                    <div class="table-scroll responsive-table-region" role="region" aria-labelledby="payment-operations-heading" tabindex="0">
+                        <table class="payment-operations-table responsive-data-table">
+                            <thead>
+                                <tr>
+                                    <th scope="col">Время</th>
+                                    <th scope="col">Операция</th>
+                                    <th scope="col">Аренда</th>
+                                    <th scope="col">Клиент</th>
+                                    <th scope="col">Исполнитель</th>
+                                    <th scope="col">Сумма</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                            {{range .Operations}}
+                                <tr class="navigable-row" data-row-href="/rentals/{{.RentalID}}" tabindex="0" aria-label="Открыть аренду №{{.RentalID}}">
+                                    <td>{{template "mobile-cell-label" "Время"}}{{.OccurredAt}}</td>
+                                    <td class="mobile-cell--full">{{template "mobile-cell-label" "Операция"}}<span class="payment-kind payment-kind--{{.Tone}}"><span class="status-dot" aria-hidden="true"></span>{{.Kind}}</span></td>
+                                    <td>{{template "mobile-cell-label" "Аренда"}}<strong><a class="entity-link" href="/rentals/{{.RentalID}}">№{{.RentalID}}</a></strong></td>
+                                    <td>{{template "mobile-cell-label" "Клиент"}}{{.ClientName}}</td>
+                                    <td>{{template "mobile-cell-label" "Исполнитель"}}{{.ActorLogin}}</td>
+                                    <td class="payment-amount payment-amount--{{.Tone}}">{{template "mobile-cell-label" "Сумма"}}{{.Amount}}</td>
+                                </tr>
+                            {{end}}
+                            </tbody>
+                        </table>
+                    </div>
+                    {{else}}
+                    <div class="empty-state">
+                        <h3>Платёжных операций за сегодня нет</h3>
+                        <p>Новые оплаты и возвраты появятся здесь автоматически.</p>
+                    </div>
+                    {{end}}
+                    {{template "pagination" .}}
+                </section>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

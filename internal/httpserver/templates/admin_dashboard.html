@@ -56,6 +56,25 @@
                             {{end}}
                         </div>
                     </section>
+
+                    <section class="panel admin-dashboard__section admin-dashboard__section--finance" aria-labelledby="admin-finance-heading">
+                        <div class="panel-header admin-finance__header">
+                            <div>
+                                <h2 id="admin-finance-heading">Финансы сегодня</h2>
+                                <p>Фактически полученные и возвращённые средства</p>
+                            </div>
+                            <a class="button button--compact" href="/admin/payments">Открыть операции</a>
+                        </div>
+                        <div class="admin-finance-metrics">
+                            {{range .Finance}}
+                            <article class="admin-finance-metric admin-finance-metric--{{.Tone}}">
+                                <span>{{.Label}}</span>
+                                <strong>{{.Value}}</strong>
+                                <p>{{.Description}}</p>
+                            </article>
+                            {{end}}
+                        </div>
+                    </section>
                 </div>
             </div>
         </main>

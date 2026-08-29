@@ -808,6 +808,12 @@ input:-webkit-autofill:focus {
     text-align: center;
 }
 
+.rental-card-select-control {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+}
+
 .rental-table .rental-period-cell {
     min-width: 190px;
     white-space: nowrap;
@@ -1107,6 +1113,10 @@ input:-webkit-autofill:focus {
     outline-offset: -3px;
 }
 
+.mobile-cell-label {
+    display: none;
+}
+
 table {
     width: 100%;
     border-spacing: 0;
@@ -1281,6 +1291,66 @@ tbody tr:last-child td {
     color: var(--color-text);
     background: var(--color-surface-variant);
     border-color: var(--color-control-outline);
+}
+
+.payment-operations-header {
+    align-items: center;
+}
+
+.payment-operations-table th:last-child,
+.payment-operations-table td:last-child {
+    text-align: right;
+}
+
+.payment-kind {
+    display: inline-flex;
+    gap: 7px;
+    align-items: center;
+    min-height: 26px;
+    padding: 3px 10px;
+    border: 1px solid var(--color-outline);
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 650;
+    white-space: nowrap;
+}
+
+.payment-kind--base {
+    color: var(--color-success);
+    background: var(--color-success-container);
+    border-color: var(--color-success-outline);
+}
+
+.payment-kind--overdue {
+    color: var(--color-warning);
+    background: var(--color-warning-container);
+    border-color: var(--color-warning-outline);
+}
+
+.payment-kind--refund {
+    color: var(--color-danger);
+    background: var(--color-danger-container);
+    border-color: var(--color-danger-outline);
+}
+
+.payment-kind--unknown {
+    color: var(--color-muted);
+    background: var(--color-surface-variant);
+}
+
+.payment-amount {
+    font-variant-numeric: tabular-nums;
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.payment-amount--base,
+.payment-amount--overdue {
+    color: var(--color-success);
+}
+
+.payment-amount--refund {
+    color: var(--color-danger);
 }
 
 .empty-state {
@@ -1748,6 +1818,78 @@ tbody tr:last-child td {
     margin-top: 6px;
     font-size: 30px;
     line-height: 1.15;
+}
+
+.admin-dashboard__section--finance {
+    grid-column: 1 / -1;
+}
+
+.admin-finance__header {
+    align-items: center;
+}
+
+.admin-finance-metrics {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+    padding: 20px;
+}
+
+.admin-finance-metric {
+    position: relative;
+    min-width: 0;
+    min-height: 132px;
+    padding: 18px;
+    overflow: hidden;
+    background: var(--color-surface-variant);
+    border: 1px solid var(--color-outline);
+    border-radius: 14px;
+}
+
+.admin-finance-metric::before {
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    content: "";
+    background: var(--color-primary);
+}
+
+.admin-finance-metric--success::before {
+    background: var(--color-success);
+}
+
+.admin-finance-metric--warning::before {
+    background: var(--color-warning);
+}
+
+.admin-finance-metric--danger::before {
+    background: var(--color-danger);
+}
+
+.admin-finance-metric--neutral::before {
+    background: var(--color-muted);
+}
+
+.admin-finance-metric > span {
+    display: block;
+    color: var(--color-muted);
+    font-size: 14px;
+    font-weight: 650;
+}
+
+.admin-finance-metric strong {
+    display: block;
+    margin-top: 10px;
+    font-size: clamp(24px, 2.4vw, 32px);
+    line-height: 1.1;
+    overflow-wrap: anywhere;
+}
+
+.admin-finance-metric p {
+    margin: 10px 0 0;
+    color: var(--color-muted);
+    font-size: 13px;
+    line-height: 1.4;
 }
 
 .operator-dashboard__header {
@@ -2637,6 +2779,10 @@ tbody tr:last-child td {
         grid-template-columns: minmax(0, 1fr);
     }
 
+    .admin-finance-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
     .form-grid--three,
     .audit-filter-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2656,6 +2802,141 @@ tbody tr:last-child td {
     .rental-client-summary--three,
     .rental-period-summary {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .responsive-table-region {
+        overflow: visible;
+        scrollbar-gutter: auto;
+    }
+
+    .table-scroll.responsive-table-region::before {
+        display: none;
+    }
+
+    .responsive-data-table {
+        display: block;
+        width: 100%;
+        min-width: 0;
+    }
+
+    .responsive-data-table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+    }
+
+    .responsive-data-table tbody {
+        display: grid;
+        gap: 12px;
+        padding: 12px;
+    }
+
+    .responsive-data-table tr {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+        padding: 16px;
+        background: var(--color-surface);
+        border: 1px solid var(--color-outline);
+        border-radius: var(--radius-control);
+        box-shadow: var(--shadow-surface);
+    }
+
+    .responsive-data-table td,
+    .equipment-list-panel .responsive-data-table td {
+        display: grid;
+        align-content: start;
+        justify-items: start;
+        gap: 4px;
+        min-width: 0;
+        padding: 0;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        border: 0;
+    }
+
+    .responsive-data-table .table-id,
+    .responsive-data-table .table-actions,
+    .responsive-data-table .rental-period-cell,
+    .responsive-data-table .rental-duration-cell,
+    .responsive-data-table .rental-composition-cell,
+    .responsive-data-table .operator-last-login,
+    .responsive-data-table .audit-summary,
+    .responsive-data-table .operator-timing {
+        width: auto;
+        min-width: 0;
+        white-space: normal;
+    }
+
+    .responsive-data-table .rental-select-column {
+        display: flex;
+        width: 100%;
+        min-height: 44px;
+        align-items: center;
+        text-align: left;
+    }
+
+    .responsive-data-table .rental-card-select-control {
+        gap: 10px;
+        min-height: 44px;
+    }
+
+    .responsive-data-table.operator-monitoring-table td:last-child {
+        width: auto;
+        text-align: left;
+    }
+
+    .responsive-data-table .mobile-cell--full,
+    .responsive-data-table .table-actions {
+        grid-column: 1 / -1;
+    }
+
+    .mobile-cell-label {
+        display: block;
+        color: var(--color-muted);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        line-height: 1.35;
+        text-transform: uppercase;
+    }
+
+    .responsive-data-table .item-actions,
+    .responsive-data-table .mobile-card-actions {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 8px;
+        width: 100%;
+    }
+
+    .responsive-data-table .item-actions form,
+    .responsive-data-table .item-actions .button,
+    .responsive-data-table .mobile-card-actions .button {
+        width: 100%;
+    }
+
+    .responsive-data-table .operator-progress-cell .operator-timing {
+        width: 100%;
+    }
+
+    .responsive-data-table.payment-operations-table td:last-child {
+        text-align: left;
+    }
+
+    .responsive-data-table .item-actions .button,
+    .responsive-data-table .mobile-card-actions .button {
+        min-height: 44px;
+    }
+
+    .responsive-data-table tr.navigable-row:focus-visible {
+        outline: 3px solid var(--color-focus);
+        outline-offset: 2px;
     }
 }
 
@@ -2772,8 +3053,9 @@ tbody tr:last-child td {
     }
 
     .rental-bulk-toolbar {
-        align-items: stretch;
-        flex-direction: column;
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
         gap: 12px;
         padding: 14px 16px;
     }
@@ -2783,9 +3065,16 @@ tbody tr:last-child td {
     }
 
     .rental-bulk-actions {
-        flex-wrap: wrap;
+        display: grid;
+        grid-column: 1 / -1;
+        grid-template-columns: minmax(0, 1fr);
         width: 100%;
         margin-left: 0;
+    }
+
+    .rental-bulk-actions .button {
+        width: 100%;
+        min-height: 44px;
     }
 
     .rental-bulk-select-all input,
@@ -2811,9 +3100,12 @@ tbody tr:last-child td {
         flex-wrap: wrap;
     }
 
-    .operator-metrics,
-    .admin-metrics {
+    .operator-metrics {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .admin-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
     .operator-entry {
@@ -2945,12 +3237,17 @@ tbody tr:last-child td {
     }
 
     .admin-metrics {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        padding: 12px;
+    }
+
+    .admin-finance-metrics {
         grid-template-columns: minmax(0, 1fr);
         padding: 16px;
     }
 
     .admin-metrics--equipment .admin-metric:first-child {
-        grid-column: auto;
+        grid-column: 1 / -1;
     }
 
     .operator-metric,
@@ -2993,6 +3290,15 @@ tbody tr:last-child td {
 
     .pagination-label {
         text-align: center;
+    }
+
+    .responsive-data-table tbody {
+        padding: 10px;
+    }
+
+    .responsive-data-table tr {
+        gap: 10px;
+        padding: 14px;
     }
 }
 

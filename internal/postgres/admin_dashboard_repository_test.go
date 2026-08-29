@@ -32,11 +32,12 @@ func TestAdminDashboardRepositoryReturnsActualCounts(t *testing.T) {
 		t.Fatalf("mark equipment retired: %v", err)
 	}
 
-	if _, err := rentalRepository.CreateConfirmed(
+	confirmed, err := rentalRepository.CreateConfirmed(
 		ctx, fixture.actor, fixture.firstClientID,
 		rentalTestInterval(t, now.Add(time.Hour)),
 		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
-	); err != nil {
+	)
+	if err != nil {
 		t.Fatalf("create confirmed rental: %v", err)
 	}
 	active, err := rentalRepository.CreateConfirmed(
@@ -49,6 +50,27 @@ func TestAdminDashboardRepositoryReturnsActualCounts(t *testing.T) {
 	}
 	if _, err := rentalRepository.Issue(ctx, fixture.actor, active.ID, now.Add(-2*time.Hour)); err != nil {
 		t.Fatalf("issue active rental: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE rental_payments
+		SET occurred_at = CASE rental_id WHEN $1 THEN $3::timestamptz ELSE $4::timestamptz END
+		WHERE rental_id = ANY($2) AND kind = 'base'`,
+		confirmed.ID, []int64{confirmed.ID, active.ID}, query.DayStart.Add(time.Hour), query.DayStart.Add(2*time.Hour)); err != nil {
+		t.Fatalf("move base payments into dashboard day: %v", err)
+	}
+	var basePaymentID int64
+	if err := pool.QueryRow(ctx, `SELECT id FROM rental_payments
+		WHERE rental_id = $1 AND kind = 'base'`, confirmed.ID).Scan(&basePaymentID); err != nil {
+		t.Fatalf("load base payment id: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO rental_payments
+		(rental_id, kind, amount_kopecks, occurred_at, actor_user_id)
+		VALUES ($1, 'overdue', 25000, $2, $3)`, active.ID, query.DayStart.Add(3*time.Hour), fixture.actor.ID); err != nil {
+		t.Fatalf("insert overdue payment: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO rental_payments
+		(rental_id, kind, amount_kopecks, occurred_at, actor_user_id, related_payment_id)
+		VALUES ($1, 'refund', 10000, $2, $3, $4)`, confirmed.ID, query.DayStart.Add(4*time.Hour), fixture.actor.ID, basePaymentID); err != nil {
+		t.Fatalf("insert refund payment: %v", err)
 	}
 
 	got, err := dashboardRepository.Snapshot(ctx, query)
@@ -63,7 +85,11 @@ func TestAdminDashboardRepositoryReturnsActualCounts(t *testing.T) {
 		got.RentalsActive != baseline.RentalsActive+1 ||
 		got.RentalsOverdue != baseline.RentalsOverdue+1 ||
 		got.RentalsStartingToday != baseline.RentalsStartingToday+2 ||
-		got.RentalsEndingToday != baseline.RentalsEndingToday+2 {
+		got.RentalsEndingToday != baseline.RentalsEndingToday+2 ||
+		got.PaymentsBaseTodayKopecks != baseline.PaymentsBaseTodayKopecks+100_000 ||
+		got.PaymentsOverdueTodayKopecks != baseline.PaymentsOverdueTodayKopecks+25_000 ||
+		got.PaymentsRefundTodayKopecks != baseline.PaymentsRefundTodayKopecks+10_000 ||
+		got.PaymentsNetTodayKopecks != baseline.PaymentsNetTodayKopecks+115_000 {
 		t.Fatalf("Snapshot() = %+v, baseline = %+v", got, baseline)
 	}
 }
@@ -72,5 +98,79 @@ func TestAdminDashboardRepositoryRejectsInvalidQuery(t *testing.T) {
 	pool, ctx := rentalTestPool(t)
 	if _, err := NewAdminDashboardRepository(pool).Snapshot(ctx, dashboard.Query{}); err == nil {
 		t.Fatal("Snapshot() error = nil")
+	}
+}
+
+func TestAdminDashboardRepositoryListsPaymentOperationsForDay(t *testing.T) {
+	pool, ctx := rentalTestPool(t)
+	fixture := newRentalRepositoryFixture(t, ctx, pool, 2)
+	repository := NewRentalRepository(pool)
+	dashboardRepository := NewAdminDashboardRepository(pool)
+	location := time.FixedZone("test-msk", 3*60*60)
+	dayStart := time.Date(2026, 9, 9, 0, 0, 0, 0, location)
+
+	inside, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.firstClientID,
+		rentalTestInterval(t, dayStart.Add(8*time.Hour)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("create inside rental: %v", err)
+	}
+	outside, err := repository.CreateConfirmed(
+		ctx, fixture.actor, fixture.secondClientID,
+		rentalTestInterval(t, dayStart.Add(10*time.Hour)),
+		[]rental.ModelSelection{{ModelID: fixture.modelID, Quantity: 1}},
+	)
+	if err != nil {
+		t.Fatalf("create outside rental: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE rental_payments SET occurred_at = $2
+		WHERE rental_id = $1 AND kind = 'base'`, inside.ID, dayStart.Add(2*time.Hour)); err != nil {
+		t.Fatalf("move inside payment: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `UPDATE rental_payments SET occurred_at = $2
+		WHERE rental_id = $1 AND kind = 'base'`, outside.ID, dayStart.Add(-time.Second)); err != nil {
+		t.Fatalf("move outside payment: %v", err)
+	}
+	var basePaymentID int64
+	if err := pool.QueryRow(ctx, `SELECT id FROM rental_payments
+		WHERE rental_id = $1 AND kind = 'base'`, inside.ID).Scan(&basePaymentID); err != nil {
+		t.Fatalf("load base payment id: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO rental_payments
+		(rental_id, kind, amount_kopecks, occurred_at, actor_user_id)
+		VALUES ($1, 'overdue', 25000, $2, $3)`, inside.ID, dayStart.Add(3*time.Hour), fixture.actor.ID); err != nil {
+		t.Fatalf("insert overdue payment: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO rental_payments
+		(rental_id, kind, amount_kopecks, occurred_at, actor_user_id, related_payment_id)
+		VALUES ($1, 'refund', 10000, $2, $3, $4)`, inside.ID, dayStart.Add(4*time.Hour), fixture.actor.ID, basePaymentID); err != nil {
+		t.Fatalf("insert refund payment: %v", err)
+	}
+
+	got, err := dashboardRepository.PaymentOperations(ctx, dashboard.PaymentOperationsQuery{
+		DayStart: dayStart, DayEnd: dayStart.AddDate(0, 0, 1), Page: 1, PageSize: 5,
+	})
+	if err != nil {
+		t.Fatalf("PaymentOperations() error = %v", err)
+	}
+	if got.Total != 3 || got.Page != 1 || got.PageSize != 5 || len(got.Operations) != 3 {
+		t.Fatalf("PaymentOperations() = %+v", got)
+	}
+	wantKinds := []rental.PaymentKind{rental.PaymentKindRefund, rental.PaymentKindOverdue, rental.PaymentKindBase}
+	for index, wantKind := range wantKinds {
+		operation := got.Operations[index]
+		if operation.RentalID != inside.ID || operation.Kind != wantKind ||
+			operation.ClientName != "Rental Test Client 1" || operation.ActorLogin != fixture.actor.Login {
+			t.Fatalf("operation[%d] = %+v", index, operation)
+		}
+	}
+}
+
+func TestAdminDashboardRepositoryRejectsInvalidPaymentOperationsQuery(t *testing.T) {
+	pool, ctx := rentalTestPool(t)
+	if _, err := NewAdminDashboardRepository(pool).PaymentOperations(ctx, dashboard.PaymentOperationsQuery{}); err == nil {
+		t.Fatal("PaymentOperations() error = nil")
 	}
 }

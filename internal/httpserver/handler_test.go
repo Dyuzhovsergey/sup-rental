@@ -152,6 +152,12 @@ func TestStylesheet(t *testing.T) {
 		".app-theme-control",
 		".equipment-layout",
 		".equipment-list-column",
+		".admin-finance-metrics",
+		".admin-finance-metric--danger",
+		".responsive-table-region",
+		".responsive-data-table",
+		".mobile-cell-label",
+		".table-scroll.responsive-table-region::before",
 		".button--compact",
 		".button--edit",
 		".retirement-panel",
@@ -378,6 +384,7 @@ type auditServiceStub struct {
 
 type adminDashboardServiceStub struct {
 	snapshot func(context.Context) (dashboard.Snapshot, error)
+	payments func(context.Context, int, int) (dashboard.PaymentOperationsPage, error)
 }
 
 func (s *adminDashboardServiceStub) Snapshot(ctx context.Context) (dashboard.Snapshot, error) {
@@ -385,6 +392,13 @@ func (s *adminDashboardServiceStub) Snapshot(ctx context.Context) (dashboard.Sna
 		return dashboard.Snapshot{}, nil
 	}
 	return s.snapshot(ctx)
+}
+
+func (s *adminDashboardServiceStub) PaymentOperations(ctx context.Context, page, pageSize int) (dashboard.PaymentOperationsPage, error) {
+	if s.payments == nil {
+		return dashboard.PaymentOperationsPage{Page: page, PageSize: pageSize}, nil
+	}
+	return s.payments(ctx, page, pageSize)
 }
 
 type clientServiceStub struct {

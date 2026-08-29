@@ -167,34 +167,33 @@ type rentalSummaryView struct {
 }
 
 type rentalDetailPageData struct {
-	Authentication         *authenticationView
-	Title                  string
-	RentalID               int64
-	Client                 client.Client
-	Period                 string
-	Duration               string
-	Status                 string
-	Items                  []rentalItemView
-	ItemCount              string
-	PlannedTotal           string
-	HasSettlement          bool
-	Overdue                string
-	BillableOverdue        string
-	CalculatedOverdueTotal string
-	OverdueTotal           string
-	FinalTotal             string
-	IssuedAt               string
-	ExpectedReturnAt       string
-	ReturnedAt             string
-	CanIssue               bool
-	CanComplete            bool
-	PaymentLegacy          bool
-	BasePayment            string
-	BasePaymentAt          string
-	OverduePayment         string
-	OverduePaymentAt       string
-	RefundPayment          string
-	RefundPaymentAt        string
+	Authentication   *authenticationView
+	Title            string
+	RentalID         int64
+	Client           client.Client
+	Period           string
+	Duration         string
+	Status           string
+	Items            []rentalItemView
+	ItemCount        string
+	PlannedTotal     string
+	HasSettlement    bool
+	Overdue          string
+	BillableOverdue  string
+	OverdueTotal     string
+	FinalTotal       string
+	IssuedAt         string
+	ExpectedReturnAt string
+	ReturnedAt       string
+	CanIssue         bool
+	CanComplete      bool
+	PaymentLegacy    bool
+	BasePayment      string
+	BasePaymentAt    string
+	OverduePayment   string
+	OverduePaymentAt string
+	RefundPayment    string
+	RefundPaymentAt  string
 }
 
 type rentalItemView struct {
@@ -914,7 +913,6 @@ func showRentalDetailPage(
 		data.HasSettlement = true
 		data.Overdue = rentalOverdueLabel(settlement.OverdueDuration)
 		data.BillableOverdue = rentalBillableOverdueLabel(settlement.OverdueSlots)
-		data.CalculatedOverdueTotal = rentalMoneyLabel(settlement.CalculatedOverdueTotalKopecks)
 		data.OverdueTotal = rentalMoneyLabel(settlement.OverdueTotalKopecks)
 		data.FinalTotal = rentalMoneyLabel(settlement.FinalTotalKopecks)
 	}

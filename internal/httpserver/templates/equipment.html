@@ -155,16 +155,16 @@
 
                             {{if .ActiveItems}}
                             <p id="equipment-active-table-hint" class="visually-hidden">
-                                При необходимости таблицу можно прокрутить по горизонтали.
+                                На узком экране каждая строка отображается отдельной карточкой.
                             </p>
                             <div
-                                class="table-scroll"
+                                class="table-scroll responsive-table-region"
                                 role="region"
                                 aria-labelledby="equipment-active-heading"
                                 aria-describedby="equipment-active-table-hint"
                                 tabindex="0"
                             >
-                                <table>
+                                <table class="responsive-data-table">
                                     <thead>
                                         <tr>
                                             <th scope="col">ID</th>
@@ -184,16 +184,18 @@
                                             tabindex="0"
                                             aria-label="Открыть карточку оборудования {{.InventoryNumber}}"
                                         >
-                                            <td class="table-id">{{.ID}}</td>
-                                            <td>
+                                            <td class="table-id">{{template "mobile-cell-label" "ID"}}{{.ID}}</td>
+                                            <td class="mobile-cell--full">
+                                                {{template "mobile-cell-label" "Инвентарный номер"}}
                                                 <a class="inventory-link" href="/equipment/{{.ID}}">{{.InventoryNumber}}</a>
                                             </td>
-                                            <td>{{.Kind}}</td>
-                                            <td>{{.ModelCode}}</td>
-                                            <td>{{.HourlyRate}}</td>
-                                            <td>{{template "equipment-status-chip" .Status}}</td>
+                                            <td>{{template "mobile-cell-label" "Тип"}}{{.Kind}}</td>
+                                            <td>{{template "mobile-cell-label" "Модель"}}{{.ModelCode}}</td>
+                                            <td>{{template "mobile-cell-label" "Тариф"}}{{.HourlyRate}}</td>
+                                            <td>{{template "mobile-cell-label" "Статус"}}{{template "equipment-status-chip" .Status}}</td>
                                             {{if $.CanManageEquipment}}
-                                            <td class="table-actions">
+                                            <td class="table-actions mobile-cell--full">
+                                                {{template "mobile-cell-label" "Действия"}}
                                                 <div
                                                     class="item-actions"
                                                     role="group"
@@ -261,16 +263,16 @@
                             </header>
 
                             <p id="equipment-retired-table-hint" class="visually-hidden">
-                                При необходимости таблицу можно прокрутить по горизонтали.
+                                На узком экране каждая строка отображается отдельной карточкой.
                             </p>
                             <div
-                                class="table-scroll"
+                                class="table-scroll responsive-table-region"
                                 role="region"
                                 aria-labelledby="equipment-retired-heading"
                                 aria-describedby="equipment-retired-table-hint"
                                 tabindex="0"
                             >
-                                <table>
+                                <table class="responsive-data-table">
                                     <thead>
                                         <tr>
                                             <th scope="col">ID</th>
@@ -290,16 +292,18 @@
                                             tabindex="0"
                                             aria-label="Открыть карточку оборудования {{.InventoryNumber}}"
                                         >
-                                            <td class="table-id">{{.ID}}</td>
-                                            <td>
+                                            <td class="table-id">{{template "mobile-cell-label" "ID"}}{{.ID}}</td>
+                                            <td class="mobile-cell--full">
+                                                {{template "mobile-cell-label" "Инвентарный номер"}}
                                                 <a class="inventory-link" href="/equipment/{{.ID}}">{{.InventoryNumber}}</a>
                                             </td>
-                                            <td>{{.Kind}}</td>
-                                            <td>{{.ModelCode}}</td>
-                                            <td>{{.HourlyRate}}</td>
-                                            <td>{{template "equipment-status-chip" .Status}}</td>
+                                            <td>{{template "mobile-cell-label" "Тип"}}{{.Kind}}</td>
+                                            <td>{{template "mobile-cell-label" "Модель"}}{{.ModelCode}}</td>
+                                            <td>{{template "mobile-cell-label" "Тариф"}}{{.HourlyRate}}</td>
+                                            <td>{{template "mobile-cell-label" "Статус"}}{{template "equipment-status-chip" .Status}}</td>
                                             {{if $.CanManageEquipment}}
-                                            <td class="table-actions">
+                                            <td class="table-actions mobile-cell--full">
+                                                {{template "mobile-cell-label" "Действия"}}
                                                 <div
                                                     class="item-actions"
                                                     role="group"

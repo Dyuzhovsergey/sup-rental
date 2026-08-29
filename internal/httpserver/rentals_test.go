@@ -486,6 +486,8 @@ func TestRentalsListAndDetail(t *testing.T) {
 	for _, want := range []string{
 		"Аренда №24 создана, подтверждена и оплачена", "Подтверждена", "Анна Петрова", "1 позиция", "1500 ₽",
 		`href="/rentals/24"`, `data-row-href="/rentals/24"`, `tabindex="0"`,
+		`class="rental-table responsive-data-table"`,
+		`class="mobile-cell-label" aria-hidden="true">Период`,
 		`aria-label="Открыть аренду №24"`,
 	} {
 		if !strings.Contains(list.Body.String(), want) {
@@ -592,7 +594,8 @@ func TestRentalsListSeparatesStatusesAndShowsConfirmedActions(t *testing.T) {
 		`name="rental_id" value="24"`, `formaction="/rentals/bulk/issue"`,
 		`formaction="/rentals/bulk/cancel"`, "Выбрать все на странице",
 		`name="rental_id" value="25"`, `formaction="/rentals/bulk/complete"`,
-		"Принять возврат выбранных",
+		"Принять возврат выбранных", `class="rental-card-select-control"`,
+		`class="mobile-cell-label" aria-hidden="true">Выбрать аренду`,
 		`data-row-href="/rentals/24"`, `aria-label="Открыть аренду №24"`,
 		`data-row-href="/rentals/25"`, `aria-label="Открыть аренду №25"`,
 		`data-row-href="/rentals/26"`, `aria-label="Открыть аренду №26"`,
@@ -690,7 +693,11 @@ func TestRentalBulkConfirmationAndRedirects(t *testing.T) {
 		if response.Code != http.StatusOK {
 			t.Fatalf("GET %s status = %d body %q", tt.path, response.Code, response.Body.String())
 		}
-		for _, want := range append([]string{"Выбранные аренды", "Анна Петрова", `name="csrf_token" value="csrf-token"`}, tt.ids...) {
+		for _, want := range append([]string{
+			"Выбранные аренды", "Анна Петрова", `name="csrf_token" value="csrf-token"`,
+			`class="table-scroll responsive-table-region"`, `class="responsive-data-table"`,
+			`class="mobile-cell-label" aria-hidden="true">Период`,
+		}, tt.ids...) {
 			if !strings.Contains(response.Body.String(), want) {
 				t.Errorf("GET %s body does not contain %q", tt.path, want)
 			}
@@ -970,7 +977,7 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 		"Подтверждение возврата", "Анна Петрова", "SUP-TOURING-1",
 		"15.08.2026 10:02", `name="csrf_token" value="csrf-token"`,
 		"Завершить аренду", "всё оборудование станет доступным",
-		"Плановая стоимость", "1500 ₽", "Оплачиваемое время просрочки", "30 мин", "Рассчитанная доплата",
+		"Плановая стоимость", "1500 ₽", "Оплачиваемое время просрочки", "30 мин", "Доплата за просрочку",
 		`name="overdue_total_rubles"`, `value="500"`, "Уменьшить доплату на 50 рублей", "Увеличить доплату на 50 рублей",
 		"Предварительный итог", "2000 ₽", "Первые 10 минут",
 		`class="button button--secondary" href="/rentals">Отмена</a>`,
@@ -1003,9 +1010,10 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 		!strings.Contains(detail.Body.String(), "15.08.2026 11:41") ||
 		!strings.Contains(detail.Body.String(), "Итоговая стоимость") ||
 		!strings.Contains(detail.Body.String(), "Оплачиваемое время просрочки") ||
-		!strings.Contains(detail.Body.String(), "Рассчитанная доплата") ||
-		!strings.Contains(detail.Body.String(), "Применённая доплата") ||
+		!strings.Contains(detail.Body.String(), "Доплата за просрочку") ||
 		!strings.Contains(detail.Body.String(), "2250 ₽") ||
+		strings.Contains(detail.Body.String(), "Рассчитанная доплата") ||
+		strings.Contains(detail.Body.String(), "Применённая доплата") ||
 		strings.Contains(detail.Body.String(), `href="/rentals/24/complete"`) {
 		t.Fatalf("completed detail = %d body %q", detail.Code, detail.Body.String())
 	}

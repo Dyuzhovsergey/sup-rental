@@ -64,17 +64,18 @@
                         <div class="equipment-list-notice"><div class="alert alert--success" role="status" aria-live="polite"><p>{{.Success}}</p></div></div>
                         {{end}}
                         {{if .Operators}}
-                        <div class="table-scroll" role="region" aria-labelledby="operators-list-heading" tabindex="0">
-                            <table>
+                        <div class="table-scroll responsive-table-region" role="region" aria-labelledby="operators-list-heading" tabindex="0">
+                            <table class="responsive-data-table">
                                 <thead><tr><th scope="col">Логин</th><th scope="col">Роль</th><th scope="col">Состояние</th><th scope="col">Последний вход</th><th scope="col">Действия</th></tr></thead>
                                 <tbody>
                                     {{range .Operators}}
                                     <tr>
-                                        <td><strong>{{.Login}}</strong></td>
-                                        <td>{{.Role}}</td>
-                                        <td><span class="status-chip {{if .Active}}status-chip--available{{else}}status-chip--retired{{end}}"><span class="status-dot" aria-hidden="true"></span>{{.State}}</span></td>
-                                        <td class="operator-last-login">{{.LastLoginAt}}</td>
-                                        <td class="table-actions">
+                                        <td>{{template "mobile-cell-label" "Логин"}}<strong>{{.Login}}</strong></td>
+                                        <td>{{template "mobile-cell-label" "Роль"}}{{.Role}}</td>
+                                        <td>{{template "mobile-cell-label" "Состояние"}}<span class="status-chip {{if .Active}}status-chip--available{{else}}status-chip--retired{{end}}"><span class="status-dot" aria-hidden="true"></span>{{.State}}</span></td>
+                                        <td class="operator-last-login mobile-cell--full">{{template "mobile-cell-label" "Последний вход"}}{{.LastLoginAt}}</td>
+                                        <td class="table-actions mobile-cell--full">
+                                            {{template "mobile-cell-label" "Действия"}}
                                             <div class="item-actions" role="group" aria-label="Действия с оператором {{.Login}}">
                                                 <a class="button button--compact button--edit" href="/admin/operators/{{.ID}}/password">Сменить пароль</a>
                                                 {{if .Active}}

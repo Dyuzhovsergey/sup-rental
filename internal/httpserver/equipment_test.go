@@ -36,6 +36,8 @@ func TestEquipmentPageShowsBatchFormAndModelData(t *testing.T) {
 		`name="kind"`, `name="model_code"`, `name="hourly_rate_rubles"`, `name="quantity"`,
 		`name="csrf_token" value="csrf-token"`, "Модель", "Тариф", "CARBON", "350 ₽/час",
 		`PADDLE-CARBON-1`, "Весло", "Доступен", `href="/equipment/17/edit"`,
+		`class="table-scroll responsive-table-region"`, `class="responsive-data-table"`,
+		`class="mobile-cell-label" aria-hidden="true">Инвентарный номер`,
 		`class="navigable-row"`, `data-row-href="/equipment/17"`,
 		`aria-label="Открыть карточку оборудования PADDLE-CARBON-1"`,
 		`data-row-href="/equipment/19"`, `aria-label="Открыть карточку оборудования PADDLE-CARBON-3"`,

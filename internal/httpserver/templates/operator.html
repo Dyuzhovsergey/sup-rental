@@ -43,8 +43,8 @@
                             <span class="count-badge">{{.Confirmed.CountLabel}}</span>
                         </div>
                         {{if .Confirmed.Rentals}}
-                        <div class="table-scroll" role="region" aria-labelledby="operator-confirmed-heading" tabindex="0">
-                            <table class="data-table operator-monitoring-table">
+                        <div class="table-scroll responsive-table-region" role="region" aria-labelledby="operator-confirmed-heading" tabindex="0">
+                            <table class="data-table operator-monitoring-table responsive-data-table">
                                 <thead><tr><th scope="col">№</th><th scope="col">Клиент</th><th scope="col">Период</th><th scope="col">Состав</th><th scope="col">Плановое время</th><th scope="col"><span class="visually-hidden">Переход</span></th></tr></thead>
                                 <tbody>
                                     {{range .Confirmed.Rentals}}
@@ -54,17 +54,18 @@
                                         tabindex="0"
                                         aria-label="Открыть аренду №{{.ID}}"
                                     >
-                                        <td><a class="table-primary-link" href="/rentals/{{.ID}}">№{{.ID}}</a></td>
-                                        <td>{{.ClientName}}</td>
-                                        <td class="operator-monitoring-table__period">{{.Period}}</td>
-                                        <td>{{.ItemCount}}</td>
-                                        <td>
+                                        <td>{{template "mobile-cell-label" "Номер"}}<a class="table-primary-link" href="/rentals/{{.ID}}">№{{.ID}}</a></td>
+                                        <td>{{template "mobile-cell-label" "Клиент"}}{{.ClientName}}</td>
+                                        <td class="operator-monitoring-table__period mobile-cell--full">{{template "mobile-cell-label" "Период"}}{{.Period}}</td>
+                                        <td>{{template "mobile-cell-label" "Состав"}}{{.ItemCount}}</td>
+                                        <td class="mobile-cell--full">
+                                            {{template "mobile-cell-label" "Плановое время"}}
                                             <div class="operator-timing operator-timing--{{.TimingTone}}" data-operator-timing data-rental-id="{{.ID}}" data-rental-status="{{.Status}}" data-start-unix-ms="{{.StartUnixMS}}" data-end-unix-ms="{{.EndUnixMS}}">
                                                 <span data-operator-timing-label>{{.TimingLabel}}</span>
                                                 <progress max="100" value="{{.Progress}}" aria-label="{{.ProgressLabel}}">{{.Progress}}%</progress>
                                             </div>
                                         </td>
-                                        <td><a class="button button--compact" href="/rentals/{{.ID}}">Открыть</a></td>
+                                        <td class="mobile-cell--full mobile-card-actions">{{template "mobile-cell-label" "Действия"}}<a class="button button--compact" href="/rentals/{{.ID}}">Открыть</a></td>
                                     </tr>
                                     {{end}}
                                 </tbody>
@@ -85,9 +86,9 @@
                             <span class="count-badge">{{.Active.CountLabel}}</span>
                         </div>
                         {{if .Active.Rentals}}
-                        <div class="table-scroll" role="region" aria-labelledby="operator-active-heading" tabindex="0">
-                            <table class="data-table operator-monitoring-table">
-                                <thead><tr><th scope="col">№</th><th scope="col">Клиент</th><th scope="col">Плановое завершение</th><th scope="col">Состав</th><th scope="col">Прогресс</th><th scope="col"><span class="visually-hidden">Переход</span></th></tr></thead>
+                        <div class="table-scroll responsive-table-region" role="region" aria-labelledby="operator-active-heading" tabindex="0">
+                            <table class="data-table operator-monitoring-table responsive-data-table">
+                                <thead><tr><th scope="col">№</th><th scope="col">Клиент</th><th scope="col">Плановое завершение</th><th scope="col">Состав</th><th scope="col">Прогресс</th></tr></thead>
                                 <tbody>
                                     {{range .Active.Rentals}}
                                     <tr
@@ -96,17 +97,17 @@
                                         tabindex="0"
                                         aria-label="Открыть аренду №{{.ID}}"
                                     >
-                                        <td><a class="table-primary-link" href="/rentals/{{.ID}}">№{{.ID}}</a></td>
-                                        <td>{{.ClientName}}</td>
-                                        <td class="operator-monitoring-table__period">{{.End}}</td>
-                                        <td>{{.ItemCount}}</td>
-                                        <td>
+                                        <td>{{template "mobile-cell-label" "Номер"}}<a class="table-primary-link" href="/rentals/{{.ID}}">№{{.ID}}</a></td>
+                                        <td>{{template "mobile-cell-label" "Клиент"}}{{.ClientName}}</td>
+                                        <td class="operator-monitoring-table__period mobile-cell--full">{{template "mobile-cell-label" "Плановое завершение"}}{{.End}}</td>
+                                        <td>{{template "mobile-cell-label" "Состав"}}{{.ItemCount}}</td>
+                                        <td class="mobile-cell--full operator-progress-cell">
+                                            {{template "mobile-cell-label" "Прогресс"}}
                                             <div class="operator-timing operator-timing--{{.TimingTone}}" data-operator-timing data-rental-id="{{.ID}}" data-rental-status="{{.Status}}" data-start-unix-ms="{{.StartUnixMS}}" data-end-unix-ms="{{.EndUnixMS}}">
                                                 <span data-operator-timing-label>{{.TimingLabel}}</span>
                                                 <progress max="100" value="{{.Progress}}" aria-label="{{.ProgressLabel}}">{{.Progress}}%</progress>
                                             </div>
                                         </td>
-                                        <td><a class="button button--compact" href="/rentals/{{.ID}}">Открыть</a></td>
                                     </tr>
                                     {{end}}
                                 </tbody>

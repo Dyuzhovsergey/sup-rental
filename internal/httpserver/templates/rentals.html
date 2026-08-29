@@ -24,9 +24,38 @@
     {{if .Rentals}}
     <form method="get" action="{{if .CompletionActions}}/rentals/bulk/complete{{else}}/rentals/bulk/issue{{end}}"{{if .BulkActions}} data-rental-bulk-form{{end}}>
     {{if .BulkActions}}<div class="rental-bulk-toolbar"><label class="rental-bulk-select-all"><input type="checkbox" data-rental-select-all>Выбрать все на странице</label><span class="rental-bulk-count" data-rental-selected-count aria-live="polite">Выбрано: 0</span><div class="rental-bulk-actions">{{if .CompletionActions}}<button class="button button--compact button--primary" type="submit" formaction="/rentals/bulk/complete" data-rental-bulk-submit>Принять возврат выбранных</button>{{else}}<button class="button button--compact button--primary" type="submit" formaction="/rentals/bulk/issue" data-rental-bulk-submit>Выдать выбранные</button><button class="button button--compact button--danger" type="submit" formaction="/rentals/bulk/cancel" data-rental-bulk-submit>Отменить выбранные</button>{{end}}</div></div>{{end}}
-    <div class="table-scroll" role="region" aria-labelledby="{{.ID}}" tabindex="0"><table class="rental-table"><thead><tr>{{if .BulkActions}}<th class="rental-select-column"><span class="visually-hidden">Выбор</span></th>{{end}}<th>№</th><th>Клиент</th><th class="rental-period-cell">Период</th><th class="rental-duration-cell">Длительность</th><th class="rental-composition-cell">Состав</th><th>Статус</th><th>Стоимость</th>{{if and .ShowActions .CanManage}}<th>Действия</th>{{end}}</tr></thead><tbody>
-    {{range .Rentals}}<tr class="navigable-row" data-row-href="/rentals/{{.ID}}" tabindex="0" aria-label="Открыть аренду №{{.ID}}">{{if $.BulkActions}}<td class="rental-select-column"><input type="checkbox" name="rental_id" value="{{.ID}}" aria-label="Выбрать аренду №{{.ID}}" data-rental-select></td>{{end}}<td><a class="client-name-link" href="/rentals/{{.ID}}"><strong>№{{.ID}}</strong></a></td><td>{{.ClientName}}</td><td class="rental-period-cell">{{.Period}}</td><td class="rental-duration-cell">{{.Duration}}</td><td class="rental-composition-cell">{{.ItemCount}}</td><td>{{template "rental-status-chip" .Status}}</td><td>{{.Total}}</td>{{if and $.ShowActions $.CanManage}}<td class="table-actions"><div class="item-actions">{{if $.CompletionActions}}<a class="button button--compact button--primary" href="/rentals/{{.ID}}/complete"><svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>Принять возврат</a>{{else}}<a class="button button--compact button--primary" href="/rentals/{{.ID}}/issue"><svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14"></path><path d="m14 7 5 5-5 5"></path></svg>Выдать оборудование</a><a class="button button--compact button--danger" href="/rentals/{{.ID}}/cancel"><svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>Отменить</a>{{end}}</div></td>{{end}}</tr>{{end}}
-    </tbody></table></div>
+    <div class="table-scroll responsive-table-region" role="region" aria-labelledby="{{.ID}}" tabindex="0">
+        <table class="rental-table responsive-data-table">
+            <thead><tr>{{if .BulkActions}}<th class="rental-select-column"><span class="visually-hidden">Выбор</span></th>{{end}}<th>№</th><th>Клиент</th><th class="rental-period-cell">Период</th><th class="rental-duration-cell">Длительность</th><th class="rental-composition-cell">Состав</th><th>Статус</th><th>Стоимость</th>{{if and .ShowActions .CanManage}}<th>Действия</th>{{end}}</tr></thead>
+            <tbody>
+                {{range .Rentals}}
+                <tr class="navigable-row" data-row-href="/rentals/{{.ID}}" tabindex="0" aria-label="Открыть аренду №{{.ID}}">
+                    {{if $.BulkActions}}<td class="rental-select-column mobile-cell--full"><label class="rental-card-select-control">{{template "mobile-cell-label" "Выбрать аренду"}}<input type="checkbox" name="rental_id" value="{{.ID}}" aria-label="Выбрать аренду №{{.ID}}" data-rental-select></label></td>{{end}}
+                    <td>{{template "mobile-cell-label" "Номер"}}<a class="client-name-link" href="/rentals/{{.ID}}"><strong>№{{.ID}}</strong></a></td>
+                    <td>{{template "mobile-cell-label" "Клиент"}}{{.ClientName}}</td>
+                    <td class="rental-period-cell mobile-cell--full">{{template "mobile-cell-label" "Период"}}{{.Period}}</td>
+                    <td class="rental-duration-cell">{{template "mobile-cell-label" "Длительность"}}{{.Duration}}</td>
+                    <td class="rental-composition-cell">{{template "mobile-cell-label" "Состав"}}{{.ItemCount}}</td>
+                    <td>{{template "mobile-cell-label" "Статус"}}{{template "rental-status-chip" .Status}}</td>
+                    <td>{{template "mobile-cell-label" "Стоимость"}}{{.Total}}</td>
+                    {{if and $.ShowActions $.CanManage}}
+                    <td class="table-actions mobile-cell--full">
+                        {{template "mobile-cell-label" "Действия"}}
+                        <div class="item-actions">
+                            {{if $.CompletionActions}}
+                            <a class="button button--compact button--primary" href="/rentals/{{.ID}}/complete"><svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12 4 4L19 6"></path></svg>Принять возврат</a>
+                            {{else}}
+                            <a class="button button--compact button--primary" href="/rentals/{{.ID}}/issue"><svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14"></path><path d="m14 7 5 5-5 5"></path></svg>Выдать оборудование</a>
+                            <a class="button button--compact button--danger" href="/rentals/{{.ID}}/cancel"><svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 6l12 12M18 6 6 18"></path></svg>Отменить</a>
+                            {{end}}
+                        </div>
+                    </td>
+                    {{end}}
+                </tr>
+                {{end}}
+            </tbody>
+        </table>
+    </div>
     </form>
     {{else}}<div class="empty-state"><h3>{{.EmptyTitle}}</h3><p>{{.EmptyText}}</p></div>{{end}}
     {{template "pagination" .Pagination}}
