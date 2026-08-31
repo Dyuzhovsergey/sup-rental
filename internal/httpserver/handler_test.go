@@ -383,22 +383,22 @@ type auditServiceStub struct {
 }
 
 type adminDashboardServiceStub struct {
-	snapshot func(context.Context) (dashboard.Snapshot, error)
-	payments func(context.Context, int, int) (dashboard.PaymentOperationsPage, error)
+	snapshot func(context.Context, dashboard.FinancialPeriod) (dashboard.Snapshot, error)
+	payments func(context.Context, dashboard.FinancialPeriod, int, int) (dashboard.PaymentOperationsPage, error)
 }
 
-func (s *adminDashboardServiceStub) Snapshot(ctx context.Context) (dashboard.Snapshot, error) {
+func (s *adminDashboardServiceStub) Snapshot(ctx context.Context, period dashboard.FinancialPeriod) (dashboard.Snapshot, error) {
 	if s.snapshot == nil {
 		return dashboard.Snapshot{}, nil
 	}
-	return s.snapshot(ctx)
+	return s.snapshot(ctx, period)
 }
 
-func (s *adminDashboardServiceStub) PaymentOperations(ctx context.Context, page, pageSize int) (dashboard.PaymentOperationsPage, error) {
+func (s *adminDashboardServiceStub) PaymentOperations(ctx context.Context, period dashboard.FinancialPeriod, page, pageSize int) (dashboard.PaymentOperationsPage, error) {
 	if s.payments == nil {
 		return dashboard.PaymentOperationsPage{Page: page, PageSize: pageSize}, nil
 	}
-	return s.payments(ctx, page, pageSize)
+	return s.payments(ctx, period, page, pageSize)
 }
 
 type clientServiceStub struct {

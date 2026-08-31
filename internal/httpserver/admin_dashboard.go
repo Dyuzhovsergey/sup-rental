@@ -6,13 +6,14 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/dashboard"
 )
 
 type adminDashboardService interface {
-	Snapshot(ctx context.Context) (dashboard.Snapshot, error)
-	PaymentOperations(ctx context.Context, page, pageSize int) (dashboard.PaymentOperationsPage, error)
+	Snapshot(ctx context.Context, period dashboard.FinancialPeriod) (dashboard.Snapshot, error)
+	PaymentOperations(ctx context.Context, period dashboard.FinancialPeriod, page, pageSize int) (dashboard.PaymentOperationsPage, error)
 }
 
 type adminDashboardPageData struct {
@@ -21,6 +22,10 @@ type adminDashboardPageData struct {
 	Equipment      []adminMetricView
 	Rentals        []adminMetricView
 	Finance        []adminFinanceMetricView
+	FinanceFilter  adminFinancePeriodView
+	FinanceHeading string
+	PaymentsURL    string
+	PeriodValid    bool
 }
 
 type adminFinanceMetricView struct {
@@ -43,52 +48,84 @@ func showAdminDashboard(
 	w http.ResponseWriter,
 	r *http.Request,
 ) {
-	snapshot, err := service.Snapshot(r.Context())
+	selection := parseAdminFinancePeriod(r.URL.Query(), time.Now())
+	data := adminDashboardPageData{
+		Authentication: authenticationForPage(r),
+		Title:          "Панель администратора — SUP Rental",
+		FinanceFilter:  selection.view("/admin", 0),
+		PeriodValid:    selection.valid(),
+	}
+	if !selection.valid() {
+		renderPage(
+			logger, pageTemplates, w, http.StatusUnprocessableEntity, "admin_dashboard.html", data,
+			"render admin dashboard period error", "write admin dashboard period error response",
+		)
+		return
+	}
+
+	snapshot, err := service.Snapshot(r.Context(), selection.Period)
 	if err != nil {
 		logger.Error("load admin dashboard", slog.Any("error", err))
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		return
 	}
 
-	data := adminDashboardPageData{
-		Authentication: authenticationForPage(r),
-		Title:          "Панель администратора — SUP Rental",
-		Equipment: []adminMetricView{
-			{Label: "Всего единиц", Value: snapshot.EquipmentTotal, Tone: "primary"},
-			{Label: "Доступно", Value: snapshot.EquipmentAvailable, Tone: "success"},
-			{Label: "На обслуживании", Value: snapshot.EquipmentMaintenance, Tone: "warning"},
-			{Label: "Выдано", Value: snapshot.EquipmentIssued, Tone: "primary"},
-			{Label: "Списано", Value: snapshot.EquipmentRetired, Tone: "neutral"},
+	data.Equipment = []adminMetricView{
+
+		{Label: "Всего единиц", Value: snapshot.EquipmentTotal, Tone: "primary"},
+		{Label: "Доступно", Value: snapshot.EquipmentAvailable, Tone: "success"},
+		{Label: "На обслуживании", Value: snapshot.EquipmentMaintenance, Tone: "warning"},
+		{Label: "Выдано", Value: snapshot.EquipmentIssued, Tone: "primary"},
+		{Label: "Списано", Value: snapshot.EquipmentRetired, Tone: "neutral"},
+	}
+	data.Rentals = []adminMetricView{
+		{Label: "Активные", Value: snapshot.RentalsActive, Tone: "success"},
+		{Label: "Просроченные", Value: snapshot.RentalsOverdue, Tone: "danger"},
+		{Label: "Начинаются сегодня", Value: snapshot.RentalsStartingToday, Tone: "primary"},
+		{Label: "Завершаются сегодня", Value: snapshot.RentalsEndingToday, Tone: "warning"},
+	}
+	data.Finance = []adminFinanceMetricView{
+		{
+			Label: "Основные оплаты", Value: adminMoneyLabel(snapshot.PaymentsBaseKopecks),
+			Description: "Получено при создании аренд", Tone: "primary",
 		},
-		Rentals: []adminMetricView{
-			{Label: "Активные", Value: snapshot.RentalsActive, Tone: "success"},
-			{Label: "Просроченные", Value: snapshot.RentalsOverdue, Tone: "danger"},
-			{Label: "Начинаются сегодня", Value: snapshot.RentalsStartingToday, Tone: "primary"},
-			{Label: "Завершаются сегодня", Value: snapshot.RentalsEndingToday, Tone: "warning"},
+		{
+			Label: "Доплаты за просрочку", Value: adminMoneyLabel(snapshot.PaymentsOverdueKopecks),
+			Description: "Получено при завершении", Tone: "warning",
 		},
-		Finance: []adminFinanceMetricView{
-			{
-				Label: "Основные оплаты", Value: adminMoneyLabel(snapshot.PaymentsBaseTodayKopecks),
-				Description: "Получено при создании аренд", Tone: "primary",
-			},
-			{
-				Label: "Доплаты за просрочку", Value: adminMoneyLabel(snapshot.PaymentsOverdueTodayKopecks),
-				Description: "Получено при завершении", Tone: "warning",
-			},
-			{
-				Label: "Возвраты", Value: adminMoneyLabel(snapshot.PaymentsRefundTodayKopecks),
-				Description: "Возвращено при отмене", Tone: "neutral",
-			},
-			{
-				Label: "Итого за сегодня", Value: adminMoneyLabel(snapshot.PaymentsNetTodayKopecks),
-				Description: "Оплаты + доплаты − возвраты", Tone: adminNetTone(snapshot.PaymentsNetTodayKopecks),
-			},
+		{
+			Label: "Возвраты", Value: adminMoneyLabel(snapshot.PaymentsRefundKopecks),
+			Description: "Возвращено при отмене", Tone: "neutral",
+		},
+		{
+			Label: financeTotalLabel(selection), Value: adminMoneyLabel(snapshot.PaymentsNetKopecks),
+			Description: "Оплаты + доплаты − возвраты", Tone: adminNetTone(snapshot.PaymentsNetKopecks),
 		},
 	}
+	data.FinanceHeading = financeHeading(selection)
+	data.PaymentsURL = financeNavigationURL("/admin/payments", selection)
 	renderPage(
 		logger, pageTemplates, w, http.StatusOK, "admin_dashboard.html", data,
 		"render admin dashboard", "write admin dashboard response",
 	)
+}
+
+func financeHeading(selection adminFinancePeriodSelection) string {
+	if selection.Key == financePeriodToday {
+		return "Финансы сегодня"
+	}
+	return "Финансы " + selection.Phrase
+}
+
+func financeTotalLabel(selection adminFinancePeriodSelection) string {
+	switch selection.Key {
+	case financePeriodToday:
+		return "Итого за сегодня"
+	case financePeriodYesterday:
+		return "Итого за вчера"
+	default:
+		return "Итого за период"
+	}
 }
 
 func adminNetTone(value int64) string {

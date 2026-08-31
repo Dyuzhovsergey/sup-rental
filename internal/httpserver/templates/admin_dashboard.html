@@ -20,7 +20,7 @@
                     </div>
                 </header>
 
-                <div class="admin-dashboard__grid">
+                {{if .PeriodValid}}<div class="admin-dashboard__grid">
                     <section class="panel admin-dashboard__section" aria-labelledby="admin-equipment-heading">
                         <div class="panel-header">
                             <div>
@@ -60,11 +60,12 @@
                     <section class="panel admin-dashboard__section admin-dashboard__section--finance" aria-labelledby="admin-finance-heading">
                         <div class="panel-header admin-finance__header">
                             <div>
-                                <h2 id="admin-finance-heading">Финансы сегодня</h2>
+                                <h2 id="admin-finance-heading">{{.FinanceHeading}}</h2>
                                 <p>Фактически полученные и возвращённые средства</p>
                             </div>
-                            <a class="button button--compact" href="/admin/payments">Открыть операции</a>
+                            <a class="button button--compact" href="{{.PaymentsURL}}">Открыть операции</a>
                         </div>
+                        {{template "admin-finance-period-filter" .FinanceFilter}}
                         <div class="admin-finance-metrics">
                             {{range .Finance}}
                             <article class="admin-finance-metric admin-finance-metric--{{.Tone}}">
@@ -75,7 +76,12 @@
                             {{end}}
                         </div>
                     </section>
-                </div>
+                </div>{{else}}
+                <section class="panel" aria-labelledby="admin-finance-filter-heading">
+                    <div class="panel-header"><div><h2 id="admin-finance-filter-heading">Финансовый период</h2><p>Исправьте даты, чтобы сформировать отчёт</p></div></div>
+                    {{template "admin-finance-period-filter" .FinanceFilter}}
+                </section>
+                {{end}}
             </div>
         </main>
     </div>

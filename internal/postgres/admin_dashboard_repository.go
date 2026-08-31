@@ -20,7 +20,8 @@ func NewAdminDashboardRepository(pool *pgxpool.Pool) *AdminDashboardRepository {
 
 // Snapshot возвращает согласованные агрегаты одним SQL-запросом.
 func (r *AdminDashboardRepository) Snapshot(ctx context.Context, query dashboard.Query) (dashboard.Snapshot, error) {
-	if query.Now.IsZero() || query.DayStart.IsZero() || !query.DayEnd.After(query.DayStart) {
+	if query.Now.IsZero() || query.TodayStart.IsZero() || !query.TodayEnd.After(query.TodayStart) ||
+		query.PaymentStart.IsZero() || !query.PaymentEnd.After(query.PaymentStart) {
 		return dashboard.Snapshot{}, fmt.Errorf("invalid admin dashboard query")
 	}
 
@@ -46,13 +47,13 @@ func (r *AdminDashboardRepository) Snapshot(ctx context.Context, query dashboard
 			FROM rentals
 		), payment_counts AS (
 			SELECT COALESCE(sum(amount_kopecks) FILTER (
-			           WHERE kind = 'base' AND occurred_at >= $1 AND occurred_at < $2
+			           WHERE kind = 'base' AND occurred_at >= $4 AND occurred_at < $5
 			       ), 0)::bigint AS base,
 			       COALESCE(sum(amount_kopecks) FILTER (
-			           WHERE kind = 'overdue' AND occurred_at >= $1 AND occurred_at < $2
+			           WHERE kind = 'overdue' AND occurred_at >= $4 AND occurred_at < $5
 			       ), 0)::bigint AS overdue,
 			       COALESCE(sum(amount_kopecks) FILTER (
-			           WHERE kind = 'refund' AND occurred_at >= $1 AND occurred_at < $2
+			           WHERE kind = 'refund' AND occurred_at >= $4 AND occurred_at < $5
 			       ), 0)::bigint AS refund
 			FROM rental_payments
 		)
@@ -64,14 +65,17 @@ func (r *AdminDashboardRepository) Snapshot(ctx context.Context, query dashboard
 		CROSS JOIN payment_counts AS p
 	`
 	var snapshot dashboard.Snapshot
-	err := r.pool.QueryRow(ctx, statement, query.DayStart, query.DayEnd, query.Now).Scan(
+	err := r.pool.QueryRow(
+		ctx, statement, query.TodayStart, query.TodayEnd, query.Now,
+		query.PaymentStart, query.PaymentEnd,
+	).Scan(
 		&snapshot.EquipmentTotal, &snapshot.EquipmentAvailable,
 		&snapshot.EquipmentMaintenance, &snapshot.EquipmentRetired,
 		&snapshot.EquipmentIssued, &snapshot.RentalsActive,
 		&snapshot.RentalsOverdue, &snapshot.RentalsStartingToday,
-		&snapshot.RentalsEndingToday, &snapshot.PaymentsBaseTodayKopecks,
-		&snapshot.PaymentsOverdueTodayKopecks, &snapshot.PaymentsRefundTodayKopecks,
-		&snapshot.PaymentsNetTodayKopecks,
+		&snapshot.RentalsEndingToday, &snapshot.PaymentsBaseKopecks,
+		&snapshot.PaymentsOverdueKopecks, &snapshot.PaymentsRefundKopecks,
+		&snapshot.PaymentsNetKopecks,
 	)
 	if err != nil {
 		return dashboard.Snapshot{}, fmt.Errorf("query admin dashboard: %w", err)
@@ -79,12 +83,12 @@ func (r *AdminDashboardRepository) Snapshot(ctx context.Context, query dashboard
 	return snapshot, nil
 }
 
-// PaymentOperations возвращает страницу платежей за заданный календарный день.
+// PaymentOperations возвращает страницу платежей за заданный финансовый период.
 func (r *AdminDashboardRepository) PaymentOperations(
 	ctx context.Context,
 	query dashboard.PaymentOperationsQuery,
 ) (dashboard.PaymentOperationsPage, error) {
-	if query.DayStart.IsZero() || !query.DayEnd.After(query.DayStart) ||
+	if query.PeriodStart.IsZero() || !query.PeriodEnd.After(query.PeriodStart) ||
 		query.Page <= 0 || (query.PageSize != 5 && query.PageSize != 10 && query.PageSize != 15) {
 		return dashboard.PaymentOperationsPage{}, fmt.Errorf("invalid payment operations query")
 	}
@@ -95,7 +99,7 @@ func (r *AdminDashboardRepository) PaymentOperations(
 		WHERE occurred_at >= $1 AND occurred_at < $2
 	`
 	var total int64
-	if err := r.pool.QueryRow(ctx, countStatement, query.DayStart, query.DayEnd).Scan(&total); err != nil {
+	if err := r.pool.QueryRow(ctx, countStatement, query.PeriodStart, query.PeriodEnd).Scan(&total); err != nil {
 		return dashboard.PaymentOperationsPage{}, fmt.Errorf("count payment operations: %w", err)
 	}
 
@@ -111,7 +115,7 @@ func (r *AdminDashboardRepository) PaymentOperations(
 		LIMIT $3 OFFSET $4
 	`
 	rows, err := r.pool.Query(
-		ctx, listStatement, query.DayStart, query.DayEnd,
+		ctx, listStatement, query.PeriodStart, query.PeriodEnd,
 		query.PageSize, (query.Page-1)*query.PageSize,
 	)
 	if err != nil {

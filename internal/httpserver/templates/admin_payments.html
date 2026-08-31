@@ -16,18 +16,26 @@
                     <div>
                         <p class="page-eyebrow">Финансы</p>
                         <h1>Платёжные операции</h1>
-                        <p class="page-description">Полученные оплаты и возвраты за текущий московский день.</p>
+                        <p class="page-description">Полученные оплаты и возвраты за выбранный московский период.</p>
                     </div>
-                    <span class="count-chip count-chip--total">{{.TotalLabel}}</span>
+                    <div class="page-header__actions"><a class="button" href="{{.DashboardURL}}">К финансовой сводке</a>{{if .PeriodValid}}<span class="count-chip count-chip--total">{{.TotalLabel}}</span>{{end}}</div>
                 </header>
 
+                <section class="panel finance-period-panel" aria-labelledby="payment-period-heading">
+                    <header class="panel-header"><div><h2 id="payment-period-heading">Финансовый период</h2><p class="panel-description">Выберите готовый диапазон или укажите даты</p></div></header>
+                    {{template "admin-finance-period-filter" .FinanceFilter}}
+                </section>
+
+                {{if .PeriodValid}}
                 <section class="panel" aria-labelledby="payment-operations-heading">
                     <header class="panel-header payment-operations-header">
                         <div>
-                            <h2 id="payment-operations-heading">Операции за сегодня</h2>
+                            <h2 id="payment-operations-heading">{{.OperationsHeading}}</h2>
                             <p class="panel-description">Новые операции отображаются первыми</p>
                         </div>
                         <form class="list-toolbar" method="get" action="/admin/payments">
+                            <input type="hidden" name="period" value="{{.FinanceFilter.Key}}">
+                            {{if .FinanceFilter.CustomActive}}<input type="hidden" name="from" value="{{.FinanceFilter.From}}"><input type="hidden" name="to" value="{{.FinanceFilter.To}}">{{end}}
                             <label for="payment-page-size">Строк на странице</label>
                             <select id="payment-page-size" name="page_size">
                                 {{range .PageSizeOptions}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Value}}</option>{{end}}
@@ -65,12 +73,13 @@
                     </div>
                     {{else}}
                     <div class="empty-state">
-                        <h3>Платёжных операций за сегодня нет</h3>
-                        <p>Новые оплаты и возвраты появятся здесь автоматически.</p>
+                        <h3>{{.EmptyHeading}}</h3>
+                        <p>В выбранном периоде нет зафиксированных оплат и возвратов.</p>
                     </div>
                     {{end}}
                     {{template "pagination" .}}
                 </section>
+                {{end}}
             </div>
         </main>
     </div>

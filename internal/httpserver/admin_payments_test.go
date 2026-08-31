@@ -15,9 +15,13 @@ import (
 )
 
 func TestAdminPaymentsPageShowsTodayOperationsAndNavigation(t *testing.T) {
-	service := &adminDashboardServiceStub{payments: func(_ context.Context, page, pageSize int) (dashboard.PaymentOperationsPage, error) {
+	service := &adminDashboardServiceStub{payments: func(_ context.Context, period dashboard.FinancialPeriod, page, pageSize int) (dashboard.PaymentOperationsPage, error) {
 		if page != 1 || pageSize != 5 {
 			t.Fatalf("pagination = %d, %d", page, pageSize)
+		}
+		if period.Start.Format(time.RFC3339) != "2026-08-25T00:00:00+03:00" ||
+			period.End.Format(time.RFC3339) != "2026-08-28T00:00:00+03:00" {
+			t.Fatalf("period = %+v", period)
 		}
 		return dashboard.PaymentOperationsPage{
 			Total: 3, Page: page, PageSize: pageSize,
@@ -30,7 +34,7 @@ func TestAdminPaymentsPageShowsTodayOperationsAndNavigation(t *testing.T) {
 	}}
 	response := httptest.NewRecorder()
 	newAdminDashboardTestHandler(t, service, user.RoleAdmin).ServeHTTP(
-		response, authenticatedRequest(http.MethodGet, "/admin/payments?page_size=5", ""),
+		response, authenticatedRequest(http.MethodGet, "/admin/payments?period=custom&from=2026-08-25&to=2026-08-27&page_size=5", ""),
 	)
 
 	if response.Code != http.StatusOK {
@@ -38,12 +42,17 @@ func TestAdminPaymentsPageShowsTodayOperationsAndNavigation(t *testing.T) {
 	}
 	body := response.Body.String()
 	for _, want := range []string{
-		"Платёжные операции", "Операции за сегодня", "3 операции",
+		"Платёжные операции", "Операции за 25.08.2026–27.08.2026", "3 операции",
 		"27.08.2026 10:30", "Основная оплата", "Доплата за просрочку", "Возврат",
 		"Анна Смирнова", "operator.one", "−1 500 ₽", "&#43;300 ₽", "&#43;2 000 ₽",
 		`href="/rentals/42"`, `data-row-href="/rentals/42"`, `tabindex="0"`,
 		`href="/admin/payments" aria-current="page"`, "Страница 1 из 1",
 		`class="payment-operations-table responsive-data-table"`,
+		`href="/admin?from=2026-08-25&amp;period=custom&amp;to=2026-08-27"`,
+		`name="from" type="date" value="2026-08-25"`,
+		`<fieldset class="finance-period-filter__range">`, "Произвольный период",
+		`<label class="visually-hidden" for="finance-period-from">Дата начала</label>`,
+		`<label class="visually-hidden" for="finance-period-to">Дата окончания</label>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("body does not contain %q", want)
@@ -62,7 +71,7 @@ func TestAdminPaymentsPageShowsEmptyState(t *testing.T) {
 }
 
 func TestAdminPaymentsPageBuildsPaginationLinks(t *testing.T) {
-	service := &adminDashboardServiceStub{payments: func(_ context.Context, page, pageSize int) (dashboard.PaymentOperationsPage, error) {
+	service := &adminDashboardServiceStub{payments: func(_ context.Context, _ dashboard.FinancialPeriod, page, pageSize int) (dashboard.PaymentOperationsPage, error) {
 		return dashboard.PaymentOperationsPage{
 			Total: 6, Page: page, PageSize: pageSize,
 			Operations: []dashboard.PaymentOperation{{
@@ -73,19 +82,19 @@ func TestAdminPaymentsPageBuildsPaginationLinks(t *testing.T) {
 	}}
 	response := httptest.NewRecorder()
 	newAdminDashboardTestHandler(t, service, user.RoleAdmin).ServeHTTP(
-		response, authenticatedRequest(http.MethodGet, "/admin/payments?page_size=5", ""),
+		response, authenticatedRequest(http.MethodGet, "/admin/payments?period=7d&page_size=5", ""),
 	)
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d body %q", response.Code, response.Body.String())
 	}
 	body := response.Body.String()
-	if !strings.Contains(body, "Страница 1 из 2") || !strings.Contains(body, `href="/admin/payments?page=2&amp;page_size=5"`) {
+	if !strings.Contains(body, "Страница 1 из 2") || !strings.Contains(body, `href="/admin/payments?page=2&amp;page_size=5&amp;period=7d"`) {
 		t.Fatalf("body does not contain pagination: %q", body)
 	}
 }
 
 func TestAdminPaymentsPageValidatesPaginationAndMissingPage(t *testing.T) {
-	handler := newAdminDashboardTestHandler(t, &adminDashboardServiceStub{payments: func(_ context.Context, page, pageSize int) (dashboard.PaymentOperationsPage, error) {
+	handler := newAdminDashboardTestHandler(t, &adminDashboardServiceStub{payments: func(_ context.Context, _ dashboard.FinancialPeriod, page, pageSize int) (dashboard.PaymentOperationsPage, error) {
 		return dashboard.PaymentOperationsPage{Total: 6, Page: page, PageSize: pageSize}, nil
 	}}, user.RoleAdmin)
 	for _, target := range []string{
@@ -102,7 +111,7 @@ func TestAdminPaymentsPageValidatesPaginationAndMissingPage(t *testing.T) {
 
 func TestAdminPaymentsPageHidesInternalError(t *testing.T) {
 	internalError := errors.New("postgres password leaked")
-	service := &adminDashboardServiceStub{payments: func(context.Context, int, int) (dashboard.PaymentOperationsPage, error) {
+	service := &adminDashboardServiceStub{payments: func(context.Context, dashboard.FinancialPeriod, int, int) (dashboard.PaymentOperationsPage, error) {
 		return dashboard.PaymentOperationsPage{}, internalError
 	}}
 	response := httptest.NewRecorder()
@@ -136,6 +145,43 @@ func TestAdminPaymentsPageRequiresAdminAndRejectsUnsupportedMethod(t *testing.T)
 	adminHandler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/admin/payments", nil))
 	if response.Code != http.StatusFound || response.Header().Get("Location") != "/login" {
 		t.Fatalf("anonymous status = %d location = %q", response.Code, response.Header().Get("Location"))
+	}
+}
+
+func TestAdminPaymentsPageShowsPeriodValidationErrors(t *testing.T) {
+	for _, target := range []string{
+		"/admin/payments?period=custom&from=2026-08-10&to=2026-08-08",
+		"/admin/payments?period=custom&from=bad&to=2026-08-08",
+		"/admin/payments?period=unknown",
+	} {
+		response := httptest.NewRecorder()
+		newAdminDashboardTestHandler(t, &adminDashboardServiceStub{}, user.RoleAdmin).ServeHTTP(
+			response, authenticatedRequest(http.MethodGet, target, ""),
+		)
+		if response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), `role="alert"`) {
+			t.Errorf("GET %s status = %d body %q", target, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestAdminPaymentsPageConnectsDateErrorToCompositeControl(t *testing.T) {
+	response := httptest.NewRecorder()
+	newAdminDashboardTestHandler(t, &adminDashboardServiceStub{}, user.RoleAdmin).ServeHTTP(
+		response,
+		authenticatedRequest(http.MethodGet, "/admin/payments?period=custom&from=bad&to=2026-08-08", ""),
+	)
+
+	if response.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusUnprocessableEntity)
+	}
+	body := response.Body.String()
+	for _, want := range []string{
+		`aria-invalid="true" aria-describedby="finance-period-from-error"`,
+		`id="finance-period-from-error" role="alert"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body does not contain %q", want)
+		}
 	}
 }
 

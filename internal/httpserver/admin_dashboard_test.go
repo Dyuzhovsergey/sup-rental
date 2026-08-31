@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/dashboard"
 	"github.com/Dyuzhovsergey/sup-rental/internal/session"
@@ -14,13 +15,16 @@ import (
 )
 
 func TestAdminDashboardShowsActualMetricsAndNavigation(t *testing.T) {
-	service := &adminDashboardServiceStub{snapshot: func(context.Context) (dashboard.Snapshot, error) {
+	service := &adminDashboardServiceStub{snapshot: func(_ context.Context, period dashboard.FinancialPeriod) (dashboard.Snapshot, error) {
+		if !period.Valid() || period.End.Sub(period.Start) != 24*time.Hour {
+			t.Fatalf("period = %+v", period)
+		}
 		return dashboard.Snapshot{
 			EquipmentTotal: 12, EquipmentAvailable: 5, EquipmentMaintenance: 2,
 			EquipmentRetired: 1, EquipmentIssued: 4, RentalsActive: 3,
 			RentalsOverdue: 1, RentalsStartingToday: 2, RentalsEndingToday: 4,
-			PaymentsBaseTodayKopecks: 1_200_000, PaymentsOverdueTodayKopecks: 50_000,
-			PaymentsRefundTodayKopecks: 1_500_000, PaymentsNetTodayKopecks: -250_000,
+			PaymentsBaseKopecks: 1_200_000, PaymentsOverdueKopecks: 50_000,
+			PaymentsRefundKopecks: 1_500_000, PaymentsNetKopecks: -250_000,
 		}, nil
 	}}
 	response := httptest.NewRecorder()
@@ -43,7 +47,13 @@ func TestAdminDashboardShowsActualMetricsAndNavigation(t *testing.T) {
 		"Возвраты", "15 000 ₽", "Возвращено при отмене",
 		"Итого за сегодня", "−2 500 ₽", "Оплаты &#43; доплаты − возвраты",
 		`admin-finance-metric--danger`,
-		`href="/admin/payments"`, "Открыть операции", "Платежи",
+		`href="/admin/payments?period=today"`, "Открыть операции", "Платежи",
+		"Готовые финансовые периоды", "Сегодня", "Вчера", "7 дней",
+		`aria-current="true"`, `name="period" value="custom"`,
+		`<fieldset class="finance-period-filter__range">`, "Произвольный период",
+		`<label class="visually-hidden" for="finance-period-from">Дата начала</label>`,
+		`<label class="visually-hidden" for="finance-period-to">Дата окончания</label>`,
+		`class="finance-period-filter__separator" aria-hidden="true"`,
 		`href="/admin" aria-current="page"`,
 		`class="app-theme-control"`, `data-theme-toggle`,
 		`data-theme-icon="light"`, `data-theme-icon="dark"`,
@@ -94,7 +104,7 @@ func TestAdminDashboardRequiresAdminRole(t *testing.T) {
 
 func TestAdminDashboardHidesInternalError(t *testing.T) {
 	internalError := errors.New("postgres password leaked")
-	service := &adminDashboardServiceStub{snapshot: func(context.Context) (dashboard.Snapshot, error) {
+	service := &adminDashboardServiceStub{snapshot: func(context.Context, dashboard.FinancialPeriod) (dashboard.Snapshot, error) {
 		return dashboard.Snapshot{}, internalError
 	}}
 	response := httptest.NewRecorder()
@@ -116,6 +126,40 @@ func TestAdminDashboardRejectsUnsupportedMethod(t *testing.T) {
 	)
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+func TestAdminDashboardFiltersOnlyFinanceByCustomPeriod(t *testing.T) {
+	service := &adminDashboardServiceStub{snapshot: func(_ context.Context, period dashboard.FinancialPeriod) (dashboard.Snapshot, error) {
+		if period.Start.Format(time.RFC3339) != "2026-08-01T00:00:00+03:00" ||
+			period.End.Format(time.RFC3339) != "2026-09-01T00:00:00+03:00" {
+			t.Fatalf("period = %+v", period)
+		}
+		return dashboard.Snapshot{}, nil
+	}}
+	response := httptest.NewRecorder()
+	newAdminDashboardTestHandler(t, service, user.RoleAdmin).ServeHTTP(
+		response, authenticatedRequest(http.MethodGet, "/admin?period=custom&from=2026-08-01&to=2026-08-31", ""),
+	)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d body %q", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, want := range []string{"Финансы за 01.08.2026–31.08.2026", "Итого за период", "Начинаются сегодня", `href="/admin/payments?from=2026-08-01&amp;period=custom&amp;to=2026-08-31"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("body does not contain %q", want)
+		}
+	}
+}
+
+func TestAdminDashboardShowsPeriodValidationError(t *testing.T) {
+	response := httptest.NewRecorder()
+	newAdminDashboardTestHandler(t, &adminDashboardServiceStub{}, user.RoleAdmin).ServeHTTP(
+		response, authenticatedRequest(http.MethodGet, "/admin?period=custom&from=2026-08-10&to=2026-08-08", ""),
+	)
+	if response.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(response.Body.String(), "Дата начала не может быть позже даты окончания.") {
+		t.Fatalf("status = %d body %q", response.Code, response.Body.String())
 	}
 }
 

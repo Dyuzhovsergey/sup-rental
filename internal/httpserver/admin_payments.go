@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"time"
 
 	"github.com/Dyuzhovsergey/sup-rental/internal/dashboard"
 	"github.com/Dyuzhovsergey/sup-rental/internal/rental"
@@ -25,17 +26,22 @@ type adminPaymentOperationView struct {
 }
 
 type adminPaymentsPageData struct {
-	Authentication  *authenticationView
-	Title           string
-	Operations      []adminPaymentOperationView
-	TotalLabel      string
-	PageSize        int
-	PageSizeOptions []pageSizeOption
-	HasPrevious     bool
-	HasNext         bool
-	PreviousURL     string
-	NextURL         string
-	PageLabel       string
+	Authentication    *authenticationView
+	Title             string
+	Operations        []adminPaymentOperationView
+	TotalLabel        string
+	PageSize          int
+	PageSizeOptions   []pageSizeOption
+	HasPrevious       bool
+	HasNext           bool
+	PreviousURL       string
+	NextURL           string
+	PageLabel         string
+	FinanceFilter     adminFinancePeriodView
+	DashboardURL      string
+	OperationsHeading string
+	EmptyHeading      string
+	PeriodValid       bool
 }
 
 func showAdminPaymentsPage(
@@ -50,7 +56,27 @@ func showAdminPaymentsPage(
 		http.NotFound(w, r)
 		return
 	}
-	result, err := service.PaymentOperations(r.Context(), page, pageSize)
+	selection := parseAdminFinancePeriod(r.URL.Query(), time.Now())
+	data := adminPaymentsPageData{
+		Authentication:    authenticationForPage(r),
+		Title:             "Платёжные операции — SUP Rental",
+		PageSize:          pageSize,
+		PageSizeOptions:   paymentPageSizeOptions(pageSize),
+		FinanceFilter:     selection.view("/admin/payments", pageSize),
+		DashboardURL:      financeNavigationURL("/admin", selection),
+		OperationsHeading: financeOperationsHeading(selection),
+		EmptyHeading:      financeEmptyHeading(selection),
+		PeriodValid:       selection.valid(),
+	}
+	if !selection.valid() {
+		renderPage(
+			logger, pageTemplates, w, http.StatusUnprocessableEntity, "admin_payments.html", data,
+			"render admin payments period error", "write admin payments period error response",
+		)
+		return
+	}
+
+	result, err := service.PaymentOperations(r.Context(), selection.Period, page, pageSize)
 	if errors.Is(err, dashboard.ErrInvalidPaymentPagination) {
 		http.NotFound(w, r)
 		return
@@ -66,23 +92,31 @@ func showAdminPaymentsPage(
 	}
 
 	totalPages := pageCount(int(result.Total), pageSize)
-	data := adminPaymentsPageData{
-		Authentication:  authenticationForPage(r),
-		Title:           "Платёжные операции — SUP Rental",
-		Operations:      adminPaymentOperationViews(result.Operations),
-		TotalLabel:      paymentCountLabel(int(result.Total)),
-		PageSize:        pageSize,
-		PageSizeOptions: paymentPageSizeOptions(pageSize),
-		HasPrevious:     page > 1,
-		HasNext:         page < totalPages,
-		PreviousURL:     paymentPageURL(page-1, pageSize),
-		NextURL:         paymentPageURL(page+1, pageSize),
-		PageLabel:       pageLabel(page, totalPages),
-	}
+	data.Operations = adminPaymentOperationViews(result.Operations)
+	data.TotalLabel = paymentCountLabel(int(result.Total))
+	data.HasPrevious = page > 1
+	data.HasNext = page < totalPages
+	data.PreviousURL = paymentPageURL(page-1, pageSize, selection)
+	data.NextURL = paymentPageURL(page+1, pageSize, selection)
+	data.PageLabel = pageLabel(page, totalPages)
 	renderPage(
 		logger, pageTemplates, w, http.StatusOK, "admin_payments.html", data,
 		"render admin payments", "write admin payments response",
 	)
+}
+
+func financeOperationsHeading(selection adminFinancePeriodSelection) string {
+	if selection.Key == financePeriodToday {
+		return "Операции за сегодня"
+	}
+	return "Операции " + selection.Phrase
+}
+
+func financeEmptyHeading(selection adminFinancePeriodSelection) string {
+	if selection.Key == financePeriodToday {
+		return "Платёжных операций за сегодня нет"
+	}
+	return "Платёжных операций " + selection.Phrase + " нет"
 }
 
 func adminPaymentOperationViews(operations []dashboard.PaymentOperation) []adminPaymentOperationView {
@@ -148,8 +182,9 @@ func paymentPageSizeOptions(selected int) []pageSizeOption {
 	return options
 }
 
-func paymentPageURL(page, pageSize int) string {
-	query := url.Values{"page_size": {strconv.Itoa(pageSize)}}
+func paymentPageURL(page, pageSize int, selection adminFinancePeriodSelection) string {
+	query := selection.queryValues()
+	query.Set("page_size", strconv.Itoa(pageSize))
 	if page > 1 {
 		query.Set("page", strconv.Itoa(page))
 	}
