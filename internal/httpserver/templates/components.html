@@ -100,6 +100,13 @@
 			<span>Клиенты</span>
 		</a>
 		{{if .IsAdmin}}
+		<a class="nav-item{{if .PaymentsActive}} is-active{{end}}" href="/admin/payments"{{if .PaymentsActive}} aria-current="page"{{end}}>
+			<svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+				<rect x="3" y="5" width="18" height="14" rx="2"></rect>
+				<path d="M3 9h18M7 15h4"></path>
+			</svg>
+			<span>Платежи</span>
+		</a>
 		<a class="nav-item{{if .OperatorsActive}} is-active{{end}}" href="/admin/operators"{{if .OperatorsActive}} aria-current="page"{{end}}>
 			<svg class="icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
 				<circle cx="12" cy="6" r="3"></circle>
@@ -203,4 +210,36 @@
 
 {{define "mobile-cell-label"}}
 <span class="mobile-cell-label" aria-hidden="true">{{.}}</span>
+{{end}}
+
+{{define "admin-finance-period-filter"}}
+<div class="finance-period-filter">
+    {{if .PeriodError}}<div class="alert alert--danger" role="alert"><p>{{.PeriodError}}</p></div>{{end}}
+    <div class="finance-period-filter__presets" role="group" aria-label="Готовые финансовые периоды">
+        <a class="button button--compact finance-period-filter__preset{{if .TodayActive}} is-active{{end}}" href="{{.TodayURL}}"{{if .TodayActive}} aria-current="true"{{end}}>Сегодня</a>
+        <a class="button button--compact finance-period-filter__preset{{if .YesterdayActive}} is-active{{end}}" href="{{.YesterdayURL}}"{{if .YesterdayActive}} aria-current="true"{{end}}>Вчера</a>
+        <a class="button button--compact finance-period-filter__preset{{if .SevenDaysActive}} is-active{{end}}" href="{{.SevenDaysURL}}"{{if .SevenDaysActive}} aria-current="true"{{end}}>7 дней</a>
+    </div>
+    <form class="finance-period-filter__custom{{if .CustomActive}} is-active{{end}}" method="get" action="{{.Action}}">
+        <input type="hidden" name="period" value="custom">
+        {{if .PageSize}}<input type="hidden" name="page_size" value="{{.PageSize}}">{{end}}
+        <fieldset class="finance-period-filter__range">
+            <legend class="finance-period-filter__legend">Произвольный период</legend>
+            <div class="finance-period-filter__custom-fields">
+                <div class="field">
+                    <label class="visually-hidden" for="finance-period-from">Дата начала</label>
+                    <input id="finance-period-from" name="from" type="date" value="{{.From}}" required{{if .FromError}} aria-invalid="true" aria-describedby="finance-period-from-error"{{end}}>
+                    {{if .FromError}}<p class="field-error" id="finance-period-from-error" role="alert">{{.FromError}}</p>{{end}}
+                </div>
+                <span class="finance-period-filter__separator" aria-hidden="true">—</span>
+                <div class="field">
+                    <label class="visually-hidden" for="finance-period-to">Дата окончания</label>
+                    <input id="finance-period-to" name="to" type="date" value="{{.To}}" required{{if .ToError}} aria-invalid="true" aria-describedby="finance-period-to-error"{{end}}>
+                    {{if .ToError}}<p class="field-error" id="finance-period-to-error" role="alert">{{.ToError}}</p>{{end}}
+                </div>
+                <button class="button button--primary button--compact" type="submit">Применить</button>
+            </div>
+        </fieldset>
+    </form>
+</div>
 {{end}}

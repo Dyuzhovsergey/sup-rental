@@ -26,7 +26,7 @@
                 <div class="details-row"><dt>Фактическая просрочка</dt><dd>{{.Overdue}}</dd></div>
                 <div class="details-row"><dt>Оплачиваемое время просрочки</dt><dd>{{.BillableOverdue}}</dd></div>
                 <div class="details-row details-row--settlement">
-                    <dt><label for="overdue-total-rubles">Рассчитанная доплата</label></dt>
+                    <dt><label for="overdue-total-rubles">Доплата за просрочку</label></dt>
                     <dd>
                         <div class="quantity-stepper rental-settlement-stepper" data-rental-settlement data-planned-total-kopecks="{{.PlannedTotalKopecks}}">
                             <button class="quantity-stepper__button" type="button" aria-label="Уменьшить доплату на 50 рублей" data-overdue-decrease>−</button>
@@ -42,7 +42,7 @@
             <dl class="details-list details-list--compact">
                 <div class="details-row"><dt><strong>Предварительный итог</strong></dt><dd><strong><output data-rental-final-total>{{.FinalTotal}}</output></strong></dd></div>
             </dl>
-            <div class="alert alert--warning" id="rental-settlement-note" role="note"><p>Первые 10 минут после ожидаемого возврата не оплачиваются. Рассчитанную доплату можно ввести вручную или изменить кнопками с шагом 50 ₽. Если выбранная сумма больше нуля, получите её до завершения: нажатие кнопки подтвердит оплату. При нулевой доплате отдельная финансовая запись не создаётся.</p></div>
+            <div class="alert alert--warning" id="rental-settlement-note" role="note"><p>Первые 10 минут после ожидаемого возврата не оплачиваются. Сумму доплаты можно ввести вручную или изменить кнопками с шагом 50 ₽. Если выбранная сумма больше нуля, получите её до завершения: нажатие кнопки подтвердит оплату. При нулевой доплате отдельная финансовая запись не создаётся.</p></div>
         </div>
         <div class="table-scroll responsive-table-region" role="region" aria-label="Состав возвращаемой аренды" tabindex="0"><table class="responsive-data-table"><thead><tr><th>Инвентарный номер</th><th>Тип</th><th>Модель</th></tr></thead><tbody>{{range .Items}}<tr><td class="mobile-cell--full">{{template "mobile-cell-label" "Инвентарный номер"}}<strong>{{.InventoryNumber}}</strong></td><td>{{template "mobile-cell-label" "Тип"}}{{.Kind}}</td><td>{{template "mobile-cell-label" "Модель"}}{{.ModelCode}}</td></tr>{{end}}</tbody></table></div>
         <div class="confirmation-actions"><form id="rental-complete-form" method="post" action="/rentals/{{.RentalID}}/complete"><input type="hidden" name="csrf_token" value="{{.Authentication.CSRFToken}}"><button class="button button--primary" type="submit">Завершить аренду</button></form><a class="button button--secondary" href="/rentals">Отмена</a><span class="count-chip">{{.ItemCount}}</span></div>

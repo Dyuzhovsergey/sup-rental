@@ -977,7 +977,7 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 		"Подтверждение возврата", "Анна Петрова", "SUP-TOURING-1",
 		"15.08.2026 10:02", `name="csrf_token" value="csrf-token"`,
 		"Завершить аренду", "всё оборудование станет доступным",
-		"Плановая стоимость", "1500 ₽", "Оплачиваемое время просрочки", "30 мин", "Рассчитанная доплата",
+		"Плановая стоимость", "1500 ₽", "Оплачиваемое время просрочки", "30 мин", "Доплата за просрочку",
 		`name="overdue_total_rubles"`, `value="500"`, "Уменьшить доплату на 50 рублей", "Увеличить доплату на 50 рублей",
 		"Предварительный итог", "2000 ₽", "Первые 10 минут",
 		`class="button button--secondary" href="/rentals">Отмена</a>`,
@@ -1010,9 +1010,10 @@ func TestRentalCompletionConfirmationAndRedirect(t *testing.T) {
 		!strings.Contains(detail.Body.String(), "15.08.2026 11:41") ||
 		!strings.Contains(detail.Body.String(), "Итоговая стоимость") ||
 		!strings.Contains(detail.Body.String(), "Оплачиваемое время просрочки") ||
-		!strings.Contains(detail.Body.String(), "Рассчитанная доплата") ||
-		!strings.Contains(detail.Body.String(), "Применённая доплата") ||
+		!strings.Contains(detail.Body.String(), "Доплата за просрочку") ||
 		!strings.Contains(detail.Body.String(), "2250 ₽") ||
+		strings.Contains(detail.Body.String(), "Рассчитанная доплата") ||
+		strings.Contains(detail.Body.String(), "Применённая доплата") ||
 		strings.Contains(detail.Body.String(), `href="/rentals/24/complete"`) {
 		t.Fatalf("completed detail = %d body %q", detail.Code, detail.Body.String())
 	}

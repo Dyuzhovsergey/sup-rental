@@ -93,6 +93,9 @@ func NewHandler(
 	mux.Handle("GET /admin", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		showAdminDashboard(logger, adminDashboard, pageTemplates, w, r)
 	})))
+	mux.Handle("GET /admin/payments", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		showAdminPaymentsPage(logger, adminDashboard, pageTemplates, w, r)
+	})))
 	mux.Handle("GET /admin/operators", adminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		showOperatorsPage(logger, operators, pageTemplates, w, r)
 	})))

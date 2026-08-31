@@ -1293,6 +1293,135 @@ tbody tr:last-child td {
     border-color: var(--color-control-outline);
 }
 
+.payment-operations-header {
+    align-items: center;
+}
+
+.finance-period-panel {
+    margin-bottom: 24px;
+    overflow: hidden;
+}
+
+.finance-period-filter {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 16px;
+    align-items: end;
+    padding: 16px 20px;
+    background: var(--color-surface-subtle);
+    border-bottom: 1px solid var(--color-outline);
+}
+
+.finance-period-filter > .alert {
+    grid-column: 1 / -1;
+}
+
+.finance-period-filter__presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.finance-period-filter__preset.is-active {
+    color: var(--color-primary-text);
+    background: var(--color-primary-container);
+    border-color: var(--color-primary);
+}
+
+.finance-period-filter__custom {
+    min-width: 0;
+}
+
+.finance-period-filter__range {
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.finance-period-filter__legend {
+    margin-bottom: 6px;
+    padding: 0;
+    color: var(--color-text);
+    font-size: 14px;
+    font-weight: 650;
+}
+
+.finance-period-filter__custom-fields {
+    display: grid;
+    grid-template-columns: minmax(160px, 1fr) auto minmax(160px, 1fr) auto;
+    gap: 10px;
+    align-items: start;
+    min-width: 0;
+}
+
+.finance-period-filter__custom.is-active input:not([aria-invalid="true"]) {
+    border-color: var(--color-primary);
+}
+
+.finance-period-filter__separator {
+    align-self: start;
+    color: var(--color-muted);
+    font-weight: 650;
+    line-height: 40px;
+}
+
+.payment-operations-table th:last-child,
+.payment-operations-table td:last-child {
+    text-align: right;
+}
+
+.payment-kind {
+    display: inline-flex;
+    gap: 7px;
+    align-items: center;
+    min-height: 26px;
+    padding: 3px 10px;
+    border: 1px solid var(--color-outline);
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 650;
+    white-space: nowrap;
+}
+
+.payment-kind--base {
+    color: var(--color-success);
+    background: var(--color-success-container);
+    border-color: var(--color-success-outline);
+}
+
+.payment-kind--overdue {
+    color: var(--color-warning);
+    background: var(--color-warning-container);
+    border-color: var(--color-warning-outline);
+}
+
+.payment-kind--refund {
+    color: var(--color-danger);
+    background: var(--color-danger-container);
+    border-color: var(--color-danger-outline);
+}
+
+.payment-kind--unknown {
+    color: var(--color-muted);
+    background: var(--color-surface-variant);
+}
+
+.payment-amount {
+    font-variant-numeric: tabular-nums;
+    font-weight: 750;
+    white-space: nowrap;
+}
+
+.payment-amount--base,
+.payment-amount--overdue {
+    color: var(--color-success);
+}
+
+.payment-amount--refund {
+    color: var(--color-danger);
+}
+
 .empty-state {
     display: grid;
     justify-items: center;
@@ -2723,6 +2852,11 @@ tbody tr:last-child td {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 
+    .finance-period-filter {
+        grid-template-columns: minmax(0, 1fr);
+        align-items: stretch;
+    }
+
     .form-grid--three,
     .audit-filter-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2865,6 +2999,10 @@ tbody tr:last-child td {
         width: 100%;
     }
 
+    .responsive-data-table.payment-operations-table td:last-child {
+        text-align: left;
+    }
+
     .responsive-data-table .item-actions .button,
     .responsive-data-table .mobile-card-actions .button {
         min-height: 44px;
@@ -2932,6 +3070,31 @@ tbody tr:last-child td {
     .client-search-form,
     .equipment-edit-top {
         grid-template-columns: minmax(0, 1fr);
+    }
+
+    .finance-period-filter {
+        padding: 16px;
+    }
+
+    .finance-period-filter__presets {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .finance-period-filter__custom {
+        width: 100%;
+    }
+
+    .finance-period-filter__custom-fields {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .finance-period-filter__separator {
+        display: none;
+    }
+
+    .finance-period-filter__custom-fields .button {
+        width: 100%;
     }
 
     .audit-filter-actions,
